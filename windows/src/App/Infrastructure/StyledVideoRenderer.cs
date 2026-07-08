@@ -14,8 +14,8 @@ using Microsoft.UI;
 using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Media.Core;
-using Windows.Media.Editing;
 using Windows.Media.MediaProperties;
+using Windows.Media.Playback;
 using Windows.Media.Transcoding;
 using Windows.Storage;
 using Windows.UI;
@@ -28,9 +28,10 @@ namespace DemoTape.App.Infrastructure;
 /// cursor, click ripples, and keyboard-shortcut badges using the unit-tested
 /// <see cref="FocusTimeline"/>/<see cref="SpringCamera"/>/<see cref="CameraViewport"/>.
 ///
-/// Frames are decoded with <c>MediaComposition.GetThumbnailAsync</c>, composited with Win2D, and
-/// encoded with the same MediaStreamSource/MediaTranscoder path used by capture. This avoids a
-/// custom <c>IBasicVideoEffect</c> (which can't be activated in an unpackaged app).
+/// Frames are decoded sequentially via <c>MediaPlayer</c> frame-server mode (≈ real-time, far
+/// faster than per-frame seeking), composited with Win2D, and encoded with the same
+/// MediaStreamSource/MediaTranscoder path used by capture. This avoids a custom
+/// <c>IBasicVideoEffect</c> (which can't be activated in an unpackaged app).
 /// </summary>
 public sealed class StyledVideoRenderer
 {
@@ -41,7 +42,8 @@ public sealed class StyledVideoRenderer
 
     public StyledVideoRenderer(ILogger<StyledVideoRenderer> logger) => _logger = logger;
 
-    public async Task<string?> RenderAsync(string rawPath, string sidecarPath, string outPath, AppSettings settings)
+    public async Task<string?> RenderAsync(string rawPath, string sidecarPath, string outPath,
+        AppSettings settings, IProgress<double>? progress = null)
     {
         try
         {
@@ -56,13 +58,7 @@ public sealed class StyledVideoRenderer
             int W = Even(vp.Width != 0 ? (int)vp.Width : (int)meta.Display.PixelWidth);
             int H = Even(vp.Height != 0 ? (int)vp.Height : (int)meta.Display.PixelHeight);
             if (W <= 0 || H <= 0) { _logger.LogError("Styled render: unknown source size"); return null; }
-
-            var clip = await MediaClip.CreateFromFileAsync(rawFile);
-            var comp = new MediaComposition();
-            comp.Clips.Add(clip);
-            double durationSec = comp.Duration.TotalSeconds;
-            if (durationSec <= 0) durationSec = meta.Duration;
-            int totalFrames = Math.Max(1, (int)(durationSec * Fps));
+            double durationSec = vp.Duration.TotalSeconds > 0 ? vp.Duration.TotalSeconds : meta.Duration;
 
             var focus = new FocusTimeline(meta, maxZoom: 2.0);
             var camera = new SpringCamera();
@@ -81,6 +77,7 @@ public sealed class StyledVideoRenderer
             var viewport = new CameraViewport(outW, outH, pad);
 
             using var device = new CanvasDevice();
+            using var frameSurface = new CanvasRenderTarget(device, W, H, 96); // MediaPlayer copies each frame here
             using var frameRT = new CanvasRenderTarget(device, outW, outH, 96);
             using var compRT = new CanvasRenderTarget(device, outW, outH, 96);
             using var flipRT = new CanvasRenderTarget(device, outW, outH, 96);
@@ -91,71 +88,88 @@ public sealed class StyledVideoRenderer
                 : null;
 
             var channel = Channel.CreateBounded<(byte[] Bgra, TimeSpan Time)>(
-                new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true });
+                new BoundedChannelOptions(90) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
             var encodeTask = EncodeAsync(channel.Reader, outW, outH, outPath);
 
-            for (int i = 0; i < totalFrames; i++)
+            // Sequential decode via MediaPlayer frame-server mode (≈ real-time, no per-frame seeking).
+            var player = new MediaPlayer { IsMuted = true, IsVideoFrameServerEnabled = true, IsLoopingEnabled = false };
+            var opened = new TaskCompletionSource<bool>();
+            var ended = new TaskCompletionSource<bool>();
+            player.MediaOpened += (_, _) => opened.TrySetResult(true);
+            player.MediaFailed += (_, a) => { opened.TrySetException(new Exception(a.ErrorMessage)); ended.TrySetResult(true); };
+            player.MediaEnded += (_, _) => ended.TrySetResult(true);
+
+            double lastT = -1;
+            int frameCount = 0;
+            player.VideoFrameAvailable += (_, _) =>
             {
-                double t = i / Fps;
-                double eventT = t + eventOffset;
-                var thumbTime = TimeSpan.FromSeconds(Math.Min(t, Math.Max(0, durationSec - 0.01)));
-
-                using var stream = await comp.GetThumbnailAsync(thumbTime, W, H, VideoFramePrecision.NearestFrame);
-                var decoder = await BitmapDecoder.CreateAsync(stream);
-                using var sb = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-                using var srcBitmap = CanvasBitmap.CreateFromSoftwareBitmap(device, sb);
-
-                var targetFocus = focus.Target(eventT);
-                camera.Step(targetFocus, 1.0 / Fps);
-                var view = viewport.ComputeViewport(camera.Scale, camera.CenterX, camera.CenterY);
-
-                // 1) Un-zoomed composition (framed for region mode; the raw frame otherwise).
-                ICanvasImage zoomSource;
-                if (framed)
+                try
                 {
-                    using (var ds = frameRT.CreateDrawingSession())
+                    player.CopyFrameToVideoSurface(frameSurface);
+                    double t = player.PlaybackSession.Position.TotalSeconds;
+                    double eventT = t + eventOffset;
+                    double dt = lastT < 0 ? 1.0 / Fps : Math.Clamp(t - lastT, 1.0 / 240, 1.0 / 20);
+                    lastT = t;
+
+                    var targetFocus = focus.Target(eventT);
+                    camera.Step(targetFocus, dt);
+                    var view = viewport.ComputeViewport(camera.Scale, camera.CenterX, camera.CenterY);
+
+                    ICanvasImage zoomSource;
+                    if (framed)
+                    {
+                        using (var ds = frameRT.CreateDrawingSession())
+                        {
+                            ds.Clear(Colors.Black);
+                            if (background is not null) ds.DrawImage(background);
+                            using (ds.CreateLayer(1f, contentClip))
+                                ds.DrawImage(frameSurface, new Rect(pad, pad, contentW, contentH), srcRegion);
+                        }
+                        zoomSource = frameRT;
+                    }
+                    else
+                    {
+                        zoomSource = frameSurface; // full frame == output size
+                    }
+
+                    using (var ds = compRT.CreateDrawingSession())
                     {
                         ds.Clear(Colors.Black);
-                        if (background is not null) ds.DrawImage(background);
-                        using (ds.CreateLayer(1f, contentClip))
-                            ds.DrawImage(srcBitmap, new Rect(pad, pad, contentW, contentH), srcRegion);
+                        ds.DrawImage(zoomSource,
+                            new Rect(0, 0, outW, outH),
+                            new Rect(view.OffsetX, view.OffsetY, view.Width, view.Height));
+                        DrawRipples(ds, meta, viewport, camera.Scale, view, eventT, outW);
+                        DrawCursor(ds, cursorImg, focus, viewport, camera.Scale, view, eventT);
+                        if (settings.ShowShortcutBadges)
+                        {
+                            var label = focus.ShortcutBadge(eventT);
+                            if (label is not null) DrawBadge(ds, label, outW, outH);
+                        }
                     }
-                    zoomSource = frameRT;
-                }
-                else
-                {
-                    zoomSource = srcBitmap; // full frame == output size
-                }
 
-                // 2) Zoom the whole composition toward the focus, then draw overlays.
-                using (var ds = compRT.CreateDrawingSession())
-                {
-                    ds.Clear(Colors.Black);
-                    ds.DrawImage(zoomSource,
-                        new Rect(0, 0, outW, outH),
-                        new Rect(view.OffsetX, view.OffsetY, view.Width, view.Height));
-                    DrawRipples(ds, meta, viewport, camera.Scale, view, eventT, outW);
-                    DrawCursor(ds, cursorImg, focus, viewport, camera.Scale, view, eventT);
-                    if (settings.ShowShortcutBadges)
+                    using (var ds = flipRT.CreateDrawingSession())
                     {
-                        var label = focus.ShortcutBadge(eventT);
-                        if (label is not null) DrawBadge(ds, label, outW, outH);
+                        ds.Transform = Matrix3x2.CreateScale(1, -1) * Matrix3x2.CreateTranslation(0, outH);
+                        ds.DrawImage(compRT);
                     }
-                }
 
-                // 3) Flip vertically so the encoder's bottom-up BGRA read yields correct orientation.
-                using (var ds = flipRT.CreateDrawingSession())
-                {
-                    ds.Transform = Matrix3x2.CreateScale(1, -1) * Matrix3x2.CreateTranslation(0, outH);
-                    ds.DrawImage(compRT);
+                    channel.Writer.TryWrite((flipRT.GetPixelBytes(), TimeSpan.FromSeconds(t)));
+                    frameCount++;
+                    if (durationSec > 0) progress?.Report(Math.Clamp(t / durationSec, 0, 1));
                 }
+                catch (Exception ex) { _logger.LogWarning(ex, "Styled frame skipped"); }
+            };
 
-                await channel.Writer.WriteAsync((flipRT.GetPixelBytes(), TimeSpan.FromSeconds(t)));
-            }
+            player.Source = MediaSource.CreateFromStorageFile(rawFile);
+            await opened.Task;
+            player.Play();
+            await ended.Task;
+            await Task.Delay(150); // let the final frames enqueue
             channel.Writer.Complete();
             await encodeTask;
+            player.Dispose();
 
-            _logger.LogInformation("Styled render complete ({Frames} frames) -> {Name}", totalFrames, Path.GetFileName(outPath));
+            _logger.LogInformation("Styled render complete ({Frames} frames) -> {Name}", frameCount, Path.GetFileName(outPath));
             return outPath;
         }
         catch (Exception ex)

@@ -97,8 +97,21 @@ public partial class App : Application
         var startStop = new MenuFlyoutItem { Text = shell.StatusText, Command = shell.ToggleRecordingCommand };
         shell.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(ShellViewModel.StatusText))
-                startStop.Text = shell.StatusText;
+            if (e.PropertyName != nameof(ShellViewModel.StatusText)) return;
+            startStop.Text = shell.StatusText;
+            // Reflect recording/rendering state in the tray tooltip so it's evident work is happening.
+            try
+            {
+                if (_trayIcon is not null)
+                    _trayIcon.ToolTipText = shell.State switch
+                    {
+                        RecordingState.Recording => "DemoTape — Recording…",
+                        RecordingState.Rendering => "DemoTape — Rendering…",
+                        RecordingState.Countdown => "DemoTape — Get ready…",
+                        _ => "DemoTape",
+                    };
+            }
+            catch { /* tooltip is cosmetic */ }
         };
         menu.Items.Add(startStop);
         menu.Items.Add(new MenuFlyoutSeparator());
