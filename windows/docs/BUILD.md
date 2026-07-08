@@ -15,11 +15,23 @@ while the WinUI 3 desktop shell requires the Windows App SDK tooling.
 ## Prerequisites
 
 - **.NET 8 SDK** — `winget install Microsoft.DotNet.SDK.8`
-- For the **WinUI 3 app** additionally:
+- For the **WinUI 3 app** additionally, the **Windows 11 SDK (10.0.22621+)**, which provides the
+  XAML→XBF compiler (`genxbf.dll`) and reference packs. Install it one of these ways:
   - **Visual Studio 2022** (17.8+) with the **".NET Desktop Development"** workload and the
-    **"Windows App SDK C# Templates"** component, **or**
-  - The standalone **Windows 11 SDK (10.0.22621 or newer)** plus the `Microsoft.WindowsAppSDK`
-    and `Microsoft.Windows.SDK.BuildTools` NuGet packages (restored automatically by the csproj).
+    **"Windows 11 SDK (10.0.26100)"** + **"Windows App SDK C# Templates"** components (recommended), **or**
+  - The **standalone Windows SDK installer** (run elevated — it needs admin):
+
+    ```powershell
+    # Download once, then install the SDK feature silently (approve the UAC prompt)
+    Invoke-WebRequest "https://go.microsoft.com/fwlink/?linkid=2196241" -OutFile "$env:TEMP\winsdksetup.exe"
+    Start-Process "$env:TEMP\winsdksetup.exe" -ArgumentList '/features','OptionId.WindowsSoftwareDevelopmentKit','/quiet','/norestart' -Verb RunAs -Wait
+    ```
+
+  The `Microsoft.WindowsAppSDK`, `Microsoft.Windows.SDK.BuildTools`, and `Microsoft.Graphics.Win2D`
+  NuGet packages are restored automatically by the csproj.
+
+> The `Domain`, `ViewModels`, `Services`, and `Tests` projects build and test with **only the .NET
+> SDK** — no Windows SDK required. Only the `DemoTape.App` shell needs the Windows SDK.
 
 ## Build & test the business logic (no Windows App SDK required)
 
@@ -84,3 +96,28 @@ dotnet run --project src/App/DemoTape.App.csproj -- --transcode "C:\path\styled.
 # Web-publish a styled mp4 to a folder of tiers + poster + embed.html
 dotnet run --project src/App/DemoTape.App.csproj -- --publish "C:\path\styled.mp4" 360,540,720
 ```
+
+## Capture & render pipeline (second vertical slice)
+
+The recording pipeline is implemented in `src/App/Infrastructure`:
+
+| Component | Windows API | macOS analogue |
+|-----------|-------------|----------------|
+| `ScreenCaptureRecorder` | `Windows.Graphics.Capture` + `MediaStreamSource`/`MediaTranscoder` (Win2D readback) | `AVCaptureScreenInput` |
+| `EventRecorder` | `SetWindowsHookEx` (WH_MOUSE_LL/WH_KEYBOARD_LL) + 60 Hz cursor sampler | `NSEvent` monitors |
+| `AutoZoomVideoEffect` | Win2D `IBasicVideoEffect` (uses `FocusTimeline`/`SpringCamera`/`CameraViewport`) | Core Image render loop |
+| `StyledVideoRenderer` | `MediaComposition.RenderToFileAsync` | `AVAssetReader`→composite→`AVAssetWriter` |
+| `CountdownWindow` | borderless click-through WinUI window | `CountdownController` |
+| `WindowsRecordingController` | orchestration + state machine | `AppDelegate` |
+
+The auto-zoom math (`FocusTimeline`, `SpringCamera`, `CameraViewport`) and input mapping
+(`InputMapping`) live in `Domain` and are fully unit-tested (build/test with just the .NET SDK).
+
+### Known caveat — custom effect activation (unpackaged)
+
+`AutoZoomVideoEffect` is a custom `IBasicVideoEffect`. The media pipeline activates it **by type
+name**, which is automatic in an MSIX-packaged app. For the **unpackaged** build this needs regfree
+WinRT activation (an `activatableClass` entry). If activation is unavailable at runtime,
+`WindowsRecordingController` **falls back to saving the raw capture**, so recording never fails
+outright — you simply get the unstyled `.mp4` plus its `.events.json`, which you can then style with
+`--render` once activation is configured, or publish as-is.

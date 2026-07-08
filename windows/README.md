@@ -50,7 +50,14 @@ the thin **App** shell (UI + Infrastructure) needs the Windows App SDK toolchain
 ## Status
 
 - ✅ Feature-parity + user + build docs
-- ✅ Clean MVVM + DI scaffold that builds and tests green (39 tests)
-- ✅ First vertical slice: **Web Publish** end-to-end (UI → ViewModel → Service → Domain → Media Foundation)
-- ✅ Ported business logic: auto-zoom focus timeline, spring camera, publish planning, audio normalization
-- ⏭️ Next slice: screen capture + Win2D auto-styled render (Windows.Graphics.Capture)
+- ✅ Clean MVVM + DI scaffold; **59 unit tests** green (Domain + Services + ViewModels)
+- ✅ Vertical slice 1: **Web Publish** end-to-end (UI → ViewModel → Service → Domain → Media Foundation)
+- ✅ Vertical slice 2: **capture + auto-styled render** — `Windows.Graphics.Capture` recording,
+  Win32 event timeline, 3-2-1 countdown, Win2D auto-zoom/cursor/ripple/badge effect, and the
+  tray-driven `WindowsRecordingController` state machine
+- ✅ Ported + unit-tested business logic: focus timeline, spring camera, render geometry,
+  publish planning, audio normalization, input mapping
+- ℹ️ The capture/render components require the **Windows SDK** to compile (see `docs/BUILD.md`);
+  the portable business logic does not. Custom-effect activation on unpackaged builds falls back
+  to saving the raw capture — see the caveat in `docs/BUILD.md`.
+- ⏭️ Next: region-crop capture + framed background, webcam PiP, and mic loudness muxing
