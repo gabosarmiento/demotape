@@ -44,6 +44,69 @@ public static class HeadlessCli
             return true;
         }
 
+        int z = Array.IndexOf(args, "--zoom-check");
+        if (z >= 0 && args.Length > z + 1)
+        {
+            var sidecar = args[z + 1];
+            var meta = System.Text.Json.JsonSerializer.Deserialize<DemoTape.Domain.Models.RecordingMetadata>(
+                File.ReadAllText(sidecar),
+                new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase })!;
+            var focus = new DemoTape.Domain.Rendering.FocusTimeline(meta, 2.0);
+            var cam = new DemoTape.Domain.Rendering.SpringCamera();
+            double fps = 30, maxScale = 0, minScale = 99;
+            int frames = (int)(meta.Duration * fps);
+            for (int i = 0; i < frames; i++)
+            {
+                double ft = i / fps;
+                var tgt = focus.Target(ft + (meta.EventTimeOffset ?? 0));
+                cam.Step(tgt, 1.0 / fps);
+                maxScale = Math.Max(maxScale, cam.Scale);
+                minScale = Math.Min(minScale, cam.Scale);
+                if (i % 30 == 0) Console.WriteLine($"t={ft:0.0}s targetScale={tgt.Scale:0.00} camScale={cam.Scale:0.00} center=({cam.CenterX:0.00},{cam.CenterY:0.00})");
+            }
+            Console.WriteLine($"zoom-check: minScale={minScale:0.00} maxScale={maxScale:0.00} frames={frames}");
+            return true;
+        }
+
+        int fr = Array.IndexOf(args, "--frame");
+        if (fr >= 0 && args.Length > fr + 3)
+        {
+            var video = args[fr + 1];
+            var seconds = double.Parse(args[fr + 2], System.Globalization.CultureInfo.InvariantCulture);
+            var outPng = args[fr + 3];
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(video);
+            var clip = await Windows.Media.Editing.MediaClip.CreateFromFileAsync(file);
+            var comp = new Windows.Media.Editing.MediaComposition();
+            comp.Clips.Add(clip);
+            using var stream = await comp.GetThumbnailAsync(TimeSpan.FromSeconds(seconds), 0, 0,
+                Windows.Media.Editing.VideoFramePrecision.NearestFrame);
+            var outFolder = await Windows.Storage.StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(outPng)!);
+            var outFile = await outFolder.CreateFileAsync(Path.GetFileName(outPng), Windows.Storage.CreationCollisionOption.ReplaceExisting);
+            var dec = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+            using var sbmp = await dec.GetSoftwareBitmapAsync();
+            using var outStream = await outFile.OpenAsync(Windows.Storage.FileAccessMode.ReadWrite);
+            var enc = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, outStream);
+            enc.SetSoftwareBitmap(sbmp);
+            await enc.FlushAsync();
+            Console.WriteLine($"frame: {outPng} ({dec.PixelWidth}x{dec.PixelHeight})");
+            return true;
+        }
+
+        int r = Array.IndexOf(args, "--render");
+        if (r >= 0 && args.Length > r + 2)
+        {
+            var raw = args[r + 1];
+            var output = args[r + 2];
+            var sidecar = raw.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+                ? raw[..^4] + ".events.json"
+                : raw + ".events.json";
+            var renderer = new StyledVideoRenderer(new ConsoleLogger<StyledVideoRenderer>());
+            Console.WriteLine($"render: {raw} (+ {Path.GetFileName(sidecar)}) -> {output}");
+            var result = await renderer.RenderAsync(raw, sidecar, output, new DemoTape.Domain.Settings.AppSettings());
+            Console.WriteLine(result is null ? "render: FAILED" : $"render: OK -> {output} ({new FileInfo(output).Length / 1024} KB)");
+            return true;
+        }
+
         int c = Array.IndexOf(args, "--capture-test");
         if (c >= 0 && args.Length > c + 2)
         {

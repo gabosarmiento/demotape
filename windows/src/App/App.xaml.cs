@@ -106,8 +106,17 @@ public partial class App : Application
         menu.Items.Add(new MenuFlyoutItem { Text = "Select Recording Area…", Command = shell.SelectRecordingAreaCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        menu.Items.Add(MakeToggle("Record Microphone", shell.CaptureMicrophone, v => shell.CaptureMicrophone = v));
-        menu.Items.Add(MakeToggle("Record Webcam", shell.CaptureWebcam, v => shell.CaptureWebcam = v));
+        var micItem = MakeToggle("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v);
+        var webcamItem = MakeToggle("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v);
+        menu.Items.Add(micItem);
+        menu.Items.Add(webcamItem);
+        // Re-sync the checkmarks from the ViewModel every time the menu opens (the tray flyout
+        // doesn't reliably persist ToggleMenuFlyoutItem visual state on its own).
+        menu.Opening += (_, _) =>
+        {
+            micItem.IsChecked = shell.CaptureMicrophone;
+            webcamItem.IsChecked = shell.CaptureWebcam;
+        };
         menu.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
         menu.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
@@ -135,10 +144,17 @@ public partial class App : Application
         _trayIcon.ForceCreate();
     }
 
-    private static ToggleMenuFlyoutItem MakeToggle(string text, bool initial, Action<bool> onChanged)
+    private static ToggleMenuFlyoutItem MakeToggle(string text, Func<bool> get, Action<bool> set)
     {
-        var item = new ToggleMenuFlyoutItem { Text = text, IsChecked = initial };
-        item.Click += (_, _) => onChanged(item.IsChecked);
+        var item = new ToggleMenuFlyoutItem { Text = text, IsChecked = get() };
+        // Drive the value explicitly from the current state, so it works regardless of whether the
+        // flyout auto-toggled IsChecked.
+        item.Click += (_, _) =>
+        {
+            bool newValue = !get();
+            set(newValue);
+            item.IsChecked = newValue;
+        };
         return item;
     }
 
