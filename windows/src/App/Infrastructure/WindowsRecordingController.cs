@@ -107,10 +107,15 @@ public sealed class WindowsRecordingController : IRecordingController
             var settings = _settingsStore.Load();
             var styledPath = _rawPath[..^".mp4".Length] + ".styled.mp4";
             var renderer = _services.GetRequiredService<StyledVideoRenderer>();
+            _logger.LogInformation("Rendering styled output (this can take a bit)…");
             var styled = await renderer.RenderAsync(_rawPath, _sidecarPath, styledPath, settings);
 
             SetState(RecordingState.Idle);
-            _interaction.RevealInExplorer(styled ?? _rawPath);
+            var final = styled ?? _rawPath;
+            _interaction.RevealInExplorer(final);
+            await _interaction.ShowMessageAsync(
+                styled is not null ? "Recording styled & saved" : "Recording saved (unstyled)",
+                final);
         }
         catch (Exception ex)
         {

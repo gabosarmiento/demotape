@@ -1,4 +1,5 @@
 using System.IO;
+using CommunityToolkit.Mvvm.Input;
 using DemoTape.App.Infrastructure;
 using DemoTape.ViewModels;
 using H.NotifyIcon;
@@ -106,17 +107,10 @@ public partial class App : Application
         menu.Items.Add(new MenuFlyoutItem { Text = "Select Recording Area…", Command = shell.SelectRecordingAreaCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        var micItem = MakeToggle("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v);
-        var webcamItem = MakeToggle("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v);
+        var micItem = MakeCheckItem("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v);
+        var webcamItem = MakeCheckItem("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v);
         menu.Items.Add(micItem);
         menu.Items.Add(webcamItem);
-        // Re-sync the checkmarks from the ViewModel every time the menu opens (the tray flyout
-        // doesn't reliably persist ToggleMenuFlyoutItem visual state on its own).
-        menu.Opening += (_, _) =>
-        {
-            micItem.IsChecked = shell.CaptureMicrophone;
-            webcamItem.IsChecked = shell.CaptureWebcam;
-        };
         menu.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
         menu.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
@@ -144,19 +138,23 @@ public partial class App : Application
         _trayIcon.ForceCreate();
     }
 
-    private static ToggleMenuFlyoutItem MakeToggle(string text, Func<bool> get, Action<bool> set)
+    // A command-driven checkable item. ToggleMenuFlyoutItem's built-in toggle is unreliable in the
+    // tray flyout, but Command items fire reliably — so we drive the value and the checkmark icon
+    // ourselves (updated immediately in the command, visible on the next menu open).
+    private static MenuFlyoutItem MakeCheckItem(string text, Func<bool> get, Action<bool> set)
     {
-        var item = new ToggleMenuFlyoutItem { Text = text, IsChecked = get() };
-        // Drive the value explicitly from the current state, so it works regardless of whether the
-        // flyout auto-toggled IsChecked.
-        item.Click += (_, _) =>
+        var item = new MenuFlyoutItem { Text = text, Icon = CheckIcon(get()) };
+        item.Command = new RelayCommand(() =>
         {
             bool newValue = !get();
             set(newValue);
-            item.IsChecked = newValue;
-        };
+            item.Icon = CheckIcon(newValue);
+        });
         return item;
     }
+
+    private static IconElement? CheckIcon(bool on) =>
+        on ? new FontIcon { Glyph = "\uE73E" } : null; // Segoe Fluent "CheckMark"
 
     private void RegisterHotKey(ShellViewModel shell)
     {
