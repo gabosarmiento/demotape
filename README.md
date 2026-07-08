@@ -1,21 +1,22 @@
+<p align="center">
+  <img src="Resources/cover-github.jpg" alt="DemoTape" width="100%">
+</p>
+
 # DemoTape
 
-A lightweight, **local-first screen recorder for macOS** that turns raw captures into
-polished product demos automatically — auto-zoom on clicks, a smooth cursor, keyboard
-shortcut badges, click ripples, webcam overlay, and beautiful framed backgrounds — then
-publishes them as small, web-ready MP4s.
+A free, open-source, **local-first screen recorder for macOS** that turns raw captures into
+polished product demos automatically — auto-zoom on clicks, a smooth cursor, keyboard-shortcut
+badges, click ripples, webcam overlay, and framed backgrounds — then publishes them as small,
+web-ready MP4s.
 
-Think of it as an open, offline alternative to Screen Studio, built to run on **older Intel
-Macs and macOS Monterey (12.3+)** — hardware and OS versions the paid tools have left behind.
-No Xcode required to build, no cloud, no account, no telemetry.
-
-> **Name:** "DemoTape" is a working name — check availability before publishing under it.
+It runs on **older Intel Macs and macOS Monterey (12.3+)** — hardware and OS versions many
+polished recorders have left behind. No Xcode required to build, no cloud, no account, no telemetry.
 
 ## Why
 
-The polished-screen-recorder tools (Screen Studio, ScreenSage Pro) need recent macOS and
-Apple Silicon, and they're paid/closed. DemoTape targets the gap: a genuinely useful,
-free, hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
+Most tools that turn raw screen captures into polished demos require recent macOS and Apple
+Silicon, and they're paid/closed. DemoTape targets the gap: a genuinely useful, free,
+hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 
 ## Features
 
