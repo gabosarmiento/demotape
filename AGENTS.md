@@ -21,6 +21,9 @@ Xcode project** — it's a Swift Package built from the command line.
 # Compile (fast feedback; use this to check your changes build)
 swift build -c release
 
+# Run the unit tests (pure logic: caption parsing, SRT/VTT formatting, endpoints)
+swift test
+
 # One-time: create the stable self-signed signing identity ("DemoTape Dev").
 # Required so macOS remembers Screen Recording permission across rebuilds.
 ./create-identity.sh
@@ -44,6 +47,12 @@ files (no TCC prompts, no GUI):
 
 # Transcode a styled .mp4 down to a web tier (height in px)
 ./.build/release/DemoTape --transcode "path/to/styled.mp4" 540 /tmp/web-540.mp4
+
+# Generate .srt + .vtt captions (opt-in AI, bring-your-own-key). Reads the key from
+# the environment so it needs no GUI/Keychain. Requires network + a valid key.
+DEMOTAPE_STT_KEY=sk-... ./.build/release/DemoTape --captions "path/to/styled.mp4"
+#   Optional: DEMOTAPE_STT_BASEURL (default https://api.openai.com/v1),
+#             DEMOTAPE_STT_MODEL (default whisper-1), DEMOTAPE_STT_LANG (e.g. en)
 ```
 
 Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
@@ -55,10 +64,17 @@ Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
   ScreenCaptureKit is intentionally **avoided** — on the target Monterey/Intel hardware its
   `startCapture()` succeeds but delivers zero frames. Capture uses `AVCaptureScreenInput`.
 - **No third-party dependencies.** Keep it Apple-frameworks-only and dependency-free.
+- **Local by default.** The core recorder/render/publish path must make **no network
+  requests**. Network is allowed only in explicitly opt-in, bring-your-own-key AI features
+  (e.g. captions in `Captions.swift`), which talk only to the user-configured endpoint with
+  the user's key. API keys go in the **Keychain** (`Keychain.swift`), never UserDefaults.
 - **Don't commit** recordings, `.app` bundles, `.build/`, or signing artifacts (see `.gitignore`).
 - **Never push or create remotes** without the maintainer's explicit request.
-- After any change, run `swift build -c release` and, for render/encode changes, verify with
-  the `--render` / `--transcode` hooks above.
+- After any change, run `swift build -c release` and `swift test`. For render/encode changes,
+  also verify with the `--render` / `--transcode` hooks above; for captions, `--captions`.
+- **Add/extend tests** for new pure logic (parsing, formatting, URL building). Keep tests
+  network-free — factor the testable logic out of the network call (see `Captions.parseCues`
+  / `transcriptionEndpoint`).
 
 ## Where things live
 

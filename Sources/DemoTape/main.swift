@@ -29,6 +29,32 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
     }
 }
 
+// Headless captions test:  DemoTape --captions <input.mp4>
+// Uses DEMOTAPE_STT_KEY (and optional DEMOTAPE_STT_BASEURL / DEMOTAPE_STT_MODEL) from
+// the environment so it runs without the GUI/Keychain. Writes .srt + .vtt sidecars.
+if let i = args.firstIndex(of: "--captions"), args.count > i + 1 {
+    let input = URL(fileURLWithPath: args[i + 1])
+    let env = ProcessInfo.processInfo.environment
+    let key = env["DEMOTAPE_STT_KEY"] ?? Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
+    guard !key.isEmpty else {
+        FileHandle.standardError.write("captions error: no API key (set DEMOTAPE_STT_KEY)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let config = Captions.Config(
+        baseURL: env["DEMOTAPE_STT_BASEURL"] ?? "https://api.openai.com/v1",
+        model: env["DEMOTAPE_STT_MODEL"] ?? "whisper-1",
+        apiKey: key,
+        language: env["DEMOTAPE_STT_LANG"] ?? "")
+    do {
+        let result = try Captions().generate(for: input, config: config)
+        print("captions: \(result.srt.path)\n\(result.vtt.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("captions error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // Headless transcode test:  DemoTape --transcode <input> <height> <output.mp4>
 if let i = args.firstIndex(of: "--transcode"), args.count > i + 3 {
     let input = URL(fileURLWithPath: args[i + 1])

@@ -38,6 +38,11 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - **Web Publish**: transcode to lightweight, fast-loading MP4s (H.264 + AAC, faststart) at
   360/480/540/720p tiers with a live size estimate, plus a poster frame and a responsive
   `<video>` embed snippet.
+- **AI captions (opt-in, bring-your-own-key)**: transcribe a recording's audio to `.srt`
+  and `.vtt` subtitles via any OpenAI-compatible speech-to-text endpoint (OpenAI, Groq,
+  or a local server). Off by default; your key is stored only in the macOS Keychain and
+  used only for the request you trigger. See [`docs/captions.md`](docs/captions.md) for
+  setup and the list of supported providers.
 
 ## Requirements
 
@@ -79,6 +84,9 @@ A record icon appears in your menu bar.
 - On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
 - **Web Publish Latest…** exports lightweight web MP4s (one per selected tier) + poster +
   `embed.html` into a `…-web/` folder.
+- **AI Features → AI Settings…** enables AI (off by default) and stores your OpenAI-compatible
+  API key in the Keychain. **AI Features → Generate Captions for Latest…** then transcribes
+  your latest recording into `.srt` + `.vtt` sidecars.
 
 ## How it works
 
@@ -125,9 +133,12 @@ create-identity.sh            One-time self-signed signing identity
 
 ## Security & privacy
 
-- **Local-only.** No network code, no telemetry, no analytics, no accounts — recordings and
-  all processing stay on your Mac. (Verifiable in the source, or with a firewall like Little
-  Snitch.)
+- **Local by default.** No telemetry, no analytics, no accounts — recording, styling, and
+  Web Publish all stay on your Mac. The only network access is the **opt-in AI captions**
+  feature, which uploads a recording's audio to the OpenAI-compatible endpoint *you*
+  configure, authenticated with *your* key. Nothing routes through DemoTape's authors, and
+  if you never use captions, the app makes no network requests. (All verifiable in the
+  source, or with a firewall like Little Snitch.)
 - **Writes only to `~/Movies/DemoTape/`,** and only deletes files it created there. It never
   touches your documents or anything outside its own output folder.
 - **Unprivileged.** No root, no kernel extensions, no system modification — it can't harm
@@ -152,10 +163,46 @@ create-identity.sh            One-time self-signed signing identity
 
 ## Roadmap / ideas
 
+DemoTape today is a local-first *recorder*. The direction we're exploring is an
+**AI-friendly demo engine**: record once, then produce a polished, narrated,
+multi-format demo — all locally or with your own API keys (BYO key, nothing sent
+anywhere you don't control).
+
+**Post-production & voice**
+- **Captions**: export audio → transcribe with your choice of engine (local Whisper,
+  or OpenAI / Groq speech-to-text) → generate `.srt` / `.vtt` + burned-in captions,
+  with an editable transcript.
+- **AI voiceover**: turn the edited transcript into a professional voiceover via a
+  text-to-speech API (e.g. ElevenLabs) and swap it in for the original track —
+  *record silently → generate script → edit → narrate → export.*
+- **Multi-language**: one recording → subtitles and voiceovers in several languages.
+
+**Smarter editing**
+- **AI Director timeline**: turn the captured event stream (clicks, pauses, shortcuts,
+  window/URL/app changes) into *suggested* zooms, cuts of dead time, captions, and
+  chapter markers — an editable pass on top of today's auto-zoom.
+- **Privacy Shield**: detect and blur likely secrets on screen (API keys, tokens,
+  `.env` values, emails, localhost/paths) with a review-before-export mode.
+- **Smart silence compression**: trim/speed up loading and dead time while keeping
+  cursor motion and audio sync natural.
+- **AI cursor cleanup**: smooth shaky paths, snap the cursor near click targets.
+
+**Formats & assets**
+- **Vertical / guided camera**: record the desktop, pick a 9:16 mode, and guide the
+  crop live (⌥-click "center here") for Reels / Shorts / LinkedIn.
+- **Launch-asset generator**: from one recording, produce a README video, animated
+  GIF, social clips, poster, and thumbnail.
+- **Demo templates**: SaaS launch, open-source project, CLI tutorial, bug report —
+  each preset controls aspect ratio, background, captions, zoom style, and export.
+
+**Engine / quality**
 - Background render with menu-bar progress for long clips
 - Motion blur on fast zoom/cursor transitions
 - HEVC variant for even smaller files (with MP4 fallback)
 - HLS/fMP4 ladder — only if long-form video is added
+
+Design principle: **local by default, bring-your-own-key for AI.** No mandatory
+cloud, no telemetry.
 
 ## Contributing
 
