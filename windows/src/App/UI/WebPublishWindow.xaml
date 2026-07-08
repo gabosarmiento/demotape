@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.WebPublishWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:DemoTape.ViewModels"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid x:Name="Root" Padding="24" RowSpacing="16"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="Web Publish" Style="{ThemeResource TitleTextBlockStyle}" />
+            <TextBlock Text="{x:Bind ViewModel.SourceName, Mode=OneWay}"
+                       Style="{ThemeResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="1" Text="Quality (select one or more)"
+                   Style="{ThemeResource BodyStrongTextBlockStyle}" />
+
+        <ItemsControl Grid.Row="2" ItemsSource="{x:Bind ViewModel.Tiers}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="16" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:TierSelection">
+                    <CheckBox Content="{x:Bind Label}" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock Grid.Row="3" Text="{x:Bind ViewModel.Estimate, Mode=OneWay}"
+                   Style="{ThemeResource BodyTextBlockStyle}" />
+
+        <TextBlock Grid.Row="4" TextWrapping="Wrap"
+                   Style="{ThemeResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Text="Use 720p only when the demo has small UI text or code. Selecting several tiers builds a responsive &lt;video&gt; that serves the right size per screen." />
+
+        <ProgressBar Grid.Row="5" VerticalAlignment="Top" Margin="0,8,0,0"
+                     Minimum="0" Maximum="1"
+                     Value="{x:Bind ViewModel.Progress, Mode=OneWay}"
+                     Visibility="{x:Bind ViewModel.IsExporting, Mode=OneWay}" />
+
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <ProgressRing IsActive="{x:Bind ViewModel.IsExporting, Mode=OneWay}"
+                          Width="20" Height="20" />
+            <Button Content="Export" Style="{ThemeResource AccentButtonStyle}"
+                    Command="{x:Bind ViewModel.ExportCommand}" />
+        </StackPanel>
+    </Grid>
+</Window>
