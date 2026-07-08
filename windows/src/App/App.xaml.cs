@@ -103,24 +103,32 @@ public partial class App : Application
         menu.Items.Add(startStop);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        menu.Items.Add(new MenuFlyoutItem { Text = "Record Full Screen", Command = shell.SelectFullScreenCommand });
-        menu.Items.Add(new MenuFlyoutItem { Text = "Select Recording Area…", Command = shell.SelectRecordingAreaCommand });
+        // Capture mode as a radio group — Full Screen is the preselected default. (Region capture
+        // isn't wired up yet, so choosing it shows a notice and the selection stays on Full Screen.)
+        var fullScreen = new RadioMenuFlyoutItem { Text = "Record Full Screen", GroupName = "captureMode", IsChecked = !shell.UseRegion };
+        var selectArea = new RadioMenuFlyoutItem { Text = "Select Recording Area…", GroupName = "captureMode", IsChecked = shell.UseRegion };
+        fullScreen.Command = new RelayCommand(() => { shell.SelectFullScreenCommand.Execute(null); fullScreen.IsChecked = true; });
+        selectArea.Command = new RelayCommand(() => { shell.SelectRecordingAreaCommand.Execute(null); fullScreen.IsChecked = true; selectArea.IsChecked = false; });
+        menu.Items.Add(fullScreen);
+        menu.Items.Add(selectArea);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        var micItem = MakeCheckItem("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v);
-        var webcamItem = MakeCheckItem("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v);
-        menu.Items.Add(micItem);
-        menu.Items.Add(webcamItem);
-        menu.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
-        menu.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });
+        // Capture Options submenu (Notion-style), with real Fluent checkmarks for the toggles.
+        var capture = new MenuFlyoutSubItem { Text = "Capture Options" };
+        capture.Items.Add(MakeToggleItem("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v));
+        capture.Items.Add(MakeToggleItem("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v));
+        capture.Items.Add(new MenuFlyoutSeparator());
+        capture.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
+        capture.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });
+        menu.Items.Add(capture);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         menu.Items.Add(new MenuFlyoutItem { Text = "Web Publish Latest…", Command = shell.OpenWebPublishCommand });
         menu.Items.Add(new MenuFlyoutItem { Text = "Open Recordings Folder", Command = shell.OpenRecordingsFolderCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        var quit = new MenuFlyoutItem { Text = "Quit DemoTape" };
-        quit.Click += (_, _) => Quit();
+        // Use Command, not Click: Click events don't fire inside the H.NotifyIcon tray flyout.
+        var quit = new MenuFlyoutItem { Text = "Quit DemoTape", Command = new RelayCommand(Quit) };
         menu.Items.Add(quit);
 
         _trayIcon = new TaskbarIcon
@@ -138,23 +146,19 @@ public partial class App : Application
         _trayIcon.ForceCreate();
     }
 
-    // A command-driven checkable item. ToggleMenuFlyoutItem's built-in toggle is unreliable in the
-    // tray flyout, but Command items fire reliably — so we drive the value and the checkmark icon
-    // ourselves (updated immediately in the command, visible on the next menu open).
-    private static MenuFlyoutItem MakeCheckItem(string text, Func<bool> get, Action<bool> set)
+    // A real Fluent checkable item. Driven by Command (which fires reliably in the tray flyout,
+    // unlike Click); we set IsChecked explicitly so the native checkmark always matches the state.
+    private static ToggleMenuFlyoutItem MakeToggleItem(string text, Func<bool> get, Action<bool> set)
     {
-        var item = new MenuFlyoutItem { Text = text, Icon = CheckIcon(get()) };
+        var item = new ToggleMenuFlyoutItem { Text = text, IsChecked = get() };
         item.Command = new RelayCommand(() =>
         {
             bool newValue = !get();
             set(newValue);
-            item.Icon = CheckIcon(newValue);
+            item.IsChecked = newValue;
         });
         return item;
     }
-
-    private static IconElement? CheckIcon(bool on) =>
-        on ? new FontIcon { Glyph = "\uE73E" } : null; // Segoe Fluent "CheckMark"
 
     private void RegisterHotKey(ShellViewModel shell)
     {
@@ -165,8 +169,15 @@ public partial class App : Application
 
     private void Quit()
     {
-        _hotKey?.Dispose();
-        _trayIcon?.Dispose();
+        try
+        {
+            _hotKey?.Dispose();
+            _trayIcon?.Dispose();
+            _hostWindow?.Close();
+        }
+        catch { /* ignore */ }
         Exit();
+        // Hard-exit as a fallback: the hidden host window + tray can otherwise keep the process alive.
+        Environment.Exit(0);
     }
 }
