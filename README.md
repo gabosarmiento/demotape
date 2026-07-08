@@ -38,6 +38,8 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - **Web Publish**: transcode to lightweight, fast-loading MP4s (H.264 + AAC, faststart) at
   360/480/540/720p tiers with a live size estimate, plus a poster frame and a responsive
   `<video>` embed snippet.
+- **Auto-Cut & Speed Up** (local, no AI): removes silent gaps (jump-cut style) and optionally
+  speeds the video up 1.1–1.5× with the voice kept natural (pitch preserved) → `…tight.mp4`.
 - **AI captions (opt-in, bring-your-own-key)**: transcribe a recording's audio via any
   OpenAI-compatible speech-to-text endpoint (OpenAI, Groq, or a local server), **review and
   edit** the lines in a simple editor, then **Save** `.srt` / `.vtt` sidecars or **Add to
@@ -90,6 +92,8 @@ A record icon appears in your menu bar.
 - On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
 - **Web Publish Latest…** exports lightweight web MP4s (one per selected tier) + poster +
   `embed.html` into a `…-web/` folder.
+- **Auto-Cut & Speed Up Latest…** removes silent gaps and/or speeds up the video (pitch
+  preserved) into a `…tight.mp4`. Fully local.
 - **AI Features → AI Settings…** enables AI (off by default) and stores your keys
   (OpenAI-compatible for captions, ElevenLabs for voiceover) in the Keychain.
 - **AI Features → Generate Captions for Latest…** transcribes your latest recording, opens an
@@ -122,7 +126,7 @@ A record icon appears in your menu bar.
 
 ```
 Sources/DemoTape/
-  main.swift                  App entry + headless hooks (--render/--transcode/--captions/--burn/--voices/--voiceover)
+  main.swift                  App entry + headless hooks (--render/--transcode/--captions/--burn/--voices/--voiceover/--tighten)
   AppDelegate.swift           Menu bar UI, state machine, orchestration
   Settings.swift              UserDefaults-backed preferences
   RecordingEngine.swift       Screen + mic capture (AVCaptureScreenInput), prepare/begin/stop
@@ -137,6 +141,8 @@ Sources/DemoTape/
   CaptionBurner.swift         Burn captions into a …captioned.mp4 (Core Text)
   Voiceover.swift             ElevenLabs voices + TTS + audio mux
   VoiceoverController.swift   Script/voice UI → …voiceover.mp4
+  Tightener.swift             Silence detection + trim/speed → …tight.mp4
+  TightenController.swift     Auto-Cut & Speed Up panel
   AISettingsController.swift  AI enable + provider/key settings
   Keychain.swift              Secure storage for BYO API keys
   CountdownController.swift   3-2-1 overlay
@@ -191,10 +197,11 @@ DemoTape is a local-first *recorder* growing into an **AI-friendly demo engine**
 then produce a polished, narrated, multi-format demo — all locally or with your own API keys
 (BYO key, nothing sent anywhere you don't control).
 
-**Shipped (v2)**
+**Shipped**
 - ✅ **Captions**: transcribe (OpenAI / Groq / local Whisper), edit the lines, export
   `.srt` / `.vtt` or burn them in. Transcript cached for reuse.
 - ✅ **AI voiceover**: script → ElevenLabs voice → laid over the video.
+- ✅ **Auto-Cut & Speed Up**: local silence removal + pitch-preserved speed-up.
 
 **Post-production & voice (next)**
 - **Multi-language**: one recording → subtitles and voiceovers in several languages.
@@ -206,8 +213,6 @@ then produce a polished, narrated, multi-format demo — all locally or with you
   chapter markers — an editable pass on top of today's auto-zoom.
 - **Privacy Shield**: detect and blur likely secrets on screen (API keys, tokens,
   `.env` values, emails, localhost/paths) with a review-before-export mode.
-- **Smart silence compression**: trim/speed up loading and dead time while keeping
-  cursor motion and audio sync natural.
 - **AI cursor cleanup**: smooth shaky paths, snap the cursor near click targets.
 
 **Formats & assets**

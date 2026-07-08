@@ -88,6 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aiItem.submenu = aiMenu
         menu.addItem(aiItem)
 
+        let tightenItem = NSMenuItem(title: "Auto-Cut & Speed Up Latest…",
+                                     action: #selector(openTighten), keyEquivalent: "")
+        tightenItem.target = self
+        menu.addItem(tightenItem)
+
         let openFolder = NSMenuItem(title: "Open Recordings Folder",
                                     action: #selector(openRecordingsFolder), keyEquivalent: "o")
         openFolder.target = self
@@ -241,6 +246,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openRecordingsFolder() {
         NSWorkspace.shared.open(Paths.outputDirectory)
+    }
+
+    private var tightenController: TightenController?
+    @objc private func openTighten() {
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record something first — this trims/speeds up your latest recording.")
+            return
+        }
+        let controller = TightenController(video: video)
+        tightenController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.tightenController = nil })
     }
 
     // MARK: - Captions (AI, bring-your-own-key)
