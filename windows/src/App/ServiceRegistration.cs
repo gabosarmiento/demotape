@@ -29,6 +29,7 @@ public static class ServiceRegistration
         // Capture + render pipeline (transient — one instance per recording)
         services.AddTransient<ScreenCaptureRecorder>();
         services.AddTransient<EventRecorder>();
+        services.AddTransient<WebcamRecorder>();
         services.AddTransient<StyledVideoRenderer>();
 
         // Shell wiring

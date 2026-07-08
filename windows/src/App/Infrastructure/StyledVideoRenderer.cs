@@ -43,7 +43,7 @@ public sealed class StyledVideoRenderer
     public StyledVideoRenderer(ILogger<StyledVideoRenderer> logger) => _logger = logger;
 
     public async Task<string?> RenderAsync(string rawPath, string sidecarPath, string outPath,
-        AppSettings settings, IProgress<double>? progress = null)
+        AppSettings settings, string? cameraPath = null, IProgress<double>? progress = null)
     {
         try
         {
@@ -86,6 +86,32 @@ public sealed class StyledVideoRenderer
             using var contentClip = framed
                 ? CanvasGeometry.CreateRoundedRectangle(device, pad, pad, contentW, contentH, 20, 20)
                 : null;
+
+            // Optional webcam PiP: a second frame-server player kept roughly in sync with the screen.
+            bool useCam = settings.CaptureWebcam && cameraPath is not null && File.Exists(cameraPath);
+            MediaPlayer? camPlayer = null;
+            CanvasRenderTarget? camSurface = null;
+            var camLock = new object();
+            bool camHasFrame = false;
+            if (useCam)
+            {
+                var camFile = await StorageFile.GetFileFromPathAsync(cameraPath!);
+                var camVp = await camFile.Properties.GetVideoPropertiesAsync();
+                int cw = camVp.Width > 0 ? (int)camVp.Width : 1280;
+                int ch = camVp.Height > 0 ? (int)camVp.Height : 720;
+                camSurface = new CanvasRenderTarget(device, cw, ch, 96);
+                camPlayer = new MediaPlayer { IsMuted = true, IsVideoFrameServerEnabled = true, IsLoopingEnabled = false };
+                var camOpened = new TaskCompletionSource<bool>();
+                camPlayer.MediaOpened += (_, _) => camOpened.TrySetResult(true);
+                camPlayer.MediaFailed += (_, _) => camOpened.TrySetResult(true);
+                camPlayer.VideoFrameAvailable += (_, _) =>
+                {
+                    try { lock (camLock) { camPlayer.CopyFrameToVideoSurface(camSurface); camHasFrame = true; } }
+                    catch { /* ignore */ }
+                };
+                camPlayer.Source = MediaSource.CreateFromStorageFile(camFile);
+                await camOpened.Task;
+            }
 
             var channel = Channel.CreateBounded<(byte[] Bgra, TimeSpan Time)>(
                 new BoundedChannelOptions(90) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
@@ -145,6 +171,9 @@ public sealed class StyledVideoRenderer
                             var label = focus.ShortcutBadge(eventT);
                             if (label is not null) DrawBadge(ds, label, outW, outH);
                         }
+                        // Webcam PiP — fixed position/size (does not zoom).
+                        if (useCam && camHasFrame && camSurface is not null)
+                            lock (camLock) DrawWebcam(ds, camSurface, settings, outW, outH);
                     }
 
                     using (var ds = flipRT.CreateDrawingSession())
@@ -162,12 +191,15 @@ public sealed class StyledVideoRenderer
 
             player.Source = MediaSource.CreateFromStorageFile(rawFile);
             await opened.Task;
+            camPlayer?.Play(); // start webcam roughly in sync with the screen
             player.Play();
             await ended.Task;
             await Task.Delay(150); // let the final frames enqueue
             channel.Writer.Complete();
             await encodeTask;
             player.Dispose();
+            camPlayer?.Dispose();
+            camSurface?.Dispose();
 
             _logger.LogInformation("Styled render complete ({Frames} frames) -> {Name}", frameCount, Path.GetFileName(outPath));
             return outPath;
@@ -297,6 +329,28 @@ public sealed class StyledVideoRenderer
         float x = (outW - w) / 2, y = outH - h - 90;
         ds.FillRoundedRectangle(x, y, w, h, 14, 14, Color.FromArgb(200, 20, 20, 20));
         ds.DrawTextLayout(layout, x + padX, y + padY, Colors.White);
+    }
+
+    private static void DrawWebcam(CanvasDrawingSession ds, CanvasRenderTarget cam, AppSettings s, int outW, int outH)
+    {
+        double diameter = s.WebcamSize * outW;
+        if (diameter < 8) return;
+        float r = (float)(diameter / 2);
+        var center = new Vector2((float)(s.WebcamPositionX * outW), (float)(s.WebcamPositionY * outH));
+
+        double zoom = Math.Max(1, s.WebcamZoom);
+        double camW = cam.Size.Width, camH = cam.Size.Height;
+        double scale = Math.Max(diameter / camW, diameter / camH) * zoom;
+        double dw = camW * scale, dh = camH * scale;
+        var dst = new Rect(center.X - dw / 2, center.Y - dh / 2, dw, dh);
+
+        using (ds.CreateLayer(1f, CanvasGeometry.CreateCircle(ds.Device, center, r)))
+        {
+            ds.Transform = Matrix3x2.CreateScale(-1f, 1f, center); // mirror (selfie view)
+            ds.DrawImage(cam, dst);
+            ds.Transform = Matrix3x2.Identity;
+        }
+        ds.DrawCircle(center, r, Color.FromArgb(230, 255, 255, 255), 3f);
     }
 
     private static CanvasRenderTarget LoadBackground(CanvasDevice device, string bgFile, int outW, int outH)

@@ -27,8 +27,10 @@ public sealed class WindowsRecordingController : IRecordingController
 
     private ScreenCaptureRecorder? _capture;
     private EventRecorder? _events;
+    private WebcamRecorder? _webcam;
     private string _rawPath = "";
     private string _sidecarPath = "";
+    private string? _camPath;
 
     public RecordingState State { get; private set; } = RecordingState.Idle;
     public event Action<RecordingState>? StateChanged;
@@ -61,7 +63,7 @@ public sealed class WindowsRecordingController : IRecordingController
         });
     }
 
-    private Task BeginCaptureAsync()
+    private async Task BeginCaptureAsync()
     {
         try
         {
@@ -69,11 +71,22 @@ public sealed class WindowsRecordingController : IRecordingController
             _sidecarPath = _rawPath[..^".mp4".Length] + ".events.json";
 
             _capture = _services.GetRequiredService<ScreenCaptureRecorder>();
-            _capture.Start(_rawPath); // full-screen capture (region framing is a later enhancement)
+            _capture.Start(_rawPath); // full-screen capture
+
+            var settings = _settingsStore.Load();
+
+            // Webcam picture-in-picture (optional). Starts alongside the screen capture.
+            _camPath = null;
+            if (settings.CaptureWebcam)
+            {
+                _webcam = _services.GetRequiredService<WebcamRecorder>();
+                var cam = _rawPath[..^".mp4".Length] + ".cam.mp4";
+                if (await _webcam.StartAsync(cam, withMicrophone: false)) _camPath = cam;
+                else _webcam = null;
+            }
 
             _events = _services.GetRequiredService<EventRecorder>();
             var display = BuildDisplay();
-            var settings = _settingsStore.Load();
             (double X, double Y, double W, double H) region =
                 settings.UseRegion && settings.RegionW > 0 && settings.RegionH > 0
                     ? (settings.RegionX * display.PixelWidth, settings.RegionY * display.PixelHeight,
@@ -89,7 +102,6 @@ public sealed class WindowsRecordingController : IRecordingController
             SetState(RecordingState.Idle);
             _ = _interaction.ShowMessageAsync("Can't start recording", ex.Message);
         }
-        return Task.CompletedTask;
     }
 
     private async Task StopAsync()
@@ -98,6 +110,7 @@ public sealed class WindowsRecordingController : IRecordingController
         try
         {
             var result = _capture is null ? null : await _capture.StopAsync();
+            var camPath = _webcam is null ? null : await _webcam.StopAsync();
             _events?.Stop(_rawPath, cameraOffset: 0, eventOffset: 0);
 
             if (result is null)
@@ -112,8 +125,8 @@ public sealed class WindowsRecordingController : IRecordingController
             var settings = _settingsStore.Load();
             var styledPath = _rawPath[..^".mp4".Length] + ".styled.mp4";
             var renderer = _services.GetRequiredService<StyledVideoRenderer>();
-            _logger.LogInformation("Rendering styled output (this can take a bit)…");
-            var styled = await renderer.RenderAsync(_rawPath, _sidecarPath, styledPath, settings);
+            _logger.LogInformation("Rendering styled output…");
+            var styled = await renderer.RenderAsync(_rawPath, _sidecarPath, styledPath, settings, cameraPath: camPath);
 
             SetState(RecordingState.Idle);
             var final = styled ?? _rawPath;
@@ -132,6 +145,7 @@ public sealed class WindowsRecordingController : IRecordingController
         {
             _capture = null;
             _events = null;
+            _webcam = null;
         }
     }
 
