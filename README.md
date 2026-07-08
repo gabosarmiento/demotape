@@ -87,7 +87,7 @@ A record icon appears in your menu bar.
 
 - **⇧⌘S** (or the menu) toggles recording, after a 3-2-1 countdown.
 - **Record Full Screen** / **Select Recording Area…** choose the capture mode.
-- **Record Microphone**, **Show Webcam**, **Webcam Settings…**, **Background…** toggle and
+- **Record Microphone**, **Record Webcam**, **Webcam Settings…**, **Background…** toggle and
   configure overlays.
 - On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
 - **Web Publish Latest…** exports lightweight web MP4s (one per selected tier) + poster +

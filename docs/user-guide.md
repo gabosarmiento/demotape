@@ -29,7 +29,7 @@ On first record, grant **Screen Recording** (required). **Microphone**, **Camera
 
 - **⇧⌘S** or the menu starts/stops recording after a 3-2-1 countdown.
 - Choose **Record Full Screen** or **Select Recording Area…**.
-- Toggle **Record Microphone**, **Show Webcam**, **Webcam Settings…**, **Background…**.
+- Toggle **Record Microphone**, **Record Webcam**, **Webcam Settings…**, **Background…**.
 - On Stop, a styled `…styled.mp4` is written to `~/Movies/DemoTape/`.
 
 **Planning for AI:**
