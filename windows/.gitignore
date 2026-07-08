@@ -1,0 +1,30 @@
+## .NET / WinUI build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM64/
+*.user
+*.suo
+.vs/
+
+## Publish output
+publish/
+*.appx
+*.msix
+*.appxbundle
+
+## NuGet
+*.nupkg
+packages/
+.nuget/
+
+## Rider / VS Code
+.idea/
+.vscode/
+
+## Test results
+[Tt]est[Rr]esult*/
+*.trx
