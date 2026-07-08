@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var micItem = NSMenuItem(
         title: "Record Microphone", action: #selector(toggleMic), keyEquivalent: "")
     private lazy var webcamItem = NSMenuItem(
-        title: "Show Webcam", action: #selector(toggleWebcam), keyEquivalent: "")
+        title: "Record Webcam", action: #selector(toggleWebcam), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -33,18 +33,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // isEnabled flags. Turn it off so Start/Stop reflect the real state.
         menu.autoenablesItems = false
 
+        // --- Record ---
         startItem.target = self
         stopItem.target = self
         menu.addItem(startItem)
         menu.addItem(stopItem)
         menu.addItem(.separator())
 
+        // --- Capture mode ---
+        menu.addItem(sectionHeader("Capture"))
         fullScreenItem.target = self
         menu.addItem(fullScreenItem)
         selectAreaItem.target = self
         menu.addItem(selectAreaItem)
         menu.addItem(.separator())
 
+        // --- Inputs & overlays ---
+        menu.addItem(sectionHeader("Inputs & Overlays"))
         micItem.target = self
         micItem.state = Settings.captureMicrophone ? .on : .off
         menu.addItem(micItem)
@@ -63,10 +68,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(backgroundItem)
         menu.addItem(.separator())
 
-        let publishItem = NSMenuItem(title: "Web Publish Latest…",
-                                     action: #selector(openWebPublish), keyEquivalent: "")
-        publishItem.target = self
-        menu.addItem(publishItem)
+        // --- After recording (post-production pipeline: tighten → AI → publish) ---
+        menu.addItem(sectionHeader("After Recording"))
+
+        let tightenItem = NSMenuItem(title: "Auto-Cut & Speed Up Latest…",
+                                     action: #selector(openTighten), keyEquivalent: "")
+        tightenItem.target = self
+        menu.addItem(tightenItem)
 
         // AI Features submenu (opt-in, bring-your-own-key).
         let aiItem = NSMenuItem(title: "AI Features", action: nil, keyEquivalent: "")
@@ -88,11 +96,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aiItem.submenu = aiMenu
         menu.addItem(aiItem)
 
-        let tightenItem = NSMenuItem(title: "Auto-Cut & Speed Up Latest…",
-                                     action: #selector(openTighten), keyEquivalent: "")
-        tightenItem.target = self
-        menu.addItem(tightenItem)
+        let publishItem = NSMenuItem(title: "Web Publish Latest…",
+                                     action: #selector(openWebPublish), keyEquivalent: "")
+        publishItem.target = self
+        menu.addItem(publishItem)
+        menu.addItem(.separator())
 
+        // --- Utility ---
         let openFolder = NSMenuItem(title: "Open Recordings Folder",
                                     action: #selector(openRecordingsFolder), keyEquivalent: "o")
         openFolder.target = self
@@ -139,6 +149,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editMenuItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    /// A small, disabled, greyed section label used to group menu items.
+    private func sectionHeader(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ])
+        return item
     }
 
     @objc private func toggleRecording() {
