@@ -1,0 +1,23 @@
+# Swift Package Manager build output
+.build/
+Package.resolved
+
+# Packaged app bundle (produced by build-app.sh)
+*.app/
+
+# Signing artifacts
+*.p12
+*.pem
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.xcuserstate
+xcuserdata/
+
+# Local recordings / exports (should never be committed)
+*.mov
+*.mp4
+*.events.json
