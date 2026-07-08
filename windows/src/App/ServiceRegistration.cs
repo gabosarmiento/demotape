@@ -26,8 +26,13 @@ public static class ServiceRegistration
         // Application services (portable orchestration)
         services.AddSingleton<WebPublishService>();
 
+        // Capture + render pipeline (transient — one instance per recording)
+        services.AddTransient<ScreenCaptureRecorder>();
+        services.AddTransient<EventRecorder>();
+        services.AddTransient<StyledVideoRenderer>();
+
         // Shell wiring
-        services.AddSingleton<IRecordingController, DeferredRecordingController>();
+        services.AddSingleton<IRecordingController, WindowsRecordingController>();
         services.AddSingleton<INavigationService, WindowNavigationService>();
 
         // ViewModels
