@@ -97,7 +97,19 @@ on camera (use captions on your real voice instead).
 
 ---
 
-## 6. Output files
+## 6. Auto-Cut & Speed Up (local, no AI)
+
+Menu bar → **Auto-Cut & Speed Up Latest…**
+
+- **Remove silent gaps** — scans the audio and cuts pauses longer than ~0.6s (keeping a little
+  padding so cuts aren't abrupt), like the jump-cut feature in social video editors.
+- **Speed** — 1.1× / 1.25× / 1.5×, with the voice kept natural (pitch preserved).
+- **Create** writes a new `…tight.mp4`. Your original is untouched.
+
+This is fully local — no network, no key, no cost. It's the fastest way to make a demo feel
+snappy. Tip: run it, then **Web Publish** the result to shrink it for sharing.
+
+## 7. Output files
 
 Everything lands next to the recording in `~/Movies/DemoTape/`:
 
@@ -108,11 +120,12 @@ Everything lands next to the recording in `~/Movies/DemoTape/`:
 | `…transcript.json` | Cached transcript (reused, no re-charge) |
 | `…captioned.mp4` | Video with captions burned in (**Add to Video**) |
 | `…voiceover.mp4` | Video with the AI narration |
+| `…tight.mp4` | Silence-cut / sped-up version (Auto-Cut & Speed Up) |
 | `…-web/` | Web Publish output (per-tier MP4s + poster + `embed.html`) |
 
 ---
 
-## 7. Costs & privacy
+## 8. Costs & privacy
 
 - Captions bill per minute of audio (a 2-minute demo is a fraction of a cent on OpenAI).
   ElevenLabs bills per character of narration. You pay your provider directly.
@@ -122,7 +135,7 @@ Everything lands next to the recording in `~/Movies/DemoTape/`:
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 - **AI menu items do nothing / ask you to open settings** — enable AI and add the relevant
   key in AI Settings.

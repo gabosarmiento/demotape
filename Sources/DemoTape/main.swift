@@ -117,6 +117,25 @@ if let i = args.firstIndex(of: "--burn"), args.count > i + 1 {
     }
 }
 
+// Headless tighten:  DemoTape --tighten <video> [speed] [removeSilence 0|1]
+// Writes <name>.tight.mp4 (local; no network).
+if let i = args.firstIndex(of: "--tighten"), args.count > i + 1 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    var opts = Tightener.Options()
+    if args.count > i + 2, let s = Double(args[i + 2]) { opts.speed = s }
+    if args.count > i + 3 { opts.removeSilence = (args[i + 3] != "0") }
+    let out = video.deletingPathExtension().deletingPathExtension().appendingPathExtension("tight.mp4")
+    do {
+        let s = try Tightener().tighten(video: video, options: opts, to: out)
+        print(String(format: "tightened: %@  (%.1fs -> %.1fs, %d cuts)",
+                     out.path, s.originalDuration, s.outputDuration, s.cuts))
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("tighten error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // Headless transcode test:  DemoTape --transcode <input> <height> <output.mp4>
 if let i = args.firstIndex(of: "--transcode"), args.count > i + 3 {
     let input = URL(fileURLWithPath: args[i + 1])
