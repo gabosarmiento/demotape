@@ -144,6 +144,8 @@ create-identity.sh            One-time self-signed signing identity
 Issues and PRs welcome. Keep it dependency-free (Apple frameworks only) and matching the
 existing style. There's no external build system — `swift build` and `./build-app.sh`.
 
+**AI coding agents:** see [`AGENTS.md`](AGENTS.md) for build/run/verify steps and constraints.
+
 ## Acknowledgments
 
 Built by studying (not copying) these excellent projects:
