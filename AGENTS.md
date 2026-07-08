@@ -53,6 +53,14 @@ files (no TCC prompts, no GUI):
 DEMOTAPE_STT_KEY=sk-... ./.build/release/DemoTape --captions "path/to/styled.mp4"
 #   Optional: DEMOTAPE_STT_BASEURL (default https://api.openai.com/v1),
 #             DEMOTAPE_STT_MODEL (default whisper-1), DEMOTAPE_STT_LANG (e.g. en)
+
+# Burn cached captions into a new <name>.captioned.mp4 (no network; uses the
+# transcript.json cache or an existing .srt).
+./.build/release/DemoTape --burn "path/to/styled.mp4"
+
+# List ElevenLabs voices, and generate a voiceover (BYO ElevenLabs key). Requires network.
+DEMOTAPE_ELEVEN_KEY=sk_... ./.build/release/DemoTape --voices
+DEMOTAPE_ELEVEN_KEY=sk_... ./.build/release/DemoTape --voiceover "path/to/styled.mp4" script.txt [voiceId]
 ```
 
 Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,

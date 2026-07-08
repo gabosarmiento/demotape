@@ -2,7 +2,7 @@ import Foundation
 import AVFoundation
 
 /// A single subtitle cue.
-struct CaptionCue {
+struct CaptionCue: Codable, Equatable {
     var start: Double   // seconds
     var end: Double     // seconds
     var text: String
@@ -63,8 +63,65 @@ final class Captions {
         let vtt = base.appendingPathExtension("vtt")
         try Captions.writeSRT(cues, to: srt)
         try Captions.writeVTT(cues, to: vtt)
+        Captions.saveTranscript(cues, for: video)   // cache so we don't re-transcribe
         Log.write("Captions: \(cues.count) cues -> \(srt.lastPathComponent), \(vtt.lastPathComponent)")
         return (srt, vtt, cues)
+    }
+
+    // MARK: - Transcript cache (idempotency)
+
+    /// Path of the cached transcript sidecar for a video (`…transcript.json`).
+    static func transcriptURL(for video: URL) -> URL {
+        video.deletingPathExtension().appendingPathExtension("transcript.json")
+    }
+
+    /// Loads the cached transcript if present, so captions/voiceover reuse it instead of
+    /// paying for another transcription. Falls back to an existing `.srt` sidecar (e.g. from
+    /// a recording made before the cache existed).
+    static func loadTranscript(for video: URL) -> [CaptionCue]? {
+        let url = transcriptURL(for: video)
+        if let data = try? Data(contentsOf: url),
+           let cues = try? JSONDecoder().decode([CaptionCue].self, from: data) {
+            return cues
+        }
+        let srt = video.deletingPathExtension().appendingPathExtension("srt")
+        if let text = try? String(contentsOf: srt, encoding: .utf8) {
+            let cues = parseSRT(text)
+            return cues.isEmpty ? nil : cues
+        }
+        return nil
+    }
+
+    /// Parses SRT text into cues (for reusing sidecars that predate the JSON cache).
+    static func parseSRT(_ text: String) -> [CaptionCue] {
+        var cues: [CaptionCue] = []
+        let blocks = text.replacingOccurrences(of: "\r\n", with: "\n")
+            .components(separatedBy: "\n\n")
+        for block in blocks {
+            let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+            guard let timingIdx = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let parts = lines[timingIdx].components(separatedBy: "-->")
+            guard parts.count == 2,
+                  let start = srtSeconds(parts[0]), let end = srtSeconds(parts[1]) else { continue }
+            let body = lines[(timingIdx + 1)...].joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !body.isEmpty { cues.append(CaptionCue(start: start, end: end, text: body)) }
+        }
+        return cues
+    }
+
+    private static func srtSeconds(_ s: String) -> Double? {
+        let t = s.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        let hms = t.components(separatedBy: ":")
+        guard hms.count == 3, let h = Double(hms[0]), let m = Double(hms[1]), let sec = Double(hms[2])
+        else { return nil }
+        return h * 3600 + m * 60 + sec
+    }
+
+    /// Saves/updates the cached transcript.
+    static func saveTranscript(_ cues: [CaptionCue], for video: URL) {
+        guard let data = try? JSONEncoder().encode(cues) else { return }
+        try? data.write(to: transcriptURL(for: video), options: .atomic)
     }
 
     // MARK: - Audio extraction

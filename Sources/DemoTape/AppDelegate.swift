@@ -81,6 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       action: #selector(generateCaptions), keyEquivalent: "")
         captionsItem.target = self
         aiMenu.addItem(captionsItem)
+        let voiceoverItem = NSMenuItem(title: "Generate Voiceover for Latest…",
+                                       action: #selector(generateVoiceover), keyEquivalent: "")
+        voiceoverItem.target = self
+        aiMenu.addItem(voiceoverItem)
         aiItem.submenu = aiMenu
         menu.addItem(aiItem)
 
@@ -258,6 +262,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (styled.isEmpty ? videos : styled).max { modified($0) < modified($1) }
     }
 
+    private var captionsEditor: CaptionsEditorController?
+    private func showCaptionsEditor(video: URL, cues: [CaptionCue]) {
+        guard !cues.isEmpty else {
+            notifySaved(at: video.deletingPathExtension().appendingPathExtension("srt"))
+            return
+        }
+        let editor = CaptionsEditorController(video: video, cues: cues)
+        captionsEditor = editor  // retain while open
+        editor.show(onClose: { [weak self] in self?.captionsEditor = nil })
+    }
+
+    private var voiceoverController: VoiceoverController?
+    @objc private func generateVoiceover() {
+        let key = Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
+        guard Settings.aiEnabled, !key.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Add an ElevenLabs key first"
+            alert.informativeText = Settings.aiEnabled
+                ? "Add your ElevenLabs API key in AI Settings to generate a voiceover."
+                : "Voiceover uses ElevenLabs text-to-speech. Enable AI features and add your "
+                    + "ElevenLabs key in AI Settings, then try again."
+            alert.addButton(withTitle: "Open AI Settings…")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
+            return
+        }
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record something first — voiceover runs on your latest recording.")
+            return
+        }
+        let controller = VoiceoverController(video: video, apiKey: key)
+        voiceoverController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.voiceoverController = nil })
+    }
+
     private var aiSettingsController: AISettingsController?
     @objc private func openAISettings() {
         let controller = AISettingsController()
@@ -266,6 +306,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func generateCaptions() {
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record something first — captions run on your latest recording.")
+            return
+        }
+        // Idempotent: if we've already transcribed this recording, reuse it (no API call).
+        if let cached = Captions.loadTranscript(for: video), !cached.isEmpty {
+            showCaptionsEditor(video: video, cues: cached)
+            return
+        }
         // Gate on the AI master switch + a saved key. Otherwise, send the user to settings.
         let key = Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
         guard Settings.aiEnabled, !key.isEmpty else {
@@ -280,11 +330,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
             return
         }
-        guard let video = latestRecording() else {
-            presentPermissionHelp(title: "No recording found",
-                                  message: "Record something first — captions run on your latest recording.")
-            return
-        }
         let config = Captions.Config(baseURL: Settings.sttBaseURL, model: Settings.sttModel,
                                      apiKey: key, language: Settings.sttLanguage)
 
@@ -294,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let result = try Captions().generate(for: video, config: config)
                 DispatchQueue.main.async {
                     self?.state = .idle
-                    self?.notifySaved(at: result.srt)
+                    self?.showCaptionsEditor(video: video, cues: result.cues)
                 }
             } catch {
                 DispatchQueue.main.async {

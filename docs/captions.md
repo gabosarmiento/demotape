@@ -19,8 +19,16 @@ to the endpoint *you* choose.
 3. **Record something** and stop — captions run on your most recent recording in
    `~/Movies/DemoTape/` (make sure **Record Microphone** was on).
 4. Menu bar icon → **AI Features → Generate Captions for Latest…**
-5. When it finishes, `…styled.srt` and `…styled.vtt` are written next to the video and Finder
-   reveals them. Drop them into a player, YouTube, or the Web Publish `<video>` embed.
+5. A simple editor opens with one row per subtitle line (rows grow to fit the text, so you
+   can read/edit the whole line). **Fix any wording** — timings stay as transcribed. Then:
+   - **Save** — writes `…styled.srt` and `…styled.vtt` next to the video (for players,
+     YouTube, or the Web Publish `<video>` embed).
+   - **Add to Video** — burns the captions into a new `…captioned.mp4` (bottom-center,
+     rounded translucent box). The original is untouched.
+
+**It only transcribes once.** The transcript is cached next to the recording
+(`…transcript.json`, and it also reuses an existing `.srt`), so re-opening the editor for the
+same recording is instant and does **not** call the API again — no repeat charges.
 
 ## Enabling AI features
 

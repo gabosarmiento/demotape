@@ -86,4 +86,21 @@ enum Settings {
         get { defaults.string(forKey: "aiProvider") ?? "OpenAI" }
         set { defaults.set(newValue, forKey: "aiProvider") }
     }
+
+    // MARK: - Voiceover (ElevenLabs, bring-your-own-key)
+
+    /// ElevenLabs TTS model. eleven_multilingual_v2 is a solid default.
+    static var elevenModel: String {
+        get { defaults.string(forKey: "elevenModel") ?? "eleven_multilingual_v2" }
+        set { defaults.set(newValue, forKey: "elevenModel") }
+    }
+    /// Last-used ElevenLabs voice id + display name (remembered for convenience).
+    static var elevenVoiceId: String {
+        get { defaults.string(forKey: "elevenVoiceId") ?? "" }
+        set { defaults.set(newValue, forKey: "elevenVoiceId") }
+    }
+    static var elevenVoiceName: String {
+        get { defaults.string(forKey: "elevenVoiceName") ?? "" }
+        set { defaults.set(newValue, forKey: "elevenVoiceName") }
+    }
 }

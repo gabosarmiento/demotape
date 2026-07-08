@@ -77,6 +77,39 @@ final class CaptionsTests: XCTestCase {
         }
     }
 
+    // MARK: - SRT parsing (transcript reuse)
+
+    func testParseSRTRoundTrips() {
+        let cues = [
+            CaptionCue(start: 0, end: 2.5, text: "Hello world"),
+            CaptionCue(start: 2.5, end: 4.58, text: "Second line")
+        ]
+        let srt = Captions.srtString(cues)
+        let parsed = Captions.parseSRT(srt)
+        XCTAssertEqual(parsed.count, 2)
+        XCTAssertEqual(parsed[0].text, "Hello world")
+        XCTAssertEqual(parsed[0].start, 0, accuracy: 1e-6)
+        XCTAssertEqual(parsed[0].end, 2.5, accuracy: 1e-6)
+        XCTAssertEqual(parsed[1].start, 2.5, accuracy: 1e-6)
+        XCTAssertEqual(parsed[1].text, "Second line")
+    }
+
+    func testParseSRTMultiLineBodyJoined() {
+        let srt = "1\n00:00:01,000 --> 00:00:03,000\nLine one\nline two\n\n"
+        let parsed = Captions.parseSRT(srt)
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].text, "Line one line two")
+        XCTAssertEqual(parsed[0].start, 1.0, accuracy: 1e-6)
+    }
+
+    func testParseSRTHandlesHoursAndCRLF() {
+        let srt = "1\r\n01:01:01,500 --> 01:01:02,000\r\nLate line\r\n\r\n"
+        let parsed = Captions.parseSRT(srt)
+        XCTAssertEqual(parsed.count, 1)
+        XCTAssertEqual(parsed[0].start, 3661.5, accuracy: 1e-6)
+        XCTAssertEqual(parsed[0].text, "Late line")
+    }
+
     // MARK: - SRT output
 
     func testSRTFormatting() {

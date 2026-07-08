@@ -24,10 +24,11 @@ final class AISettingsController: NSObject, NSWindowDelegate {
     private var baseField: NSTextField!
     private var modelField: NSTextField!
     private var langField: NSTextField!
+    private var elevenKeyField: NSSecureTextField!
     private var statusLabel: NSTextField!
 
     func show() {
-        let w: CGFloat = 500, h: CGFloat = 388
+        let w: CGFloat = 500, h: CGFloat = 486
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "AI Features"
@@ -101,6 +102,20 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         langHint.frame = NSRect(x: fieldX + 130, y: h - 316, width: 180, height: 16)
         content.addSubview(langHint)
 
+        // Voiceover section (ElevenLabs).
+        let voHeader = NSTextField(labelWithString: "Voiceover (ElevenLabs)")
+        voHeader.font = .systemFont(ofSize: 15, weight: .semibold)
+        voHeader.frame = NSRect(x: leftX, y: 96, width: w - 48, height: 22)
+        content.addSubview(voHeader)
+
+        addLabel("API key", y: 62, at: leftX, on: content)
+        elevenKeyField = NSSecureTextField(frame: NSRect(x: fieldX, y: 58, width: fieldW, height: 24))
+        elevenKeyField.placeholderString = "sk_…"
+        if let existing = Keychain.get(account: Keychain.elevenAPIKeyAccount) {
+            elevenKeyField.stringValue = existing
+        }
+        content.addSubview(elevenKeyField)
+
         // Status + buttons.
         statusLabel = NSTextField(labelWithString: "")
         statusLabel.font = .systemFont(ofSize: 11)
@@ -139,7 +154,8 @@ final class AISettingsController: NSObject, NSWindowDelegate {
 
     private func applyEnabledState() {
         let on = enableBox.state == .on
-        [providerPopup, keyField, baseField, modelField, langField].forEach { $0?.isEnabled = on }
+        [providerPopup, keyField, baseField, modelField, langField, elevenKeyField]
+            .forEach { $0?.isEnabled = on }
     }
 
     @objc private func providerChanged() {
@@ -165,8 +181,15 @@ final class AISettingsController: NSObject, NSWindowDelegate {
             Keychain.set(key, account: Keychain.sttAPIKeyAccount)
         }
 
-        if Settings.aiEnabled && key.isEmpty {
-            statusLabel.stringValue = "Enabled, but no key saved yet."
+        let voKey = elevenKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if voKey.isEmpty {
+            Keychain.remove(account: Keychain.elevenAPIKeyAccount)
+        } else {
+            Keychain.set(voKey, account: Keychain.elevenAPIKeyAccount)
+        }
+
+        if Settings.aiEnabled && key.isEmpty && voKey.isEmpty {
+            statusLabel.stringValue = "Enabled, but no keys saved yet."
             statusLabel.textColor = .systemOrange
             return
         }
