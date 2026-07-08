@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         title: "Show Webcam", action: #selector(toggleWebcam), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installMainMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         let menu = NSMenu()
@@ -67,6 +68,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         publishItem.target = self
         menu.addItem(publishItem)
 
+        // AI Features submenu (opt-in, bring-your-own-key).
+        let aiItem = NSMenuItem(title: "AI Features", action: nil, keyEquivalent: "")
+        let aiMenu = NSMenu()
+        aiMenu.autoenablesItems = false
+        let aiSettings = NSMenuItem(title: "AI Settings…",
+                                    action: #selector(openAISettings), keyEquivalent: "")
+        aiSettings.target = self
+        aiMenu.addItem(aiSettings)
+        aiMenu.addItem(.separator())
+        let captionsItem = NSMenuItem(title: "Generate Captions for Latest…",
+                                      action: #selector(generateCaptions), keyEquivalent: "")
+        captionsItem.target = self
+        aiMenu.addItem(captionsItem)
+        let voiceoverItem = NSMenuItem(title: "Generate Voiceover for Latest…",
+                                       action: #selector(generateVoiceover), keyEquivalent: "")
+        voiceoverItem.target = self
+        aiMenu.addItem(voiceoverItem)
+        aiItem.submenu = aiMenu
+        menu.addItem(aiItem)
+
         let openFolder = NSMenuItem(title: "Open Recordings Folder",
                                     action: #selector(openRecordingsFolder), keyEquivalent: "o")
         openFolder.target = self
@@ -84,6 +105,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey.register(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | shiftKey))
 
         refreshUI()
+    }
+
+    /// Menu-bar-only (accessory) apps have no application menu by default, so standard
+    /// keyboard shortcuts like ⌘V/⌘C/⌘A never reach text fields in our windows. Installing
+    /// a minimal main menu with an Edit menu restores Cut/Copy/Paste/Select All everywhere.
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit DemoTape",
+                        action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     @objc private func toggleRecording() {
@@ -192,6 +242,116 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openRecordingsFolder() {
         NSWorkspace.shared.open(Paths.outputDirectory)
     }
+
+    // MARK: - Captions (AI, bring-your-own-key)
+
+    /// Newest playable recording in the output folder (prefers the styled export).
+    private func latestRecording() -> URL? {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(
+            at: Paths.outputDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]) else { return nil }
+        let videos = items.filter { ["mp4", "mov"].contains($0.pathExtension.lowercased())
+            && !$0.lastPathComponent.hasSuffix(".cam.mov") }
+        func modified(_ u: URL) -> Date {
+            (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        }
+        // Prefer a styled export if one exists among the newest files.
+        let styled = videos.filter { $0.lastPathComponent.hasSuffix(".styled.mp4") }
+        return (styled.isEmpty ? videos : styled).max { modified($0) < modified($1) }
+    }
+
+    private var captionsEditor: CaptionsEditorController?
+    private func showCaptionsEditor(video: URL, cues: [CaptionCue]) {
+        guard !cues.isEmpty else {
+            notifySaved(at: video.deletingPathExtension().appendingPathExtension("srt"))
+            return
+        }
+        let editor = CaptionsEditorController(video: video, cues: cues)
+        captionsEditor = editor  // retain while open
+        editor.show(onClose: { [weak self] in self?.captionsEditor = nil })
+    }
+
+    private var voiceoverController: VoiceoverController?
+    @objc private func generateVoiceover() {
+        let key = Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
+        guard Settings.aiEnabled, !key.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Add an ElevenLabs key first"
+            alert.informativeText = Settings.aiEnabled
+                ? "Add your ElevenLabs API key in AI Settings to generate a voiceover."
+                : "Voiceover uses ElevenLabs text-to-speech. Enable AI features and add your "
+                    + "ElevenLabs key in AI Settings, then try again."
+            alert.addButton(withTitle: "Open AI Settings…")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
+            return
+        }
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record something first — voiceover runs on your latest recording.")
+            return
+        }
+        let controller = VoiceoverController(video: video, apiKey: key)
+        voiceoverController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.voiceoverController = nil })
+    }
+
+    private var aiSettingsController: AISettingsController?
+    @objc private func openAISettings() {
+        let controller = AISettingsController()
+        aiSettingsController = controller  // retain while open
+        controller.show()
+    }
+
+    @objc private func generateCaptions() {
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record something first — captions run on your latest recording.")
+            return
+        }
+        // Idempotent: if we've already transcribed this recording, reuse it (no API call).
+        if let cached = Captions.loadTranscript(for: video), !cached.isEmpty {
+            showCaptionsEditor(video: video, cues: cached)
+            return
+        }
+        // Gate on the AI master switch + a saved key. Otherwise, send the user to settings.
+        let key = Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
+        guard Settings.aiEnabled, !key.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Turn on AI features first"
+            alert.informativeText = Settings.aiEnabled
+                ? "Add an API key in AI Settings to generate captions."
+                : "Captions use an OpenAI-compatible speech-to-text API. Enable AI features and add "
+                    + "your key in AI Settings, then try again."
+            alert.addButton(withTitle: "Open AI Settings…")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
+            return
+        }
+        let config = Captions.Config(baseURL: Settings.sttBaseURL, model: Settings.sttModel,
+                                     apiKey: key, language: Settings.sttLanguage)
+
+        state = .rendering  // reuse the "working" UI state
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                let result = try Captions().generate(for: video, config: config)
+                DispatchQueue.main.async {
+                    self?.state = .idle
+                    self?.showCaptionsEditor(video: video, cues: result.cues)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.state = .idle
+                    self?.presentPermissionHelp(title: "Captions failed",
+                                                message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+
 
     @objc private func toggleMic() {
         Settings.captureMicrophone.toggle()

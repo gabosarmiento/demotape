@@ -56,4 +56,51 @@ enum Settings {
         get { defaults.string(forKey: "backgroundFile") ?? "gradient_wave_wallpaper_01.png" }
         set { defaults.set(newValue, forKey: "backgroundFile") }
     }
+
+    // MARK: - Captions (AI, bring-your-own-key)
+
+    /// OpenAI-compatible speech-to-text base URL. Default is OpenAI; Groq and other
+    /// compatible endpoints work by changing this. The API key lives in the Keychain.
+    static var sttBaseURL: String {
+        get { defaults.string(forKey: "sttBaseURL") ?? "https://api.openai.com/v1" }
+        set { defaults.set(newValue, forKey: "sttBaseURL") }
+    }
+    /// Speech-to-text model id (e.g. "whisper-1" for OpenAI, "whisper-large-v3" for Groq).
+    static var sttModel: String {
+        get { defaults.string(forKey: "sttModel") ?? "whisper-1" }
+        set { defaults.set(newValue, forKey: "sttModel") }
+    }
+    /// Optional ISO-639-1 language hint for transcription ("" = auto-detect).
+    static var sttLanguage: String {
+        get { defaults.string(forKey: "sttLanguage") ?? "" }
+        set { defaults.set(newValue, forKey: "sttLanguage") }
+    }
+    /// Master switch for AI features. Off by default — the app stays fully local until
+    /// the user turns this on and configures a key in AI Settings.
+    static var aiEnabled: Bool {
+        get { defaults.bool(forKey: "aiEnabled") }
+        set { defaults.set(newValue, forKey: "aiEnabled") }
+    }
+    /// Chosen provider preset name ("OpenAI", "Groq", or "Custom").
+    static var aiProvider: String {
+        get { defaults.string(forKey: "aiProvider") ?? "OpenAI" }
+        set { defaults.set(newValue, forKey: "aiProvider") }
+    }
+
+    // MARK: - Voiceover (ElevenLabs, bring-your-own-key)
+
+    /// ElevenLabs TTS model. eleven_multilingual_v2 is a solid default.
+    static var elevenModel: String {
+        get { defaults.string(forKey: "elevenModel") ?? "eleven_multilingual_v2" }
+        set { defaults.set(newValue, forKey: "elevenModel") }
+    }
+    /// Last-used ElevenLabs voice id + display name (remembered for convenience).
+    static var elevenVoiceId: String {
+        get { defaults.string(forKey: "elevenVoiceId") ?? "" }
+        set { defaults.set(newValue, forKey: "elevenVoiceId") }
+    }
+    static var elevenVoiceName: String {
+        get { defaults.string(forKey: "elevenVoiceName") ?? "" }
+        set { defaults.set(newValue, forKey: "elevenVoiceName") }
+    }
 }

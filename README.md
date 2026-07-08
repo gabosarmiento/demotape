@@ -38,6 +38,17 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - **Web Publish**: transcode to lightweight, fast-loading MP4s (H.264 + AAC, faststart) at
   360/480/540/720p tiers with a live size estimate, plus a poster frame and a responsive
   `<video>` embed snippet.
+- **AI captions (opt-in, bring-your-own-key)**: transcribe a recording's audio via any
+  OpenAI-compatible speech-to-text endpoint (OpenAI, Groq, or a local server), **review and
+  edit** the lines in a simple editor, then **Save** `.srt` / `.vtt` sidecars or **Add to
+  Video** to burn them in (`…captioned.mp4`). Transcribed once and cached, so re-opening
+  never re-charges you.
+- **AI voiceover (opt-in, bring-your-own-key)**: write or load a script (pre-filled from the
+  transcript), pick an [ElevenLabs](https://elevenlabs.io) voice, and generate narration laid
+  over the video (`…voiceover.mp4`) — great for silent screen demos.
+- **Local by default, BYO key.** AI is off until you enable it; keys live in the macOS
+  Keychain and requests go only to the endpoint you configure. See the
+  [**User Guide**](docs/user-guide.md) and [`docs/captions.md`](docs/captions.md).
 
 ## Requirements
 
@@ -79,6 +90,14 @@ A record icon appears in your menu bar.
 - On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
 - **Web Publish Latest…** exports lightweight web MP4s (one per selected tier) + poster +
   `embed.html` into a `…-web/` folder.
+- **AI Features → AI Settings…** enables AI (off by default) and stores your keys
+  (OpenAI-compatible for captions, ElevenLabs for voiceover) in the Keychain.
+- **AI Features → Generate Captions for Latest…** transcribes your latest recording, opens an
+  editor to fix the wording, then **Save** (`.srt`/`.vtt`) or **Add to Video** (burned-in
+  `…captioned.mp4`). Reuses a cached transcript on repeat runs.
+- **AI Features → Generate Voiceover for Latest…** turns a script (typed, transcript-filled,
+  or loaded from a `.txt`) into an ElevenLabs voice laid over the video (`…voiceover.mp4`).
+- Full walkthrough in the [**User Guide**](docs/user-guide.md).
 
 ## How it works
 
@@ -94,12 +113,16 @@ A record icon appears in your menu bar.
   composition, and draws the cursor, ripples, webcam, and badges on top. Output is
   web-standard H.264 (High, yuv420p, faststart) + AAC, 30 fps.
 - **Web Publish:** transcodes the styled master down to the selected height tiers.
+- **AI (opt-in):** captions extract the audio and POST it to an OpenAI-compatible
+  `/audio/transcriptions` endpoint; the transcript is cached (`…transcript.json`) and reused.
+  Voiceover synthesizes an ElevenLabs MP3 and muxes it over the video (video passthrough, no
+  re-encode). Burned-in captions are drawn with Core Text over each frame.
 
 ## Project layout
 
 ```
 Sources/DemoTape/
-  main.swift                  App entry + headless --render / --transcode test hooks
+  main.swift                  App entry + headless hooks (--render/--transcode/--captions/--burn/--voices/--voiceover)
   AppDelegate.swift           Menu bar UI, state machine, orchestration
   Settings.swift              UserDefaults-backed preferences
   RecordingEngine.swift       Screen + mic capture (AVCaptureScreenInput), prepare/begin/stop
@@ -109,6 +132,13 @@ Sources/DemoTape/
   FocusTimeline.swift         Auto-zoom camera model (clicks + typing → scale/center)
   VideoRenderer.swift         Core Image/Metal styled render (zoom, cursor, ripples, webcam)
   Transcoder.swift            Web Publish downscale/encode
+  Captions.swift              Audio→text (STT), SRT/VTT, transcript cache
+  CaptionsEditorController.swift  Editable transcript UI (Save / Add to Video)
+  CaptionBurner.swift         Burn captions into a …captioned.mp4 (Core Text)
+  Voiceover.swift             ElevenLabs voices + TTS + audio mux
+  VoiceoverController.swift   Script/voice UI → …voiceover.mp4
+  AISettingsController.swift  AI enable + provider/key settings
+  Keychain.swift              Secure storage for BYO API keys
   CountdownController.swift   3-2-1 overlay
   RegionSelector.swift        Drag-to-select area overlay
   WebcamSettingsController.swift  Live webcam positioning overlay
@@ -116,6 +146,8 @@ Sources/DemoTape/
   WebPublishController.swift  Web export panel
   GlobalHotKey.swift          Carbon global hotkey (⇧⌘S)
   Log.swift / Paths.swift     Diagnostics + output folder
+Tests/DemoTapeTests/          Unit tests (captions, voiceover, zoom, transcoder, metadata)
+docs/                         User guide + captions/provider reference
 Resources/
   Info.plist                  Bundle metadata (LSUIElement menu-bar app)
   background/                 Bundled gradient backgrounds
@@ -125,9 +157,12 @@ create-identity.sh            One-time self-signed signing identity
 
 ## Security & privacy
 
-- **Local-only.** No network code, no telemetry, no analytics, no accounts — recordings and
-  all processing stay on your Mac. (Verifiable in the source, or with a firewall like Little
-  Snitch.)
+- **Local by default.** No telemetry, no analytics, no accounts — recording, styling, and
+  Web Publish all stay on your Mac. The only network access is the **opt-in AI features**:
+  captions upload a recording's audio to the OpenAI-compatible endpoint *you* configure, and
+  voiceover sends your script text to ElevenLabs — both authenticated with *your* key.
+  Nothing routes through DemoTape's authors, and with AI left off the app makes no network
+  requests. (All verifiable in the source, or with a firewall like Little Snitch.)
 - **Writes only to `~/Movies/DemoTape/`,** and only deletes files it created there. It never
   touches your documents or anything outside its own output folder.
 - **Unprivileged.** No root, no kernel extensions, no system modification — it can't harm
@@ -152,10 +187,45 @@ create-identity.sh            One-time self-signed signing identity
 
 ## Roadmap / ideas
 
+DemoTape is a local-first *recorder* growing into an **AI-friendly demo engine**: record once,
+then produce a polished, narrated, multi-format demo — all locally or with your own API keys
+(BYO key, nothing sent anywhere you don't control).
+
+**Shipped (v2)**
+- ✅ **Captions**: transcribe (OpenAI / Groq / local Whisper), edit the lines, export
+  `.srt` / `.vtt` or burn them in. Transcript cached for reuse.
+- ✅ **AI voiceover**: script → ElevenLabs voice → laid over the video.
+
+**Post-production & voice (next)**
+- **Multi-language**: one recording → subtitles and voiceovers in several languages.
+- Per-line synced voiceover (align narration to on-screen actions).
+
+**Smarter editing**
+- **AI Director timeline**: turn the captured event stream (clicks, pauses, shortcuts,
+  window/URL/app changes) into *suggested* zooms, cuts of dead time, captions, and
+  chapter markers — an editable pass on top of today's auto-zoom.
+- **Privacy Shield**: detect and blur likely secrets on screen (API keys, tokens,
+  `.env` values, emails, localhost/paths) with a review-before-export mode.
+- **Smart silence compression**: trim/speed up loading and dead time while keeping
+  cursor motion and audio sync natural.
+- **AI cursor cleanup**: smooth shaky paths, snap the cursor near click targets.
+
+**Formats & assets**
+- **Vertical / guided camera**: record the desktop, pick a 9:16 mode, and guide the
+  crop live (⌥-click "center here") for Reels / Shorts / LinkedIn.
+- **Launch-asset generator**: from one recording, produce a README video, animated
+  GIF, social clips, poster, and thumbnail.
+- **Demo templates**: SaaS launch, open-source project, CLI tutorial, bug report —
+  each preset controls aspect ratio, background, captions, zoom style, and export.
+
+**Engine / quality**
 - Background render with menu-bar progress for long clips
 - Motion blur on fast zoom/cursor transitions
 - HEVC variant for even smaller files (with MP4 fallback)
 - HLS/fMP4 ladder — only if long-form video is added
+
+Design principle: **local by default, bring-your-own-key for AI.** No mandatory
+cloud, no telemetry.
 
 ## Contributing
 

@@ -29,6 +29,94 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
     }
 }
 
+// Headless captions test:  DemoTape --captions <input.mp4>
+// Uses DEMOTAPE_STT_KEY (and optional DEMOTAPE_STT_BASEURL / DEMOTAPE_STT_MODEL) from
+// the environment so it runs without the GUI/Keychain. Writes .srt + .vtt sidecars.
+if let i = args.firstIndex(of: "--captions"), args.count > i + 1 {
+    let input = URL(fileURLWithPath: args[i + 1])
+    let env = ProcessInfo.processInfo.environment
+    let key = env["DEMOTAPE_STT_KEY"] ?? Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
+    guard !key.isEmpty else {
+        FileHandle.standardError.write("captions error: no API key (set DEMOTAPE_STT_KEY)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let config = Captions.Config(
+        baseURL: env["DEMOTAPE_STT_BASEURL"] ?? "https://api.openai.com/v1",
+        model: env["DEMOTAPE_STT_MODEL"] ?? "whisper-1",
+        apiKey: key,
+        language: env["DEMOTAPE_STT_LANG"] ?? "")
+    do {
+        let result = try Captions().generate(for: input, config: config)
+        print("captions: \(result.srt.path)\n\(result.vtt.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("captions error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless voice list:  DemoTape --voices   (uses DEMOTAPE_ELEVEN_KEY)
+if args.contains("--voices") {
+    let key = ProcessInfo.processInfo.environment["DEMOTAPE_ELEVEN_KEY"]
+        ?? Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
+    guard !key.isEmpty else {
+        FileHandle.standardError.write("voices error: no key (set DEMOTAPE_ELEVEN_KEY)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    do {
+        let voices = try Voiceover().fetchVoices(apiKey: key)
+        for v in voices { print("\(v.id)\t\(v.label)") }
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("voices error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless voiceover:  DemoTape --voiceover <video> <script.txt> [voiceId]
+// Uses DEMOTAPE_ELEVEN_KEY; writes <name>.voiceover.mp4 next to the video.
+if let i = args.firstIndex(of: "--voiceover"), args.count > i + 2 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    let scriptURL = URL(fileURLWithPath: args[i + 2])
+    let env = ProcessInfo.processInfo.environment
+    let key = env["DEMOTAPE_ELEVEN_KEY"] ?? Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
+    guard !key.isEmpty else {
+        FileHandle.standardError.write("voiceover error: no key (set DEMOTAPE_ELEVEN_KEY)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let voiceId = args.count > i + 3 ? args[i + 3] : (env["DEMOTAPE_ELEVEN_VOICE"] ?? "CwhRBWXzGAHq8TQ4Fs17")
+    let model = env["DEMOTAPE_ELEVEN_MODEL"] ?? "eleven_multilingual_v2"
+    do {
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        let out = try Voiceover().generate(video: video, script: script,
+                                           voiceId: voiceId, model: model, apiKey: key)
+        print("voiceover: \(out.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("voiceover error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless caption burn:  DemoTape --burn <video>
+// Loads cues from the cached transcript (or a .srt sidecar) and writes <name>.captioned.mp4.
+if let i = args.firstIndex(of: "--burn"), args.count > i + 1 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    guard let cues = Captions.loadTranscript(for: video), !cues.isEmpty else {
+        FileHandle.standardError.write("burn error: no transcript/.srt found for \(video.lastPathComponent)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let out = video.deletingPathExtension().deletingPathExtension().appendingPathExtension("captioned.mp4")
+    do {
+        try CaptionBurner().burn(video: video, cues: cues, to: out)
+        print("burned: \(out.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("burn error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // Headless transcode test:  DemoTape --transcode <input> <height> <output.mp4>
 if let i = args.firstIndex(of: "--transcode"), args.count > i + 3 {
     let input = URL(fileURLWithPath: args[i + 1])
