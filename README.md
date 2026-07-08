@@ -123,6 +123,24 @@ build-app.sh                  Build + package + sign + install to /Applications
 create-identity.sh            One-time self-signed signing identity
 ```
 
+## Security & privacy
+
+- **Local-only.** No network code, no telemetry, no analytics, no accounts — recordings and
+  all processing stay on your Mac. (Verifiable in the source, or with a firewall like Little
+  Snitch.)
+- **Writes only to `~/Movies/DemoTape/`,** and only deletes files it created there. It never
+  touches your documents or anything outside its own output folder.
+- **Unprivileged.** No root, no kernel extensions, no system modification — it can't harm
+  macOS; a bug can at most crash the app itself.
+- **Permissions it may request** (all handled locally): **Screen Recording** (required),
+  **Microphone** / **Camera** (only if you enable audio/webcam), and **Accessibility** (only
+  to show keyboard-shortcut badges — keystrokes are logged to a local `.events.json` during
+  recording and never transmitted).
+- **Not notarized.** Builds are signed with a local self-signed identity, so macOS Gatekeeper
+  will warn about an "unidentified developer." Since it's open source, you can read the code
+  and build it yourself. `create-identity.sh` adds an untrusted, code-signing-only certificate
+  to your login keychain for local signing; it grants nothing and can be removed anytime.
+
 ## Known limitations (Monterey)
 
 - **System audio** capture needs a macOS 13+ API. On Monterey, route it through a free
