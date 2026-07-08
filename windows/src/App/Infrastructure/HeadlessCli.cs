@@ -101,8 +101,10 @@ public static class HeadlessCli
                 ? raw[..^4] + ".events.json"
                 : raw + ".events.json";
             var renderer = new StyledVideoRenderer(new ConsoleLogger<StyledVideoRenderer>());
-            Console.WriteLine($"render: {raw} (+ {Path.GetFileName(sidecar)}) -> {output}");
-            var result = await renderer.RenderAsync(raw, sidecar, output, new DemoTape.Domain.Settings.AppSettings());
+            var settingsStore = new JsonSettingsStore(new PathService(), NullLogger<JsonSettingsStore>.Instance);
+            var settings = settingsStore.Load();
+            Console.WriteLine($"render: {raw} (+ {Path.GetFileName(sidecar)}) region={settings.UseRegion} -> {output}");
+            var result = await renderer.RenderAsync(raw, sidecar, output, settings);
             Console.WriteLine(result is null ? "render: FAILED" : $"render: OK -> {output} ({new FileInfo(output).Length / 1024} KB)");
             return true;
         }

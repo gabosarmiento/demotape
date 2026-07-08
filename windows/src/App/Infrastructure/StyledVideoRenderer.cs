@@ -7,6 +7,7 @@ using DemoTape.Domain.Rendering;
 using DemoTape.Domain.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.Graphics.Canvas.Text;
 using Microsoft.UI;
@@ -65,17 +66,33 @@ public sealed class StyledVideoRenderer
 
             var focus = new FocusTimeline(meta, maxZoom: 2.0);
             var camera = new SpringCamera();
-            var viewport = new CameraViewport(W, H);
             double eventOffset = meta.EventTimeOffset ?? 0;
 
+            // Region mode: crop to the selected region and frame it on a padded background.
+            bool framed = settings.UseRegion && settings.RegionW > 0 && settings.RegionH > 0;
+            var srcRegion = framed
+                ? new Rect(settings.RegionX * W, settings.RegionY * H, settings.RegionW * W, settings.RegionH * H)
+                : new Rect(0, 0, W, H);
+            int pad = framed ? 48 : 0;
+            int contentW = Even((int)srcRegion.Width);
+            int contentH = Even((int)srcRegion.Height);
+            int outW = Even(contentW + pad * 2);
+            int outH = Even(contentH + pad * 2);
+            var viewport = new CameraViewport(outW, outH, pad);
+
             using var device = new CanvasDevice();
-            using var compRT = new CanvasRenderTarget(device, W, H, 96);
-            using var flipRT = new CanvasRenderTarget(device, W, H, 96);
+            using var frameRT = new CanvasRenderTarget(device, outW, outH, 96);
+            using var compRT = new CanvasRenderTarget(device, outW, outH, 96);
+            using var flipRT = new CanvasRenderTarget(device, outW, outH, 96);
             using var cursorImg = MakeCursor(device);
+            using var background = framed ? LoadBackground(device, settings.BackgroundFile, outW, outH) : null;
+            using var contentClip = framed
+                ? CanvasGeometry.CreateRoundedRectangle(device, pad, pad, contentW, contentH, 20, 20)
+                : null;
 
             var channel = Channel.CreateBounded<(byte[] Bgra, TimeSpan Time)>(
                 new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true });
-            var encodeTask = EncodeAsync(channel.Reader, W, H, outPath);
+            var encodeTask = EncodeAsync(channel.Reader, outW, outH, outPath);
 
             for (int i = 0; i < totalFrames; i++)
             {
@@ -92,30 +109,44 @@ public sealed class StyledVideoRenderer
                 camera.Step(targetFocus, 1.0 / Fps);
                 var view = viewport.ComputeViewport(camera.Scale, camera.CenterX, camera.CenterY);
 
+                // 1) Un-zoomed composition (framed for region mode; the raw frame otherwise).
+                ICanvasImage zoomSource;
+                if (framed)
+                {
+                    using (var ds = frameRT.CreateDrawingSession())
+                    {
+                        ds.Clear(Colors.Black);
+                        if (background is not null) ds.DrawImage(background);
+                        using (ds.CreateLayer(1f, contentClip))
+                            ds.DrawImage(srcBitmap, new Rect(pad, pad, contentW, contentH), srcRegion);
+                    }
+                    zoomSource = frameRT;
+                }
+                else
+                {
+                    zoomSource = srcBitmap; // full frame == output size
+                }
+
+                // 2) Zoom the whole composition toward the focus, then draw overlays.
                 using (var ds = compRT.CreateDrawingSession())
                 {
                     ds.Clear(Colors.Black);
-                    // Auto-zoom: draw the source viewport region stretched to fill the output.
-                    ds.DrawImage(srcBitmap,
-                        new Rect(0, 0, W, H),
+                    ds.DrawImage(zoomSource,
+                        new Rect(0, 0, outW, outH),
                         new Rect(view.OffsetX, view.OffsetY, view.Width, view.Height));
-
-                    if (settings.ShowShortcutBadges || true) // ripples/cursor always on
-                    {
-                        DrawRipples(ds, meta, viewport, camera.Scale, view, eventT, W);
-                        DrawCursor(ds, cursorImg, focus, viewport, camera.Scale, view, eventT);
-                    }
+                    DrawRipples(ds, meta, viewport, camera.Scale, view, eventT, outW);
+                    DrawCursor(ds, cursorImg, focus, viewport, camera.Scale, view, eventT);
                     if (settings.ShowShortcutBadges)
                     {
                         var label = focus.ShortcutBadge(eventT);
-                        if (label is not null) DrawBadge(ds, label, W, H);
+                        if (label is not null) DrawBadge(ds, label, outW, outH);
                     }
                 }
 
-                // Flip vertically so the encoder's bottom-up BGRA read yields the correct orientation.
+                // 3) Flip vertically so the encoder's bottom-up BGRA read yields correct orientation.
                 using (var ds = flipRT.CreateDrawingSession())
                 {
-                    ds.Transform = Matrix3x2.CreateScale(1, -1) * Matrix3x2.CreateTranslation(0, H);
+                    ds.Transform = Matrix3x2.CreateScale(1, -1) * Matrix3x2.CreateTranslation(0, outH);
                     ds.DrawImage(compRT);
                 }
 
@@ -252,6 +283,41 @@ public sealed class StyledVideoRenderer
         float x = (outW - w) / 2, y = outH - h - 90;
         ds.FillRoundedRectangle(x, y, w, h, 14, 14, Color.FromArgb(200, 20, 20, 20));
         ds.DrawTextLayout(layout, x + padX, y + padY, Colors.White);
+    }
+
+    private static CanvasRenderTarget LoadBackground(CanvasDevice device, string bgFile, int outW, int outH)
+    {
+        var rt = new CanvasRenderTarget(device, outW, outH, 96);
+        using var ds = rt.CreateDrawingSession();
+        var path = ResolveBackgroundPath(bgFile);
+        if (path is not null)
+        {
+            try
+            {
+                using var img = CanvasBitmap.LoadAsync(device, path).AsTask().GetAwaiter().GetResult();
+                double s = Math.Max(outW / img.Size.Width, outH / img.Size.Height);
+                double dw = img.Size.Width * s, dh = img.Size.Height * s;
+                ds.DrawImage(img, new Rect((outW - dw) / 2, (outH - dh) / 2, dw, dh));
+                return rt;
+            }
+            catch { /* fall through to gradient */ }
+        }
+        using var brush = new CanvasLinearGradientBrush(device,
+            Color.FromArgb(255, 41, 46, 77), Color.FromArgb(255, 15, 18, 31))
+        {
+            StartPoint = new Vector2(0, 0),
+            EndPoint = new Vector2(0, outH),
+        };
+        ds.FillRectangle(0, 0, outW, outH, brush);
+        return rt;
+    }
+
+    private static string? ResolveBackgroundPath(string bgFile)
+    {
+        if (string.IsNullOrWhiteSpace(bgFile)) return null;
+        if (Path.IsPathRooted(bgFile) && File.Exists(bgFile)) return bgFile;
+        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "Backgrounds", bgFile);
+        return File.Exists(bundled) ? bundled : null;
     }
 
     private static int Even(int v) => v % 2 == 0 ? v : v - 1;

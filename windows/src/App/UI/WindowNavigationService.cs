@@ -1,24 +1,28 @@
 using DemoTape.App.Infrastructure;
+using DemoTape.Domain.Abstractions;
 using DemoTape.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DemoTape.App.UI;
 
 /// <summary>
-/// Opens the app's secondary windows. Only the Web Publish window is implemented in this slice;
-/// the background picker, webcam settings, and region selector are planned windows that surface
-/// a friendly notice for now (the feature is sequenced, not removed).
+/// Opens the app's secondary windows (Web Publish, region selector, background picker, webcam
+/// settings).
 /// </summary>
 public sealed class WindowNavigationService : INavigationService
 {
     private readonly IServiceProvider _services;
     private readonly WindowsUserInteraction _interaction;
+    private readonly ISettingsStore _settingsStore;
     private WebPublishWindow? _webPublish;
+    private RegionSelectorWindow? _regionSelector;
+    private BackgroundPickerWindow? _backgroundPicker;
 
-    public WindowNavigationService(IServiceProvider services, WindowsUserInteraction interaction)
+    public WindowNavigationService(IServiceProvider services, WindowsUserInteraction interaction, ISettingsStore settingsStore)
     {
         _services = services;
         _interaction = interaction;
+        _settingsStore = settingsStore;
     }
 
     public void OpenWebPublish()
@@ -34,10 +38,23 @@ public sealed class WindowNavigationService : INavigationService
         _webPublish.Activate();
     }
 
-    public void OpenBackgroundPicker() => Planned("Background gallery");
-    public void OpenWebcamSettings() => Planned("Webcam settings");
-    public void SelectRecordingArea() => Planned("Region selection");
+    public void SelectRecordingArea()
+    {
+        if (_regionSelector is not null) { _regionSelector.Activate(); return; }
+        _regionSelector = new RegionSelectorWindow(_settingsStore);
+        _regionSelector.Closed += (_, _) => _regionSelector = null;
+        _regionSelector.Activate();
+    }
 
-    private void Planned(string feature) =>
-        _ = _interaction.ShowMessageAsync(feature, $"{feature} ships with the capture pipeline slice.");
+    public void OpenBackgroundPicker()
+    {
+        if (_backgroundPicker is not null) { _backgroundPicker.Activate(); return; }
+        _backgroundPicker = new BackgroundPickerWindow(_settingsStore);
+        _backgroundPicker.Closed += (_, _) => _backgroundPicker = null;
+        _backgroundPicker.Activate();
+    }
+
+    public void OpenWebcamSettings() =>
+        _ = _interaction.ShowMessageAsync("Webcam settings",
+            "Live webcam positioning is coming next. For now the webcam records at its default size/position.");
 }

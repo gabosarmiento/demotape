@@ -73,7 +73,12 @@ public sealed class WindowsRecordingController : IRecordingController
 
             _events = _services.GetRequiredService<EventRecorder>();
             var display = BuildDisplay();
-            var region = (0.0, 0.0, display.PixelWidth, display.PixelHeight);
+            var settings = _settingsStore.Load();
+            (double X, double Y, double W, double H) region =
+                settings.UseRegion && settings.RegionW > 0 && settings.RegionH > 0
+                    ? (settings.RegionX * display.PixelWidth, settings.RegionY * display.PixelHeight,
+                       settings.RegionW * display.PixelWidth, settings.RegionH * display.PixelHeight)
+                    : (0.0, 0.0, display.PixelWidth, display.PixelHeight);
             _events.Start(region, display);
 
             SetState(RecordingState.Recording);
