@@ -1,11 +1,12 @@
 using System.Text.Json;
-using Microsoft.Graphics.Canvas;
-using Microsoft.Graphics.Canvas.Effects;
 using DemoTape.Domain.Models;
 using DemoTape.Domain.Rendering;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.Graphics.Canvas.Text;
+using Microsoft.UI;
 using Windows.Foundation.Collections;
 using Windows.Graphics.DirectX.Direct3D11;
-using Windows.Graphics.Imaging;
 using Windows.Media.Effects;
 using Windows.Media.MediaProperties;
 using Windows.UI;
@@ -160,13 +161,13 @@ public sealed class AutoZoomVideoEffect : IBasicVideoEffect
 
     private static void DrawBadge(CanvasDrawingSession ds, string label, double outW, double outH)
     {
-        using var format = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat
+        using var format = new CanvasTextFormat
         {
             FontSize = 34,
-            FontWeight = Windows.UI.Text.FontWeights.SemiBold,
-            HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
         };
-        using var layout = new Microsoft.Graphics.Canvas.Text.CanvasTextLayout(ds, label, format, 600, 80);
+        using var layout = new CanvasTextLayout(ds, label, format, 600, 80);
         var b = layout.LayoutBounds;
         float padX = 24, padY = 12;
         float w = (float)(b.Width + padX * 2), h = (float)(b.Height + padY * 2);

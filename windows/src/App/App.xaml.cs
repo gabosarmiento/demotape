@@ -1,3 +1,4 @@
+using System.IO;
 using DemoTape.App.Infrastructure;
 using DemoTape.ViewModels;
 using H.NotifyIcon;
@@ -21,7 +22,27 @@ public partial class App : Application
     private GlobalHotKey? _hotKey;
     private ShellViewModel? _shell;
 
-    public App() => InitializeComponent();
+    public App()
+    {
+        InitializeComponent();
+
+        // Global crash logging so failures are never silent.
+        UnhandledException += (_, e) => LogFatal("UI", e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => LogFatal("Domain", e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) => { LogFatal("Task", e.Exception); e.SetObserved(); };
+    }
+
+    private static void LogFatal(string source, Exception? ex)
+    {
+        try
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DemoTape", "logs");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "fatal.log"),
+                $"[{DateTimeOffset.Now:O}] {source}: {ex}{Environment.NewLine}");
+        }
+        catch { /* best effort */ }
+    }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -35,9 +56,24 @@ public partial class App : Application
         _services = BuildServices();
         _shell = _services.GetRequiredService<ShellViewModel>();
 
+        // A persistent, hidden host window keeps the process alive. Without it, WinUI exits when
+        // the last activated window (e.g. Web Publish) is closed — but this is a tray app, so
+        // closing an option window must not quit it. It's activated (so it counts as an open
+        // window) then immediately hidden from screen and alt-tab.
+        _hostWindow = new Window();
+        _hostWindow.AppWindow.IsShownInSwitchers = false;
+        _hostWindow.Activate();
+        var hostHwnd = WinRT.Interop.WindowNative.GetWindowHandle(_hostWindow);
+        ShowWindow(hostHwnd, SW_HIDE);
+
         CreateTrayIcon(_shell);
         RegisterHotKey(_shell);
     }
+
+    private Window? _hostWindow;
+    private const int SW_HIDE = 0;
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     private static IServiceProvider BuildServices()
     {
@@ -71,7 +107,7 @@ public partial class App : Application
         menu.Items.Add(new MenuFlyoutSeparator());
 
         menu.Items.Add(MakeToggle("Record Microphone", shell.CaptureMicrophone, v => shell.CaptureMicrophone = v));
-        menu.Items.Add(MakeToggle("Show Webcam", shell.CaptureWebcam, v => shell.CaptureWebcam = v));
+        menu.Items.Add(MakeToggle("Record Webcam", shell.CaptureWebcam, v => shell.CaptureWebcam = v));
         menu.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
         menu.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
@@ -89,7 +125,13 @@ public partial class App : Application
             ToolTipText = "DemoTape",
             ContextFlyout = menu,
         };
-        _trayIcon.LeftClickCommand = shell.OpenWebPublishCommand;
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "demotape.ico");
+        if (!File.Exists(iconPath))
+            iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "trayicon.png");
+        if (File.Exists(iconPath))
+            _trayIcon.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(iconPath));
+        // No left-click action: the menu opens on right-click (standard tray behavior). Left-click
+        // must NOT open a settings window.
         _trayIcon.ForceCreate();
     }
 

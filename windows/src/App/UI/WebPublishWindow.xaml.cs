@@ -20,6 +20,7 @@ public sealed partial class WebPublishWindow : Window
 
         Title = "DemoTape — Web Publish";
         AppWindow.Resize(new SizeInt32(520, 440));
+        Root.DataContext = ViewModel;
 
         // Route ViewModel notifications through this window's XamlRoot for Fluent dialogs.
         Activated += (_, _) => interaction.XamlRoot = Root.XamlRoot;

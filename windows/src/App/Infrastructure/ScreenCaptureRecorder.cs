@@ -1,4 +1,6 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
@@ -36,6 +38,8 @@ public sealed class ScreenCaptureRecorder
     private GraphicsCaptureSession? _session;
     private GraphicsCaptureItem? _item;
     private Channel<(byte[] Bgra, TimeSpan Time)>? _frames;
+    private CanvasRenderTarget? _flipTarget;
+    private readonly object _flipLock = new();
     private TimeSpan _firstFrameTime = TimeSpan.MinValue;
     private int _width, _height;
     private Task? _encodeTask;
@@ -52,7 +56,10 @@ public sealed class ScreenCaptureRecorder
     public void Start(string outputPath, (double X, double Y, double W, double H)? region = null)
     {
         _outputPath = outputPath;
-        _device = CanvasDevice.GetSharedDevice();
+        // A DEDICATED device (not the shared one WinUI renders with) so the free-threaded capture
+        // callback never contends with the UI thread's GPU work — that contention was hanging the
+        // UI thread and causing the shell to drop the tray icon.
+        _device = new CanvasDevice();
 
         var hmon = MonitorFromPoint(new POINT { X = 0, Y = 0 }, MONITOR_DEFAULTTOPRIMARY);
         _item = CreateItemForMonitor(hmon);
@@ -67,13 +74,15 @@ public sealed class ScreenCaptureRecorder
             SingleReader = true,
         });
 
+        // Reused target for the per-frame vertical flip (Media Foundation reads BGRA bottom-up).
+        _flipTarget = new CanvasRenderTarget(_device, _width, _height, 96);
+
         _framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
             _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, size);
         _framePool.FrameArrived += OnFrameArrived;
 
         _session = _framePool.CreateCaptureSession(_item);
         TrySet(() => _session.IsCursorCaptureEnabled = false);  // we draw a synthetic cursor
-        TrySet(() => _session.IsBorderRequired = false);        // no yellow capture border (1809+)
 
         _encodeTask = Task.Run(EncodeAsync);
         _session.StartCapture();
@@ -82,13 +91,32 @@ public sealed class ScreenCaptureRecorder
 
     private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
     {
-        using var frame = sender.TryGetNextFrame();
-        if (frame is null || _device is null || _frames is null) return;
-        if (_firstFrameTime == TimeSpan.MinValue) _firstFrameTime = frame.SystemRelativeTime;
+        try
+        {
+            using var frame = sender.TryGetNextFrame();
+            if (frame is null || _device is null || _frames is null || _flipTarget is null) return;
+            if (_firstFrameTime == TimeSpan.MinValue) _firstFrameTime = frame.SystemRelativeTime;
 
-        using var bitmap = CanvasBitmap.CreateFromDirect3D11Surface(_device, frame.Surface);
-        var bytes = bitmap.GetPixelBytes(); // BGRA8
-        _frames.Writer.TryWrite((bytes, frame.SystemRelativeTime - _firstFrameTime));
+            using var bitmap = CanvasBitmap.CreateFromDirect3D11Surface(_device, frame.Surface);
+            byte[] bytes;
+            lock (_flipLock)
+            {
+                // Draw the frame flipped vertically (scale Y by -1, shift down by height) so the
+                // top-down capture becomes the bottom-up layout the H.264 encoder expects.
+                using (var ds = _flipTarget.CreateDrawingSession())
+                {
+                    ds.Transform = Matrix3x2.CreateScale(1, -1) * Matrix3x2.CreateTranslation(0, _height);
+                    ds.DrawImage(bitmap);
+                }
+                bytes = _flipTarget.GetPixelBytes();
+            }
+            _frames.Writer.TryWrite((bytes, frame.SystemRelativeTime - _firstFrameTime));
+        }
+        catch (Exception ex)
+        {
+            // Never let a transient frame error crash the capture callback thread.
+            _logger.LogWarning(ex, "Frame processing skipped");
+        }
     }
 
     private async Task EncodeAsync()
@@ -96,13 +124,15 @@ public sealed class ScreenCaptureRecorder
         if (_frames is null) return;
         var reader = _frames.Reader;
 
+        // Input: uncompressed BGRA frames. Frame rate + pixel-aspect MUST be set or the encoder
+        // rejects the media type (MF_E_*).
         var videoProps = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)_width, (uint)_height);
+        videoProps.FrameRate.Numerator = 30;
+        videoProps.FrameRate.Denominator = 1;
+        videoProps.PixelAspectRatio.Numerator = 1;
+        videoProps.PixelAspectRatio.Denominator = 1;
         var descriptor = new VideoStreamDescriptor(videoProps);
-        var mss = new MediaStreamSource(descriptor)
-        {
-            BufferTime = TimeSpan.Zero,
-            IsLive = true,
-        };
+        var mss = new MediaStreamSource(descriptor);
 
         mss.SampleRequested += async (s, e) =>
         {
@@ -124,12 +154,21 @@ public sealed class ScreenCaptureRecorder
             finally { deferral.Complete(); }
         };
 
-        var profile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD1080p);
-        profile.Video = VideoEncodingProperties.CreateH264();
-        profile.Video.Width = (uint)_width;
-        profile.Video.Height = (uint)_height;
-        profile.Video.Bitrate = (uint)(_width * _height * 8);
-        profile.Audio = null; // raw screen has no audio; mic is captured/muxed separately
+        // Output: build a coherent H.264 MP4 profile with explicit dimensions + frame rate.
+        var h264 = VideoEncodingProperties.CreateH264();
+        h264.Width = (uint)_width;
+        h264.Height = (uint)_height;
+        h264.Bitrate = (uint)(_width * _height * 8);
+        h264.FrameRate.Numerator = 30;
+        h264.FrameRate.Denominator = 1;
+        h264.PixelAspectRatio.Numerator = 1;
+        h264.PixelAspectRatio.Denominator = 1;
+        var profile = new MediaEncodingProfile
+        {
+            Container = new ContainerEncodingProperties { Subtype = MediaEncodingSubtypes.Mpeg4 },
+            Video = h264,
+            Audio = null, // raw screen has no audio; mic is captured/muxed separately
+        };
 
         var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(_outputPath)!);
         var file = await folder.CreateFileAsync(Path.GetFileName(_outputPath), CreationCollisionOption.ReplaceExisting);
@@ -158,6 +197,10 @@ public sealed class ScreenCaptureRecorder
             catch (Exception ex) { _logger.LogError(ex, "Encode task failed"); }
         }
         _session = null; _framePool = null; _item = null;
+        _flipTarget?.Dispose();
+        _flipTarget = null;
+        _device?.Dispose();
+        _device = null;
 
         if (!File.Exists(_outputPath) || new FileInfo(_outputPath).Length == 0) return null;
         return new CaptureResult(_outputPath, _region.X, _region.Y, _region.W, _region.H,

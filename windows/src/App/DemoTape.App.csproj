@@ -50,6 +50,9 @@
   <ItemGroup>
     <!-- Bundled gradient backgrounds (copied from the macOS Resources/background folder). -->
     <Content Include="Assets\Backgrounds\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Tray icon (multi-resolution .ico, most reliable for the notification area). -->
+    <Content Include="Assets\demotape.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\trayicon.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Windows.Media.Editing;
 using Windows.Media.Effects;
 using Windows.Media.MediaProperties;
+using Windows.Media.Transcoding;
 using Windows.Storage;
 
 namespace DemoTape.App.Infrastructure;

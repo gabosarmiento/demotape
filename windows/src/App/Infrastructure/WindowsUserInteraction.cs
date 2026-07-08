@@ -41,7 +41,8 @@ public sealed class WindowsUserInteraction : IUserInteraction
             return;
         }
 
-        MessageBox(IntPtr.Zero, message, title, 0x40 /* MB_ICONINFORMATION */);
+        // MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST so it surfaces above the tray flyout.
+        MessageBox(IntPtr.Zero, message, title, 0x40 | 0x10000 | 0x40000);
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
