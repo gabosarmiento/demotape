@@ -2,18 +2,20 @@
 <Window
     x:Class="DemoTape.App.UI.WebcamSettingsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls">
 
     <Grid x:Name="Root" Background="#73000000">
         <Canvas x:Name="Layer">
-            <!-- Draggable / resizable webcam circle (placeholder preview) -->
+            <!-- Draggable / resizable webcam circle with a live preview -->
             <Grid x:Name="Puck" Width="240" Height="240">
-                <Ellipse x:Name="Circle" Width="240" Height="240" Fill="#FF282C34" />
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="4"
-                            IsHitTestVisible="False" Margin="0,0,0,44">
-                    <FontIcon Glyph="&#xE960;" FontSize="40" Foreground="#73FFFFFF" HorizontalAlignment="Center" />
-                    <TextBlock Text="Webcam" Foreground="#73FFFFFF" HorizontalAlignment="Center" />
-                </StackPanel>
+                <Border x:Name="CircleClip" Width="240" Height="240" CornerRadius="120" Background="#FF282C34">
+                    <Grid>
+                        <controls:CameraPreview x:Name="Cam" IsFrameSourceGroupButtonVisible="False" />
+                        <FontIcon x:Name="OffIcon" Glyph="&#xE960;" FontSize="40" Foreground="#73FFFFFF"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                    </Grid>
+                </Border>
                 <Ellipse Width="240" Height="240" Stroke="White" StrokeThickness="3" IsHitTestVisible="False" />
 
                 <!-- Zoom slider with a magnifier icon beneath it -->

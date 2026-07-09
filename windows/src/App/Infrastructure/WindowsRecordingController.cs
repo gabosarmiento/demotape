@@ -29,9 +29,12 @@ public sealed class WindowsRecordingController : IRecordingController
     private EventRecorder? _events;
     private WebcamRecorder? _webcam;
     private Task<bool>? _webcamPrepare;
+    private MicRecorder? _mic;
+    private Task<bool>? _micPrepare;
     private string _rawPath = "";
     private string _sidecarPath = "";
     private string? _camPath;
+    private string? _micPath;
 
     public RecordingState State { get; private set; } = RecordingState.Idle;
     public event Action<RecordingState>? StateChanged;
@@ -57,9 +60,10 @@ public sealed class WindowsRecordingController : IRecordingController
     private Task StartAsync()
     {
         SetState(RecordingState.Countdown);
-        // Warm up the webcam concurrently with the countdown so recording begins instantly at
+        // Warm up the webcam + mic concurrently with the countdown so recording begins instantly at
         // zero (no camera cold-start lag / black frames) — matches the macOS behavior.
         _webcamPrepare = PrepareWebcamAsync();
+        _micPrepare = PrepareMicAsync();
         return RunOnUiAsync(async () =>
         {
             var countdown = new CountdownWindow();
@@ -87,6 +91,16 @@ public sealed class WindowsRecordingController : IRecordingController
         return false;
     }
 
+    private async Task<bool> PrepareMicAsync()
+    {
+        var settings = _settingsStore.Load();
+        if (!settings.CaptureMicrophone) { _mic = null; return false; }
+        _mic = _services.GetRequiredService<MicRecorder>();
+        if (await _mic.PrepareAsync()) return true;
+        _mic = null;
+        return false;
+    }
+
     private async Task BeginCaptureAsync()
     {
         try
@@ -99,7 +113,7 @@ public sealed class WindowsRecordingController : IRecordingController
 
             var settings = _settingsStore.Load();
 
-            // Begin the (already-warmed) webcam recording — fast, so it's aligned with the screen.
+            // Begin the (already-warmed) webcam + mic recordings — fast, aligned with the screen.
             _camPath = null;
             bool camReady = _webcamPrepare is not null && await _webcamPrepare;
             if (camReady && _webcam is not null)
@@ -109,6 +123,16 @@ public sealed class WindowsRecordingController : IRecordingController
                 else _webcam = null;
             }
             else _webcam = null;
+
+            _micPath = null;
+            bool micReady = _micPrepare is not null && await _micPrepare;
+            if (micReady && _mic is not null)
+            {
+                var mic = _rawPath[..^".mp4".Length] + ".mic.m4a";
+                if (await _mic.BeginAsync(mic)) _micPath = mic;
+                else _mic = null;
+            }
+            else _mic = null;
 
             _events = _services.GetRequiredService<EventRecorder>();
             var display = BuildDisplay();
@@ -136,6 +160,7 @@ public sealed class WindowsRecordingController : IRecordingController
         {
             var result = _capture is null ? null : await _capture.StopAsync();
             var camPath = _webcam is null ? null : await _webcam.StopAsync();
+            var micPath = _mic is null ? null : await _mic.StopAsync();
             _events?.Stop(_rawPath, cameraOffset: 0, eventOffset: 0);
 
             if (result is null)
@@ -151,7 +176,8 @@ public sealed class WindowsRecordingController : IRecordingController
             var styledPath = _rawPath[..^".mp4".Length] + ".styled.mp4";
             var renderer = _services.GetRequiredService<StyledVideoRenderer>();
             _logger.LogInformation("Rendering styled output…");
-            var styled = await renderer.RenderAsync(_rawPath, _sidecarPath, styledPath, settings, cameraPath: camPath);
+            var styled = await renderer.RenderAsync(_rawPath, _sidecarPath, styledPath, settings,
+                cameraPath: camPath, micPath: micPath);
 
             SetState(RecordingState.Idle);
             var final = styled ?? _rawPath;
@@ -171,6 +197,7 @@ public sealed class WindowsRecordingController : IRecordingController
             _capture = null;
             _events = null;
             _webcam = null;
+            _mic = null;
         }
     }
 

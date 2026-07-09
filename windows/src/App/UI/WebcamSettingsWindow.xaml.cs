@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.Media.Capture.Frames;
 using Windows.System;
 using WinRT.Interop;
 
@@ -42,6 +43,35 @@ public sealed partial class WebcamSettingsWindow : Window
         Puck.PointerPressed += OnPointerPressed;
         Puck.PointerMoved += OnPointerMoved;
         Puck.PointerReleased += OnPointerReleased;
+        Closed += (_, _) =>
+        {
+            try { Cam.Stop(); } catch { }
+            try { _cameraHelper?.Dispose(); } catch { }
+        };
+    }
+
+    private CommunityToolkit.WinUI.Helpers.CameraHelper? _cameraHelper;
+
+    private async void StartPreviewAsync()
+    {
+        try
+        {
+            var helper = new CommunityToolkit.WinUI.Helpers.CameraHelper();
+            var result = await helper.InitializeAndStartCaptureAsync();
+            if (result == CommunityToolkit.WinUI.Helpers.CameraHelperResult.Success)
+            {
+                _cameraHelper = helper;
+                await Cam.StartAsync(helper);
+            }
+            else
+            {
+                OffIcon.Visibility = Visibility.Visible; // camera busy/unavailable → placeholder
+            }
+        }
+        catch
+        {
+            OffIcon.Visibility = Visibility.Visible;
+        }
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -59,11 +89,14 @@ public sealed partial class WebcamSettingsWindow : Window
         ZoomSlider.Value = Math.Clamp(s.WebcamZoom, 1, 3);
 
         Root.Focus(FocusState.Programmatic);
+        StartPreviewAsync();
     }
 
     private void SetDiameter(double d)
     {
         Puck.Width = d; Puck.Height = d;
+        CircleClip.Width = d; CircleClip.Height = d;
+        CircleClip.CornerRadius = new CornerRadius(d / 2);
         foreach (var el in Puck.Children.OfType<Microsoft.UI.Xaml.Shapes.Ellipse>())
         {
             el.Width = d; el.Height = d;

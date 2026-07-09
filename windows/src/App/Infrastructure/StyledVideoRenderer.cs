@@ -43,7 +43,7 @@ public sealed class StyledVideoRenderer
     public StyledVideoRenderer(ILogger<StyledVideoRenderer> logger) => _logger = logger;
 
     public async Task<string?> RenderAsync(string rawPath, string sidecarPath, string outPath,
-        AppSettings settings, string? cameraPath = null, IProgress<double>? progress = null)
+        AppSettings settings, string? cameraPath = null, string? micPath = null, IProgress<double>? progress = null)
     {
         try
         {
@@ -206,6 +206,13 @@ public sealed class StyledVideoRenderer
             camPlayer?.Dispose();
             camSurface?.Dispose();
 
+            // Mux the microphone narration into the (silent) styled video.
+            if (micPath is not null && File.Exists(micPath))
+            {
+                try { await MuxAudioAsync(outPath, micPath, outW, outH); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Audio mux failed; keeping silent video"); }
+            }
+
             _logger.LogInformation("Styled render complete ({Frames} frames) -> {Name}", frameCount, Path.GetFileName(outPath));
             return outPath;
         }
@@ -334,6 +341,46 @@ public sealed class StyledVideoRenderer
         float x = (outW - w) / 2, y = outH - h - 90;
         ds.FillRoundedRectangle(x, y, w, h, 14, 14, Color.FromArgb(200, 20, 20, 20));
         ds.DrawTextLayout(layout, x + padX, y + padY, Colors.White);
+    }
+
+    /// <summary>Muxes a microphone track into the styled (silent) video via MediaComposition.</summary>
+    private async Task MuxAudioAsync(string videoPath, string micPath, int outW, int outH)
+    {
+        var vFile = await StorageFile.GetFileFromPathAsync(videoPath);
+        var clip = await Windows.Media.Editing.MediaClip.CreateFromFileAsync(vFile);
+        var comp = new Windows.Media.Editing.MediaComposition();
+        comp.Clips.Add(clip);
+
+        var aFile = await StorageFile.GetFileFromPathAsync(micPath);
+        var track = await Windows.Media.Editing.BackgroundAudioTrack.CreateFromFileAsync(aFile);
+        comp.BackgroundAudioTracks.Add(track);
+
+        var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(videoPath)!);
+        var tmp = await folder.CreateFileAsync(Path.GetFileNameWithoutExtension(videoPath) + ".mux.mp4",
+            CreationCollisionOption.ReplaceExisting);
+
+        var h264 = VideoEncodingProperties.CreateH264();
+        h264.Width = (uint)outW; h264.Height = (uint)outH;
+        h264.Bitrate = (uint)(outW * outH * 8);
+        h264.FrameRate.Numerator = 30; h264.FrameRate.Denominator = 1;
+        var profile = new MediaEncodingProfile
+        {
+            Container = new ContainerEncodingProperties { Subtype = MediaEncodingSubtypes.Mpeg4 },
+            Video = h264,
+            Audio = AudioEncodingProperties.CreateAac(48000, 2, 128000),
+        };
+
+        var reason = await comp.RenderToFileAsync(tmp, Windows.Media.Editing.MediaTrimmingPreference.Fast, profile);
+        if (reason != TranscodeFailureReason.None)
+        {
+            _logger.LogWarning("Audio mux render failed: {Reason}", reason);
+            try { File.Delete(tmp.Path); } catch { }
+            return;
+        }
+        // Replace the silent styled video with the muxed one.
+        File.Delete(videoPath);
+        File.Move(tmp.Path, videoPath);
+        _logger.LogInformation("Muxed microphone audio into {Name}", Path.GetFileName(videoPath));
     }
 
     private static void DrawWebcam(CanvasDrawingSession ds, CanvasRenderTarget cam, AppSettings s, int outW, int outH)

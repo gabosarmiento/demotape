@@ -30,6 +30,7 @@ public static class ServiceRegistration
         services.AddTransient<ScreenCaptureRecorder>();
         services.AddTransient<EventRecorder>();
         services.AddTransient<WebcamRecorder>();
+        services.AddTransient<MicRecorder>();
         services.AddTransient<StyledVideoRenderer>();
 
         // Shell wiring
