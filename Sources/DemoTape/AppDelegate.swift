@@ -9,7 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKey = GlobalHotKey()
 
     private enum State { case idle, countdown, recording, rendering }
-    private var state: State = .idle { didSet { refreshUI() } }
+    private var state: State = .idle { didSet { refreshUI(); updateRecorderBarForState() } }
+
+    private var recorderBar: RecorderBarController?
+    private var regionOverlay: RegionOverlay?
 
     private lazy var startItem = NSMenuItem(
         title: "Start Recording  (⇧⌘S)", action: #selector(startRecording), keyEquivalent: "")
@@ -225,6 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func stopRecording() {
         guard state == .recording else { return }
         state = .rendering
+        dismissRecorderBar()   // close the bar + border; rendering starts
         Task {
             let raw = await engine.stop()
             guard let raw = raw else {
@@ -394,11 +398,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleMic() {
         Settings.captureMicrophone.toggle()
         micItem.state = Settings.captureMicrophone ? .on : .off
+        recorderBar?.updateMic(Settings.captureMicrophone)
     }
 
     @objc private func toggleWebcam() {
         Settings.captureWebcam.toggle()
         webcamItem.state = Settings.captureWebcam ? .on : .off
+        recorderBar?.updateWebcam(Settings.captureWebcam)
     }
 
     private var webcamSettingsController: WebcamSettingsController?
@@ -431,13 +437,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func selectFullScreen() {
         Settings.useRegion = false
         updateCaptureModeChecks()
+        regionOverlay?.hide()
+        presentRecorderBar()
     }
 
     @objc private func selectArea() {
         let selector = RegionSelector()
         regionSelector = selector
-        selector.selectArea { [weak self] _ in
-            DispatchQueue.main.async { self?.updateCaptureModeChecks() }
+        selector.selectArea { [weak self] ok in
+            DispatchQueue.main.async {
+                self?.updateCaptureModeChecks()
+                if ok { self?.presentRecorderBar() }
+            }
+        }
+    }
+
+    // MARK: - Recorder bar + region border
+
+    /// Selected region in screen coordinates (bottom-left origin), matching the capture crop.
+    private func regionScreenRect() -> CGRect? {
+        guard Settings.useRegion, let screen = NSScreen.main else { return nil }
+        let f = screen.frame
+        let rx = CGFloat(Settings.regionX) * f.width
+        let ryTop = CGFloat(Settings.regionY) * f.height
+        let rw = CGFloat(Settings.regionW) * f.width
+        let rh = CGFloat(Settings.regionH) * f.height
+        return CGRect(x: f.minX + rx, y: f.minY + f.height - ryTop - rh, width: rw, height: rh)
+    }
+
+    private func presentRecorderBar() {
+        if recorderBar == nil {
+            let bar = RecorderBarController()
+            bar.onStart = { [weak self] in self?.startRecording() }
+            bar.onStop = { [weak self] in self?.stopRecording() }
+            bar.onCancel = { [weak self] in self?.cancelRecorderBar() }
+            bar.onToggleMic = { [weak self] in self?.toggleMic() }
+            bar.onToggleWebcam = { [weak self] in self?.toggleWebcam() }
+            recorderBar = bar
+        }
+        let region = regionScreenRect()
+        if let region = region {
+            if regionOverlay == nil {
+                let overlay = RegionOverlay()
+                overlay.onChange = { [weak self] screenRect in
+                    self?.saveRegion(fromScreenRect: screenRect)
+                    self?.recorderBar?.reposition(anchorRegion: screenRect)
+                }
+                regionOverlay = overlay
+            }
+            regionOverlay?.show(region: region, editable: true)  // adjustable until recording
+        } else {
+            regionOverlay?.hide()
+        }
+        recorderBar?.show(anchorRegion: region,
+                          micOn: Settings.captureMicrophone, webcamOn: Settings.captureWebcam)
+    }
+
+    /// Persist a region edited on screen (bottom-left) back to normalized settings (top-left).
+    private func saveRegion(fromScreenRect r: CGRect) {
+        guard let screen = NSScreen.main else { return }
+        let f = screen.frame
+        Settings.regionX = Double((r.minX - f.minX) / f.width)
+        Settings.regionY = Double((f.maxY - r.maxY) / f.height)   // top offset
+        Settings.regionW = Double(r.width / f.width)
+        Settings.regionH = Double(r.height / f.height)
+    }
+
+    private func cancelRecorderBar() {
+        guard state != .recording else { return }   // during recording, use Stop
+        dismissRecorderBar()
+    }
+
+    private func dismissRecorderBar() {
+        recorderBar?.hide()
+        regionOverlay?.hide()
+    }
+
+    /// Keep the floating bar/border in sync with the recording state. For full-screen
+    /// capture the bar is hidden during recording (it would otherwise be in the video);
+    /// for region capture it stays put, outside the recorded area.
+    private func updateRecorderBarForState() {
+        guard recorderBar != nil else { return }
+        switch state {
+        case .countdown:
+            // Lock the region (click-through border only) once we're about to record.
+            regionOverlay?.setEditable(false)
+            if !Settings.useRegion { recorderBar?.setHiddenDuringCapture(true) }
+        case .recording:
+            recorderBar?.setRecording(true)
+            recorderBar?.relinquishKeyFocus()   // typing goes to the recorded app, not the bar
+        default:
+            break
         }
     }
 

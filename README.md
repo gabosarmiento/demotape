@@ -27,8 +27,12 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - **Synthetic smooth cursor** (the real cursor is hidden during capture and re-drawn cleanly).
 - **Keyboard-shortcut badges** (⌘C, ⇧⌘Z…) — shown only for actual shortcuts, not typing.
 - **Click ripples** on clicks.
-- **Region capture** with a drag-to-select overlay; region recordings are **framed** on a
-  gradient background with padding, rounded corners, and a soft shadow.
+- **Floating recorder HUD**: pick a capture mode and a draggable control bar appears with
+  Start/Stop, a timer, mic + webcam toggles, and cancel — Tab/Enter friendly.
+- **Region capture** with a drag-to-select overlay; the selected area then stays on screen as
+  an **adjustable frame** you can move (drag inside) and resize (drag edges/corners), and it
+  remains visible while recording without appearing in the capture. Region recordings are
+  **framed** on a gradient background with padding, rounded corners, and a soft shadow.
 - **Background gallery** (bundled gradient wallpapers) + custom image picker.
 - **Webcam overlay** — a live, draggable, resizable, zoomable circular PiP with a settings
   overlay. Mic + webcam share one capture clock, so lip-sync stays tight.
@@ -147,6 +151,8 @@ Sources/DemoTape/
   Keychain.swift              Secure storage for BYO API keys
   CountdownController.swift   3-2-1 overlay
   RegionSelector.swift        Drag-to-select area overlay
+  RegionOverlay.swift         Persistent, movable/resizable recording-area frame
+  RecorderBarController.swift Floating recorder HUD (start/stop, timer, toggles)
   WebcamSettingsController.swift  Live webcam positioning overlay
   BackgroundPicker.swift      Background gallery
   WebPublishController.swift  Web export panel

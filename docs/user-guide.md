@@ -28,7 +28,12 @@ On first record, grant **Screen Recording** (required). **Microphone**, **Camera
 ## 2. Record
 
 - **⇧⌘S** or the menu starts/stops recording after a 3-2-1 countdown.
-- Choose **Record Full Screen** or **Select Recording Area…**.
+- Choose **Record Full Screen** or **Select Recording Area…**. A floating **recorder bar**
+  appears (Start/Stop, timer, mic + webcam toggles, cancel). It's draggable, and you can
+  Tab/Enter through its buttons.
+- For a region, the selected area stays on screen as an **adjustable frame**: drag inside to
+  move it (hand cursor), drag an edge/corner to resize it (resize cursors). It locks and stays
+  visible when recording starts, and never shows up in the capture.
 - Toggle **Record Microphone**, **Record Webcam**, **Webcam Settings…**, **Background…**.
 - On Stop, a styled `…styled.mp4` is written to `~/Movies/DemoTape/`.
 
