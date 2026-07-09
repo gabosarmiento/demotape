@@ -48,6 +48,14 @@ final class VideoRenderer {
         var webcamCenterY: CGFloat = 0.82
         /// Zoom into the camera image (1 = full frame).
         var webcamZoom: CGFloat = 1.0
+
+        // Branding (logo watermark) — fixed position/size, does not zoom.
+        var brandingImageURL: URL?
+        /// Logo center, normalized to the output (top-left origin).
+        var brandingCenterX: CGFloat = 0.86
+        var brandingCenterY: CGFloat = 0.90
+        /// Logo width as a fraction of the output width.
+        var brandingWidthFraction: CGFloat = 0.14
     }
 
     // Cached webcam overlay layers (per render).
@@ -178,6 +186,8 @@ final class VideoRenderer {
         let cursorImage = style.drawCursor ? makeCursorImage(scale: style.cursorScale) : nil
         let rippleRing = style.showClickRipples ? makeRing(diameter: 220) : nil
         let rippleBase: CGFloat = 220
+        // Branding logo (loaded once) — composited fixed on top of every frame.
+        let brandingLogo: CIImage? = style.brandingImageURL.flatMap { CIImage(contentsOf: $0) }
 
         guard reader.startReading() else { throw RenderError.readerFailed(reader.error?.localizedDescription ?? "unknown") }
         guard writer.startWriting() else { throw RenderError.writerFailed(writer.error?.localizedDescription ?? "unknown") }
@@ -359,6 +369,11 @@ final class VideoRenderer {
                     let bx = (outW - badge.extent.width) / 2
                     composite = badge.transformed(by: CGAffineTransform(translationX: bx, y: 90)).composited(over: composite)
                 }
+            }
+
+            // Branding watermark — fixed position/size (does not zoom), on top of everything.
+            if let logo = brandingLogo {
+                composite = compositeBranding(logo, over: composite, outW: outW, outH: outH, style: style)
             }
 
             composite = composite.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
@@ -564,6 +579,23 @@ final class VideoRenderer {
         ctx.addPath(path); ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
         ctx.setLineWidth(1.4 * k); ctx.setLineJoin(.round); ctx.strokePath()
         return CIImage(cgImage: ctx.makeImage()!)
+    }
+
+    /// Composites the logo watermark at a fixed, normalized position and size.
+    private func compositeBranding(_ logo: CIImage, over base: CIImage,
+                                   outW: CGFloat, outH: CGFloat, style: Style) -> CIImage {
+        let ext = logo.extent
+        guard ext.width > 0, ext.height > 0 else { return base }
+        let targetW = max(1, outW * style.brandingWidthFraction)
+        let scale = targetW / ext.width
+        let scaled = logo.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let w = scaled.extent.width, h = scaled.extent.height
+        let cx = style.brandingCenterX * outW
+        let cyBL = outH - style.brandingCenterY * outH   // top-left → bottom-left
+        let tx = cx - w / 2 - scaled.extent.minX
+        let ty = cyBL - h / 2 - scaled.extent.minY
+        return scaled.transformed(by: CGAffineTransform(translationX: tx, y: ty))
+            .composited(over: base)
     }
 
     /// Composites the webcam as a circular picture-in-picture in the bottom-left corner.

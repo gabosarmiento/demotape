@@ -57,6 +57,40 @@ enum Settings {
         set { defaults.set(newValue, forKey: "backgroundFile") }
     }
 
+    // MARK: - Branding (logo watermark)
+
+    static var brandingEnabled: Bool {
+        get { defaults.bool(forKey: "brandingEnabled") }
+        set { defaults.set(newValue, forKey: "brandingEnabled") }
+    }
+    /// Absolute path to the user's logo image ("" = none).
+    static var brandingImagePath: String {
+        get { defaults.string(forKey: "brandingImagePath") ?? "" }
+        set { defaults.set(newValue, forKey: "brandingImagePath") }
+    }
+    /// Logo center, normalized to the output (top-left origin). Default bottom-right.
+    static var brandingCenterX: Double {
+        get { defaults.object(forKey: "brandingCenterX") as? Double ?? 0.86 }
+        set { defaults.set(newValue, forKey: "brandingCenterX") }
+    }
+    static var brandingCenterY: Double {
+        get { defaults.object(forKey: "brandingCenterY") as? Double ?? 0.90 }
+        set { defaults.set(newValue, forKey: "brandingCenterY") }
+    }
+    /// Logo width as a fraction of the output width.
+    static var brandingWidthFraction: Double {
+        get { defaults.object(forKey: "brandingWidthFraction") as? Double ?? 0.14 }
+        set { defaults.set(newValue, forKey: "brandingWidthFraction") }
+    }
+
+    // MARK: - Output directory
+
+    /// Custom output directory ("" = default ~/Movies/DemoTape). Persisted across launches.
+    static var outputDirectoryPath: String {
+        get { defaults.string(forKey: "outputDirectoryPath") ?? "" }
+        set { defaults.set(newValue, forKey: "outputDirectoryPath") }
+    }
+
     // MARK: - Captions (AI, bring-your-own-key)
 
     /// OpenAI-compatible speech-to-text base URL. Default is OpenAI; Groq and other

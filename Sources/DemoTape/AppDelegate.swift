@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var recorderBar: RecorderBarController?
     private var regionOverlay: RegionOverlay?
+    private var whileIdleItems: [NSMenuItem] = []
 
     private lazy var startItem = NSMenuItem(
         title: "Start Recording  (⇧⌘S)", action: #selector(startRecording), keyEquivalent: "")
@@ -26,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         title: "Record Microphone", action: #selector(toggleMic), keyEquivalent: "")
     private lazy var webcamItem = NSMenuItem(
         title: "Record Webcam", action: #selector(toggleWebcam), keyEquivalent: "")
+    private lazy var brandingToggleItem = NSMenuItem(
+        title: "Enable Branding", action: #selector(toggleBranding), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -69,6 +72,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                         action: #selector(openBackgroundPicker), keyEquivalent: "")
         backgroundItem.target = self
         menu.addItem(backgroundItem)
+
+        brandingToggleItem.target = self
+        brandingToggleItem.state = Settings.brandingEnabled ? .on : .off
+        menu.addItem(brandingToggleItem)
+        let brandingSettings = NSMenuItem(title: "Branding Settings…",
+                                          action: #selector(openBrandingSettings), keyEquivalent: "")
+        brandingSettings.target = self
+        menu.addItem(brandingSettings)
         menu.addItem(.separator())
 
         // --- After recording (post-production pipeline: tighten → AI → publish) ---
@@ -106,14 +117,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         // --- Utility ---
-        let openFolder = NSMenuItem(title: "Open Recordings Folder",
-                                    action: #selector(openRecordingsFolder), keyEquivalent: "o")
+        let folderItem = NSMenuItem(title: "Recording Folder", action: nil, keyEquivalent: "")
+        let folderMenu = NSMenu()
+        folderMenu.autoenablesItems = false
+        let openFolder = NSMenuItem(title: "Open", action: #selector(openRecordingsFolder), keyEquivalent: "o")
         openFolder.target = self
-        menu.addItem(openFolder)
+        folderMenu.addItem(openFolder)
+        let changeDir = NSMenuItem(title: "Change Output Directory…",
+                                   action: #selector(changeOutputDirectory), keyEquivalent: "")
+        changeDir.target = self
+        folderMenu.addItem(changeDir)
+        folderItem.submenu = folderMenu
+        menu.addItem(folderItem)
         menu.addItem(.separator())
 
         menu.addItem(NSMenuItem(title: "Quit DemoTape",
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        // Items disabled while a recording is in progress.
+        whileIdleItems = [fullScreenItem, selectAreaItem, micItem, webcamItem, webcamSettings,
+                          backgroundItem, brandingToggleItem, brandingSettings, tightenItem,
+                          aiItem, publishItem, changeDir]
+
         statusItem.menu = menu
         updateCaptureModeChecks()
 
@@ -179,6 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startItem.isEnabled = (state == .idle)
         stopItem.isEnabled = (state == .recording)
         startItem.title = (state == .rendering) ? "Rendering…" : "Start Recording"
+        // Grey out configuration/action items unless idle.
+        let idle = (state == .idle)
+        whileIdleItems.forEach { $0.isEnabled = idle }
 
         guard let button = statusItem.button else { return }
         let symbolName: String
@@ -271,6 +299,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openRecordingsFolder() {
         NSWorkspace.shared.open(Paths.outputDirectory)
+    }
+
+    @objc private func changeOutputDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = "Choose where DemoTape saves recordings."
+        panel.directoryURL = Paths.outputDirectory
+        if panel.runModal() == .OK, let url = panel.url {
+            Settings.outputDirectoryPath = url.path
+            NSWorkspace.shared.open(Paths.outputDirectory)
+        }
+    }
+
+    @objc private func toggleBranding() {
+        Settings.brandingEnabled.toggle()
+        // Enabling with no logo yet? Open the editor so the user can add one.
+        if Settings.brandingEnabled && Settings.brandingImagePath.isEmpty {
+            Settings.brandingEnabled = false
+            openBrandingSettings()
+        }
+        brandingToggleItem.state = Settings.brandingEnabled ? .on : .off
+    }
+
+    private var brandingController: BrandingSettingsController?
+    @objc private func openBrandingSettings() {
+        let controller = BrandingSettingsController()
+        brandingController = controller
+        controller.show(onClose: { [weak self] in
+            self?.brandingToggleItem.state = Settings.brandingEnabled ? .on : .off
+            self?.brandingController = nil
+        })
     }
 
     private var tightenController: TightenController?
@@ -542,6 +604,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         style.useBackground = Settings.useRegion
         if Settings.useRegion {
             style.backgroundImageURL = backgroundURL()
+        }
+        if Settings.brandingEnabled, !Settings.brandingImagePath.isEmpty,
+           FileManager.default.fileExists(atPath: Settings.brandingImagePath) {
+            style.brandingImageURL = URL(fileURLWithPath: Settings.brandingImagePath)
+            style.brandingCenterX = CGFloat(Settings.brandingCenterX)
+            style.brandingCenterY = CGFloat(Settings.brandingCenterY)
+            style.brandingWidthFraction = CGFloat(Settings.brandingWidthFraction)
         }
         return style
     }

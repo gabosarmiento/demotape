@@ -34,6 +34,8 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
   remains visible while recording without appearing in the capture. Region recordings are
   **framed** on a gradient background with padding, rounded corners, and a soft shadow.
 - **Background gallery** (bundled gradient wallpapers) + custom image picker.
+- **Branding watermark**: upload a logo, drag it anywhere and size it in a live editor, and it's
+  baked into the styled export. Toggle on/off from the menu.
 - **Webcam overlay** — a live, draggable, resizable, zoomable circular PiP with a settings
   overlay. Mic + webcam share one capture clock, so lip-sync stays tight.
 - **Microphone** capture with automatic loudness normalization.
@@ -93,7 +95,11 @@ A record icon appears in your menu bar.
 - **Record Full Screen** / **Select Recording Area…** choose the capture mode.
 - **Record Microphone**, **Record Webcam**, **Webcam Settings…**, **Background…** toggle and
   configure overlays.
+- **Enable Branding** / **Branding Settings…** add and position a logo watermark on exports.
 - On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
+- **Recording Folder → Open / Change Output Directory…** opens or relocates where recordings are
+  saved (your choice is remembered).
+- Configuration items are disabled while a recording is in progress.
 - **Web Publish Latest…** exports lightweight web MP4s (one per selected tier) + poster +
   `embed.html` into a `…-web/` folder.
 - **Auto-Cut & Speed Up Latest…** removes silent gaps and/or speeds up the video (pitch
@@ -155,6 +161,7 @@ Sources/DemoTape/
   RecorderBarController.swift Floating recorder HUD (start/stop, timer, toggles)
   WebcamSettingsController.swift  Live webcam positioning overlay
   BackgroundPicker.swift      Background gallery
+  BrandingSettingsController.swift  Logo watermark editor (upload/drag/size)
   WebPublishController.swift  Web export panel
   GlobalHotKey.swift          Carbon global hotkey (⇧⌘S)
   Log.swift / Paths.swift     Diagnostics + output folder

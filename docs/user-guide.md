@@ -36,6 +36,10 @@ On first record, grant **Screen Recording** (required). **Microphone**, **Camera
   visible when recording starts, and never shows up in the capture.
 - Toggle **Record Microphone**, **Record Webcam**, **Webcam Settings…**, **Background…**.
 - On Stop, a styled `…styled.mp4` is written to `~/Movies/DemoTape/`.
+- **Branding:** menu → **Branding Settings…** to upload a logo, drag it into place, and size it;
+  **Enable Branding** watermarks your exports. **Recording Folder → Change Output Directory…**
+  saves recordings wherever you like (remembered across launches). Config items are disabled
+  while recording.
 
 **Planning for AI:**
 - Want **captions**? Record with the **microphone on** so there's speech to transcribe.
