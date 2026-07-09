@@ -116,15 +116,20 @@ public partial class App : Application
         menu.Items.Add(startStop);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        // Capture mode as a radio group — Full Screen is the preselected default. (Region capture
-        // isn't wired up yet, so choosing it shows a notice and the selection stays on Full Screen.)
-        var fullScreen = new RadioMenuFlyoutItem { Text = "Record Full Screen", GroupName = "captureMode", IsChecked = !shell.UseRegion };
-        var selectArea = new RadioMenuFlyoutItem { Text = "Select Recording Area…", GroupName = "captureMode", IsChecked = shell.UseRegion };
-        fullScreen.Command = new RelayCommand(() => { shell.SelectFullScreenCommand.Execute(null); fullScreen.IsChecked = true; });
-        selectArea.Command = new RelayCommand(() => { shell.SelectRecordingAreaCommand.Execute(null); fullScreen.IsChecked = true; selectArea.IsChecked = false; });
+        // Capture mode as a radio group. Commands are wired directly (reliable in the tray flyout);
+        // the checked state is re-synced from the actual setting each time the menu opens.
+        var fullScreen = new RadioMenuFlyoutItem { Text = "Record Full Screen", GroupName = "captureMode", IsChecked = !shell.UseRegion, Command = shell.SelectFullScreenCommand };
+        var selectArea = new RadioMenuFlyoutItem { Text = "Select Recording Area…", GroupName = "captureMode", IsChecked = shell.UseRegion, Command = shell.SelectRecordingAreaCommand };
         menu.Items.Add(fullScreen);
         menu.Items.Add(selectArea);
         menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Keep the whole menu's checkable state in sync with settings whenever it opens.
+        menu.Opening += (_, _) =>
+        {
+            fullScreen.IsChecked = !shell.UseRegion;
+            selectArea.IsChecked = shell.UseRegion;
+        };
 
         // Capture Options submenu (Notion-style), with real Fluent checkmarks for the toggles.
         var capture = new MenuFlyoutSubItem { Text = "Capture Options" };
