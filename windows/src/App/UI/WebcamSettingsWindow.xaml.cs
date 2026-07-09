@@ -43,6 +43,8 @@ public sealed partial class WebcamSettingsWindow : Window
         Puck.PointerPressed += OnPointerPressed;
         Puck.PointerMoved += OnPointerMoved;
         Puck.PointerReleased += OnPointerReleased;
+        Cam.RenderTransformOrigin = new Point(0.5, 0.5);
+        ZoomSlider.ValueChanged += (_, _) => ApplyZoom();
         Closed += (_, _) =>
         {
             try { Cam.Stop(); } catch { }
@@ -87,9 +89,16 @@ public sealed partial class WebcamSettingsWindow : Window
         Canvas.SetLeft(Puck, cx - d / 2);
         Canvas.SetTop(Puck, cy - d / 2);
         ZoomSlider.Value = Math.Clamp(s.WebcamZoom, 1, 3);
+        ApplyZoom();
 
         Root.Focus(FocusState.Programmatic);
         StartPreviewAsync();
+    }
+
+    private void ApplyZoom()
+    {
+        double z = ZoomSlider.Value;
+        Cam.RenderTransform = new ScaleTransform { ScaleX = z, ScaleY = z };
     }
 
     private void SetDiameter(double d)
