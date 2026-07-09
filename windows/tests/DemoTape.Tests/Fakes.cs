@@ -66,6 +66,8 @@ internal sealed class FakeRecordingController : IRecordingController
     public event Action<RecordingState>? StateChanged;
     public int ToggleCount { get; private set; }
 
+    public int ArmFullScreenCount, ArmRegionCount, StartCount, StopCount, CancelCount;
+
     public Task ToggleAsync()
     {
         ToggleCount++;
@@ -73,13 +75,20 @@ internal sealed class FakeRecordingController : IRecordingController
         StateChanged?.Invoke(State);
         return Task.CompletedTask;
     }
+
+    public Task ArmFullScreenAsync() { ArmFullScreenCount++; Set(RecordingState.Armed); return Task.CompletedTask; }
+    public Task ArmRegionAsync() { ArmRegionCount++; return Task.CompletedTask; }
+    public Task StartAsync() { StartCount++; Set(RecordingState.Recording); return Task.CompletedTask; }
+    public Task StopAsync() { StopCount++; Set(RecordingState.Idle); return Task.CompletedTask; }
+    public Task CancelAsync() { CancelCount++; Set(RecordingState.Idle); return Task.CompletedTask; }
+
+    private void Set(RecordingState s) { State = s; StateChanged?.Invoke(s); }
 }
 
 internal sealed class FakeNavigation : INavigationService
 {
-    public int WebPublish, Background, Webcam, Region;
+    public int WebPublish, Background, Webcam;
     public void OpenWebPublish() => WebPublish++;
     public void OpenBackgroundPicker() => Background++;
     public void OpenWebcamSettings() => Webcam++;
-    public void SelectRecordingArea() => Region++;
 }

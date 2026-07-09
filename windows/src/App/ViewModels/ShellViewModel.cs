@@ -73,6 +73,19 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(IsRecording));
     }
 
+    /// <summary>
+    /// Reloads the persisted toggles so the tray menu reflects changes made elsewhere (e.g. the
+    /// region selector commits a region and flips <see cref="UseRegion"/> in settings directly).
+    /// Call this when the menu is about to open.
+    /// </summary>
+    public void RefreshFromSettings()
+    {
+        _settings = _settingsStore.Load();
+        UseRegion = _settings.UseRegion;
+        CaptureMicrophone = _settings.CaptureMicrophone;
+        CaptureWebcam = _settings.CaptureWebcam;
+    }
+
     partial void OnUseRegionChanged(bool value) => Update(s => s.UseRegion = value);
     partial void OnCaptureMicrophoneChanged(bool value) => Update(s => s.CaptureMicrophone = value);
     partial void OnCaptureWebcamChanged(bool value) => Update(s => s.CaptureWebcam = value);
@@ -87,10 +100,14 @@ public sealed partial class ShellViewModel : ObservableObject
     private Task ToggleRecordingAsync() => _recording.ToggleAsync();
 
     [RelayCommand]
-    private void SelectFullScreen() => UseRegion = false;
+    private async Task SelectFullScreenAsync()
+    {
+        UseRegion = false;
+        await _recording.ArmFullScreenAsync();
+    }
 
     [RelayCommand]
-    private void SelectRecordingArea() => _navigation.SelectRecordingArea();
+    private Task SelectRecordingAreaAsync() => _recording.ArmRegionAsync();
 
     [RelayCommand]
     private void OpenWebPublish() => _navigation.OpenWebPublish();

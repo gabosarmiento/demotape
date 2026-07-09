@@ -10,10 +10,11 @@ using Microsoft.UI.Dispatching;
 namespace DemoTape.App.Infrastructure;
 
 /// <summary>
-/// Orchestrates the full capture → auto-render pipeline, mirroring the macOS AppDelegate:
-/// 3-2-1 countdown → start screen capture + event timeline → stop → styled render → notify.
-/// Marshals UI work (countdown window) to the app's dispatcher because the toggle can arrive
-/// from the global hotkey's background thread.
+/// Orchestrates the capture → auto-render pipeline, mirroring the macOS AppDelegate. The flow:
+/// <c>Arm</c> (show the floating control bar + region bounds overlay and warm the webcam/mic) →
+/// <c>Start</c> (3-2-1 countdown → capture + event timeline) → <c>Stop</c> (styled render) → notify.
+/// Arming warms the camera FIRST and shows the overlay immediately, so there's no cold-start lag.
+/// Marshals UI work to the app dispatcher (toggles can arrive from the global hotkey's thread).
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class WindowsRecordingController : IRecordingController
@@ -36,6 +37,12 @@ public sealed class WindowsRecordingController : IRecordingController
     private string? _camPath;
     private string? _micPath;
 
+    // Session UI
+    private ControlBarWindow? _bar;
+    private RecordingBoundsOverlay? _bounds;
+    private FullScreenBorderOverlay? _fullBorder;
+    private RegionSelectorOverlay? _selector;
+
     public RecordingState State { get; private set; } = RecordingState.Idle;
     public event Action<RecordingState>? StateChanged;
 
@@ -52,19 +59,94 @@ public sealed class WindowsRecordingController : IRecordingController
 
     public Task ToggleAsync() => State switch
     {
-        RecordingState.Idle => StartAsync(),
+        RecordingState.Idle => StartAsync(),      // arm full screen + countdown + record
+        RecordingState.Armed => StartAsync(),     // begin from the armed state
         RecordingState.Recording => StopAsync(),
-        _ => Task.CompletedTask, // ignore mid-transition
+        _ => Task.CompletedTask,                   // ignore mid-transition
     };
 
-    private Task StartAsync()
+    // ---- Arm ----
+
+    public Task ArmFullScreenAsync()
     {
-        SetState(RecordingState.Countdown);
-        // Warm up the webcam + mic concurrently with the countdown so recording begins instantly at
-        // zero (no camera cold-start lag / black frames) — matches the macOS behavior.
+        var s = _settingsStore.Load();
+        s.UseRegion = false;
+        _settingsStore.Save(s);
+        return ArmAsync(useRegion: false);
+    }
+
+    public Task ArmRegionAsync()
+    {
+        // The selector self-hosts its own message-loop thread; its callback fires on that thread,
+        // so ArmAsync (which marshals its own UI work) is safe to call from there.
+        _selector?.Dispose();
+        _selector = new RegionSelectorOverlay(
+            onRegion: region =>
+            {
+                // Auto-accepted on release. Persist the region; arm (show the bar) the first time,
+                // then just keep updating the region as the user resizes/moves it.
+                var s = _settingsStore.Load();
+                (s.RegionX, s.RegionY, s.RegionW, s.RegionH) = region;
+                s.UseRegion = true;
+                _settingsStore.Save(s);
+                if (State == RecordingState.Idle) _ = ArmAsync(useRegion: true);
+            },
+            onCancel: () => { _selector = null; _ = CancelAsync(); });
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Shows the session UI and warms the camera/mic. Idempotent-ish: re-arming re-shows.</summary>
+    private Task ArmAsync(bool useRegion)
+    {
+        // Warm the WEBCAM FIRST (longest cold-start), then the mic — both concurrent with the UI.
         _webcamPrepare = PrepareWebcamAsync();
         _micPrepare = PrepareMicAsync();
-        return RunOnUiAsync(async () =>
+
+        return RunOnUiAsync(() =>
+        {
+            // Show the control bar. (For region mode the interactive selector already shows the
+            // area and stays editable until Start; the click-through bounds overlay is created when
+            // recording actually begins.)
+            if (_bar is null)
+            {
+                _bar = new ControlBarWindow(this, _settingsStore);
+                _bar.Closed += (_, _) => _bar = null;
+                _bar.Activate();
+                _logger.LogInformation("Control bar shown (armed, region={Region})", useRegion);
+            }
+
+            // The selector overlay is a full-screen topmost window that would sit ON TOP of the bar,
+            // making it unclickable. Push the selector just BELOW the bar so the bar is interactive.
+            try
+            {
+                var barHwnd = WinRT.Interop.WindowNative.GetWindowHandle(_bar);
+                SetWindowPos(barHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                if (_selector is not null && _selector.Hwnd != IntPtr.Zero)
+                    SetWindowPos(_selector.Hwnd, barHwnd, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "z-order reorder failed"); }
+
+            SetState(RecordingState.Armed);
+            return Task.CompletedTask;
+        });
+    }
+
+    // ---- Start / capture ----
+
+    public async Task StartAsync()
+    {
+        if (State == RecordingState.Idle)
+        {
+            await ArmAsync(_settingsStore.Load().UseRegion);
+        }
+        if (State != RecordingState.Armed) return;
+
+        // Lock the region: close the interactive selector so it can't be changed mid-recording.
+        _selector?.Dispose();
+        _selector = null;
+
+        SetState(RecordingState.Countdown);
+        await RunOnUiAsync(async () =>
         {
             var countdown = new CountdownWindow();
             await countdown.RunAsync(3, BeginCaptureAsync);
@@ -109,7 +191,7 @@ public sealed class WindowsRecordingController : IRecordingController
             _sidecarPath = _rawPath[..^".mp4".Length] + ".events.json";
 
             _capture = _services.GetRequiredService<ScreenCaptureRecorder>();
-            _capture.Start(_rawPath); // full-screen capture
+            _capture.Start(_rawPath); // full-screen capture; region is cropped at render time
 
             var settings = _settingsStore.Load();
 
@@ -143,25 +225,46 @@ public sealed class WindowsRecordingController : IRecordingController
                     : (0.0, 0.0, display.PixelWidth, display.PixelHeight);
             _events.Start(region, display);
 
+            // Recording cue (excluded from capture): a blue frame around the region, or a blue
+            // border around the whole screen for full-screen capture.
+            bool regionMode = settings.UseRegion && settings.RegionW > 0 && settings.RegionH > 0;
+            await RunOnUiAsync(() =>
+            {
+                if (regionMode)
+                    _bounds = new RecordingBoundsOverlay(settings.RegionX, settings.RegionY, settings.RegionW, settings.RegionH);
+                else
+                    _fullBorder = new FullScreenBorderOverlay();
+                return Task.CompletedTask;
+            });
+
             SetState(RecordingState.Recording);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start capture");
+            CloseSessionUi();
             SetState(RecordingState.Idle);
             _ = _interaction.ShowMessageAsync("Can't start recording", ex.Message);
         }
     }
 
-    private async Task StopAsync()
+    // ---- Stop / cancel ----
+
+    public async Task StopAsync()
     {
+        if (State != RecordingState.Recording) return;
+        CloseSessionUi();
         SetState(RecordingState.Rendering);
         try
         {
+            double eventOffset = 0;
+            if (_capture is not null && _events is not null && _capture.FirstFrameTime != TimeSpan.MinValue)
+                eventOffset = _capture.FirstFrameTime.TotalSeconds - _events.StartTimestampSeconds;
+
             var result = _capture is null ? null : await _capture.StopAsync();
             var camPath = _webcam is null ? null : await _webcam.StopAsync();
             var micPath = _mic is null ? null : await _mic.StopAsync();
-            _events?.Stop(_rawPath, cameraOffset: 0, eventOffset: 0);
+            _events?.Stop(_rawPath, cameraOffset: 0, eventOffset: eventOffset);
 
             if (result is null)
             {
@@ -171,7 +274,6 @@ public sealed class WindowsRecordingController : IRecordingController
                 return;
             }
 
-            // Auto-produce the styled output (hands-off), falling back to raw on failure.
             var settings = _settingsStore.Load();
             var styledPath = _rawPath[..^".mp4".Length] + ".styled.mp4";
             var renderer = _services.GetRequiredService<StyledVideoRenderer>();
@@ -194,10 +296,66 @@ public sealed class WindowsRecordingController : IRecordingController
         }
         finally
         {
-            _capture = null;
-            _events = null;
-            _webcam = null;
-            _mic = null;
+            _capture = null; _events = null; _webcam = null; _mic = null;
+        }
+    }
+
+    public async Task CancelAsync()
+    {
+        var wasRecording = State == RecordingState.Recording;
+        CloseSessionUi();
+        try
+        {
+            if (wasRecording)
+            {
+                if (_capture is not null) await _capture.StopAsync();
+                if (_webcam is not null) await _webcam.StopAsync();
+                if (_mic is not null) await _mic.StopAsync();
+                _events?.Stop(_rawPath, 0, 0);
+                DeleteQuietly(_rawPath, _sidecarPath, _camPath, _micPath);
+            }
+            else
+            {
+                // Armed but never started: release the warmed sessions.
+                if (_webcam is not null) await _webcam.StopAsync();
+                if (_mic is not null) await _mic.StopAsync();
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Cancel cleanup issue"); }
+        finally
+        {
+            _capture = null; _events = null; _webcam = null; _mic = null;
+            _webcamPrepare = null; _micPrepare = null;
+            SetState(RecordingState.Idle);
+        }
+    }
+
+    // ---- Session UI helpers ----
+
+    private void CloseSessionUi()
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            try { _selector?.Dispose(); } catch { }
+            try { _bounds?.Dispose(); } catch { }
+            try { _fullBorder?.Dispose(); } catch { }
+            try { _bar?.Close(); } catch { }
+            _selector = null; _bounds = null; _fullBorder = null; _bar = null;
+        });
+    }
+
+    private void CloseBounds()
+    {
+        try { _bounds?.Dispose(); } catch { }
+        _bounds = null;
+    }
+
+    private static void DeleteQuietly(params string?[] paths)
+    {
+        foreach (var p in paths)
+        {
+            if (string.IsNullOrEmpty(p)) continue;
+            try { if (File.Exists(p)) File.Delete(p); } catch { }
         }
     }
 
@@ -225,14 +383,7 @@ public sealed class WindowsRecordingController : IRecordingController
     private DisplayInfo BuildDisplay()
     {
         int w = GetSystemMetrics(0), h = GetSystemMetrics(1); // physical pixels (DPI-aware manifest)
-        return new DisplayInfo
-        {
-            PixelWidth = w,
-            PixelHeight = h,
-            PointWidth = w,
-            PointHeight = h,
-            Scale = 1,
-        };
+        return new DisplayInfo { PixelWidth = w, PixelHeight = h, PointWidth = w, PointHeight = h, Scale = 1 };
     }
 
     private string MakeOutputPath()
@@ -263,4 +414,9 @@ public sealed class WindowsRecordingController : IRecordingController
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
+    private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 }

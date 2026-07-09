@@ -15,7 +15,6 @@ public sealed class WindowNavigationService : INavigationService
     private readonly WindowsUserInteraction _interaction;
     private readonly ISettingsStore _settingsStore;
     private WebPublishWindow? _webPublish;
-    private RegionSelectorWindow? _regionSelector;
     private BackgroundPickerWindow? _backgroundPicker;
     private WebcamSettingsWindow? _webcamSettings;
 
@@ -37,14 +36,6 @@ public sealed class WindowNavigationService : INavigationService
         _webPublish = new WebPublishWindow(vm, _interaction);
         _webPublish.Closed += (_, _) => _webPublish = null;
         _webPublish.Activate();
-    }
-
-    public void SelectRecordingArea()
-    {
-        if (_regionSelector is not null) { _regionSelector.Activate(); return; }
-        _regionSelector = new RegionSelectorWindow(_settingsStore);
-        _regionSelector.Closed += (_, _) => _regionSelector = null;
-        _regionSelector.Activate();
     }
 
     public void OpenBackgroundPicker()

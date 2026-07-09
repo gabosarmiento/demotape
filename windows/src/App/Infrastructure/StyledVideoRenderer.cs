@@ -300,8 +300,8 @@ public sealed class StyledVideoRenderer
 
     private static CanvasBitmap MakeCursor(CanvasDevice device)
     {
-        // A clean white arrow with a dark outline, tip at (0,0).
-        const float k = 26f;
+        // A clean white arrow with a dark outline, tip at (0,0). Drawn at 2x for visibility.
+        const float k = 52f;
         using var rt = new CanvasRenderTarget(device, k * 0.7f, k, 96);
         using (var ds = rt.CreateDrawingSession())
         {

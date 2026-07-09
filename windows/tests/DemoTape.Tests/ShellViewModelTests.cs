@@ -67,7 +67,7 @@ public class ShellViewModelTests
     [Fact]
     public void NavigationCommands_Delegate()
     {
-        var vm = Build(out _, out _, out var nav, out _);
+        var vm = Build(out _, out var recording, out var nav, out _);
         vm.OpenWebPublishCommand.Execute(null);
         vm.OpenBackgroundPickerCommand.Execute(null);
         vm.OpenWebcamSettingsCommand.Execute(null);
@@ -76,7 +76,7 @@ public class ShellViewModelTests
         Assert.Equal(1, nav.WebPublish);
         Assert.Equal(1, nav.Background);
         Assert.Equal(1, nav.Webcam);
-        Assert.Equal(1, nav.Region);
+        Assert.Equal(1, recording.ArmRegionCount);
     }
 
     [Fact]

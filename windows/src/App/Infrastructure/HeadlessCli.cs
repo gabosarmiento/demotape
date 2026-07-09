@@ -111,6 +111,19 @@ public static class HeadlessCli
             return true;
         }
 
+        int st = Array.IndexOf(args, "--selector-test");
+        if (st >= 0)
+        {
+            int secs = args.Length > st + 1 && int.TryParse(args[st + 1], out var ss) ? ss : 5;
+            Console.WriteLine($"selector-test: showing region selector for {secs}s (check overlay.log)");
+            var done = new TaskCompletionSource();
+            var overlay = new RegionSelectorOverlay(_ => { }, () => done.TrySetResult());
+            await Task.WhenAny(done.Task, Task.Delay(secs * 1000));
+            overlay.Dispose();
+            Console.WriteLine("selector-test: done");
+            return true;
+        }
+
         int c = Array.IndexOf(args, "--capture-test");
         if (c >= 0 && args.Length > c + 2)
         {

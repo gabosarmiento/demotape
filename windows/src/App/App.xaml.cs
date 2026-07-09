@@ -116,25 +116,35 @@ public partial class App : Application
         menu.Items.Add(startStop);
         menu.Items.Add(new MenuFlyoutSeparator());
 
-        // Capture mode as a radio group. Commands are wired directly (reliable in the tray flyout);
-        // the checked state is re-synced from the actual setting each time the menu opens.
-        var fullScreen = new RadioMenuFlyoutItem { Text = "Record Full Screen", GroupName = "captureMode", IsChecked = !shell.UseRegion, Command = shell.SelectFullScreenCommand };
+        // Recording Options submenu: capture mode as a radio group. Commands are wired directly
+        // (reliable in the tray flyout); the checked state is re-synced from the actual setting
+        // each time the menu opens.
+        var fullScreen = new RadioMenuFlyoutItem { Text = "Full Screen", GroupName = "captureMode", IsChecked = !shell.UseRegion, Command = shell.SelectFullScreenCommand };
         var selectArea = new RadioMenuFlyoutItem { Text = "Select Recording Area…", GroupName = "captureMode", IsChecked = shell.UseRegion, Command = shell.SelectRecordingAreaCommand };
-        menu.Items.Add(fullScreen);
-        menu.Items.Add(selectArea);
+        var recordingOptions = new MenuFlyoutSubItem { Text = "Recording Options" };
+        recordingOptions.Items.Add(fullScreen);
+        recordingOptions.Items.Add(selectArea);
+        menu.Items.Add(recordingOptions);
         menu.Items.Add(new MenuFlyoutSeparator());
-
-        // Keep the whole menu's checkable state in sync with settings whenever it opens.
-        menu.Opening += (_, _) =>
-        {
-            fullScreen.IsChecked = !shell.UseRegion;
-            selectArea.IsChecked = shell.UseRegion;
-        };
 
         // Capture Options submenu (Notion-style), with real Fluent checkmarks for the toggles.
         var capture = new MenuFlyoutSubItem { Text = "Capture Options" };
-        capture.Items.Add(MakeToggleItem("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v));
-        capture.Items.Add(MakeToggleItem("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v));
+        var micToggle = MakeToggleItem("Record Microphone", () => shell.CaptureMicrophone, v => shell.CaptureMicrophone = v);
+        var camToggle = MakeToggleItem("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v);
+        capture.Items.Add(micToggle);
+        capture.Items.Add(camToggle);
+
+        // Keep the whole menu's checkable state in sync with the persisted settings whenever it
+        // opens (the region selector, for instance, flips UseRegion in settings directly).
+        menu.Opening += (_, _) =>
+        {
+            shell.RefreshFromSettings();
+            fullScreen.IsChecked = !shell.UseRegion;
+            selectArea.IsChecked = shell.UseRegion;
+            micToggle.IsChecked = shell.CaptureMicrophone;
+            camToggle.IsChecked = shell.CaptureWebcam;
+        };
+
         capture.Items.Add(new MenuFlyoutSeparator());
         capture.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
         capture.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });

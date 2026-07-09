@@ -40,6 +40,13 @@ public sealed class EventRecorder
 
     public EventRecorder(ILogger<EventRecorder> logger) => _logger = logger;
 
+    /// <summary>
+    /// The moment capture of events began, in the QueryPerformanceCounter time domain (seconds).
+    /// This is the SAME domain as <c>GraphicsCaptureFrame.SystemRelativeTime</c>, so the renderer
+    /// can align the synthetic cursor to the captured video frames (both share the QPC epoch).
+    /// </summary>
+    public double StartTimestampSeconds { get; private set; }
+
     /// <summary>Begins capture. <paramref name="region"/> is the captured area in screen pixels.</summary>
     public void Start((double X, double Y, double W, double H) region, DisplayInfo display)
     {
@@ -50,6 +57,7 @@ public sealed class EventRecorder
         (_regionX, _regionY, _regionW, _regionH) = region;
         _display = display;
         _clock.Restart();
+        StartTimestampSeconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
         _hookThread = new Thread(HookLoop) { IsBackground = true, Name = "DemoTape.Events" };
         _hookThread.SetApartmentState(ApartmentState.STA);
