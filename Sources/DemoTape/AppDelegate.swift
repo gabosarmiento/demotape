@@ -29,9 +29,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         title: "Record Webcam", action: #selector(toggleWebcam), keyEquivalent: "")
     private lazy var brandingToggleItem = NSMenuItem(
         title: "Enable Branding", action: #selector(toggleBranding), keyEquivalent: "")
+    private lazy var teleprompterToggleItem = NSMenuItem(
+        title: "Enable Teleprompter", action: #selector(toggleTeleprompter), keyEquivalent: "")
+    private lazy var noBackgroundItem = NSMenuItem(
+        title: "No Background", action: #selector(toggleNoBackground), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+        // Brand the app icon (used by Finder and by NSAlert dialogs).
+        if let url = Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         let menu = NSMenu()
@@ -54,35 +63,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(selectAreaItem)
         menu.addItem(.separator())
 
-        // --- Inputs & overlays ---
-        menu.addItem(sectionHeader("Inputs & Overlays"))
+        // --- Input (submenu: mic / webcam, then webcam settings) ---
         micItem.target = self
         micItem.state = Settings.captureMicrophone ? .on : .off
-        menu.addItem(micItem)
         webcamItem.target = self
         webcamItem.state = Settings.captureWebcam ? .on : .off
-        menu.addItem(webcamItem)
-
         let webcamSettings = NSMenuItem(title: "Webcam Settings…",
                                         action: #selector(openWebcamSettings), keyEquivalent: "")
         webcamSettings.target = self
-        menu.addItem(webcamSettings)
+        let inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
+        let inputMenu = NSMenu(); inputMenu.autoenablesItems = false
+        inputMenu.addItem(micItem)
+        inputMenu.addItem(webcamItem)
+        inputMenu.addItem(.separator())
+        inputMenu.addItem(webcamSettings)
+        inputItem.submenu = inputMenu
+        menu.addItem(inputItem)
 
-        let backgroundItem = NSMenuItem(title: "Background…",
-                                        action: #selector(openBackgroundPicker), keyEquivalent: "")
-        backgroundItem.target = self
+        // --- Background (submenu: choose an image, or No Background) ---
+        let chooseBg = NSMenuItem(title: "Choose Background…",
+                                  action: #selector(openBackgroundPicker), keyEquivalent: "")
+        chooseBg.target = self
+        noBackgroundItem.target = self
+        noBackgroundItem.state = Settings.framedBackground ? .off : .on
+        let backgroundItem = NSMenuItem(title: "Background", action: nil, keyEquivalent: "")
+        let backgroundMenu = NSMenu(); backgroundMenu.autoenablesItems = false
+        backgroundMenu.addItem(chooseBg)
+        backgroundMenu.addItem(.separator())
+        backgroundMenu.addItem(noBackgroundItem)
+        backgroundItem.submenu = backgroundMenu
         menu.addItem(backgroundItem)
 
+        // --- Branding (submenu) — an overlay baked into the video, alongside the others ---
         brandingToggleItem.target = self
         brandingToggleItem.state = Settings.brandingEnabled ? .on : .off
-        menu.addItem(brandingToggleItem)
         let brandingSettings = NSMenuItem(title: "Branding Settings…",
                                           action: #selector(openBrandingSettings), keyEquivalent: "")
         brandingSettings.target = self
-        menu.addItem(brandingSettings)
+        let brandingItem = NSMenuItem(title: "Branding", action: nil, keyEquivalent: "")
+        let brandingMenu = NSMenu(); brandingMenu.autoenablesItems = false
+        brandingMenu.addItem(brandingToggleItem)
+        brandingMenu.addItem(brandingSettings)
+        brandingItem.submenu = brandingMenu
+        menu.addItem(brandingItem)
+
+        // --- Teleprompter (submenu) ---
+        teleprompterToggleItem.target = self
+        teleprompterToggleItem.state = Settings.teleprompterEnabled ? .on : .off
+        let teleprompterSettings = NSMenuItem(title: "Teleprompter Settings…",
+                                              action: #selector(openTeleprompterSettings), keyEquivalent: "")
+        teleprompterSettings.target = self
+        let teleprompterItem = NSMenuItem(title: "Teleprompter", action: nil, keyEquivalent: "")
+        let teleprompterMenu = NSMenu(); teleprompterMenu.autoenablesItems = false
+        teleprompterMenu.addItem(teleprompterToggleItem)
+        teleprompterMenu.addItem(teleprompterSettings)
+        teleprompterItem.submenu = teleprompterMenu
+        menu.addItem(teleprompterItem)
         menu.addItem(.separator())
 
-        // --- After recording (post-production pipeline: tighten → AI → publish) ---
+        // --- After recording (tighten → AI → publish) ---
         menu.addItem(sectionHeader("After Recording"))
 
         let tightenItem = NSMenuItem(title: "Auto-Cut & Speed Up Latest…",
@@ -134,10 +173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit DemoTape",
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
-        // Items disabled while a recording is in progress.
-        whileIdleItems = [fullScreenItem, selectAreaItem, micItem, webcamItem, webcamSettings,
-                          backgroundItem, brandingToggleItem, brandingSettings, tightenItem,
-                          aiItem, publishItem, changeDir]
+        // Items disabled while a recording is in progress (disabling a submenu's parent
+        // greys the whole submenu).
+        whileIdleItems = [fullScreenItem, selectAreaItem, inputItem, backgroundItem,
+                          teleprompterItem, brandingItem, tightenItem, aiItem, publishItem, changeDir]
 
         statusItem.menu = menu
         updateCaptureModeChecks()
@@ -148,6 +187,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey.register(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | shiftKey))
 
         refreshUI()
+
+        // Launch with the recorder bar visible in full-screen mode, ready to go. Dismiss with ✕.
+        Settings.useRegion = false
+        updateCaptureModeChecks()
+        presentRecorderBar()
     }
 
     /// Menu-bar-only (accessory) apps have no application menu by default, so standard
@@ -177,6 +221,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editMenuItem)
 
         NSApp.mainMenu = mainMenu
+    }
+
+    /// The bundled DemoTape logo sized for the menu bar (nil when running unbundled).
+    private static func menuBarLogo() -> NSImage? {
+        guard let url = Bundle.main.resourceURL?.appendingPathComponent("MenuBarIcon.png"),
+              let img = NSImage(contentsOf: url) else { return nil }
+        img.size = NSSize(width: 18, height: 18)
+        return img
     }
 
     /// A small, disabled, greyed section label used to group menu items.
@@ -209,6 +261,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         whileIdleItems.forEach { $0.isEnabled = idle }
 
         guard let button = statusItem.button else { return }
+        // Branded logo at rest; state symbols while working so status stays clear.
+        if state == .idle, let logo = Self.menuBarLogo() {
+            button.image = logo
+            button.title = ""
+            return
+        }
         let symbolName: String
         switch state {
         case .idle: symbolName = "record.circle"
@@ -256,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func stopRecording() {
         guard state == .recording else { return }
         state = .rendering
+        teleprompter.stop()
         dismissRecorderBar()   // close the bar + border; rendering starts
         Task {
             let raw = await engine.stop()
@@ -323,6 +382,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openBrandingSettings()
         }
         brandingToggleItem.state = Settings.brandingEnabled ? .on : .off
+    }
+
+    private let teleprompter = TeleprompterOverlay()
+    @objc private func toggleTeleprompter() {
+        Settings.teleprompterEnabled.toggle()
+        if Settings.teleprompterEnabled && Settings.teleprompterText.trimmingCharacters(in: .whitespaces).isEmpty {
+            Settings.teleprompterEnabled = false
+            openTeleprompterSettings()
+        } else if Settings.teleprompterEnabled && !Settings.useRegion {
+            let a = NSAlert()
+            a.messageText = "Teleprompter enabled"
+            a.informativeText = "In full-screen recording a thin strip at the top of the screen "
+                + "is reserved for the teleprompter and is NOT recorded, so leave a little "
+                + "headroom in your content. (In Select Recording Area mode it scrolls in the "
+                + "empty space around your selection instead.)"
+            a.runModal()
+        }
+        teleprompterToggleItem.state = Settings.teleprompterEnabled ? .on : .off
+    }
+
+    /// The rect actually being recorded (screen coords, bottom-left), so the teleprompter can
+    /// scroll in the free area outside it. Full-screen reserves a thin top strip.
+    private func captureRectForTeleprompter() -> CGRect? {
+        guard let f = NSScreen.main?.frame else { return nil }
+        if Settings.useRegion { return regionScreenRect() }
+        let (crop, _) = TeleprompterStrip.crop(width: f.width, height: f.height,
+                                               edge: Settings.teleprompterStripEdge,
+                                               fraction: CGFloat(Settings.teleprompterTopStripFraction))
+        return crop.offsetBy(dx: f.minX, dy: f.minY)
+    }
+
+    private var teleprompterController: TeleprompterSettingsController?
+    @objc private func openTeleprompterSettings() {
+        let controller = TeleprompterSettingsController()
+        teleprompterController = controller
+        controller.show(onClose: { [weak self] in
+            self?.teleprompterToggleItem.state = Settings.teleprompterEnabled ? .on : .off
+            self?.teleprompterController = nil
+        })
     }
 
     private var brandingController: BrandingSettingsController?
@@ -485,9 +583,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var backgroundPicker: BackgroundPickerController?
     @objc private func openBackgroundPicker() {
+        Settings.framedBackground = true               // choosing an image implies framing on
+        noBackgroundItem.state = .off
         let picker = BackgroundPickerController()
         backgroundPicker = picker
         picker.show()
+    }
+
+    @objc private func toggleNoBackground() {
+        // "No Background" = don't frame the region; record it edge-to-edge at its resolution.
+        Settings.framedBackground.toggle()
+        noBackgroundItem.state = Settings.framedBackground ? .off : .on
     }
 
     private var regionSelector: RegionSelector?
@@ -588,6 +694,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .recording:
             recorderBar?.setRecording(true)
             recorderBar?.relinquishKeyFocus()   // typing goes to the recorded app, not the bar
+            if Settings.teleprompterEnabled {   // scroll the script in the free area outside the crop
+                let minutes = TeleprompterOverlay.scrollMinutes(
+                    text: Settings.teleprompterText, speed: Settings.teleprompterSpeed,
+                    fit: Settings.teleprompterFitDuration, fitMinutes: Settings.teleprompterMinutes)
+                teleprompter.show(text: Settings.teleprompterText, minutes: minutes,
+                                  recordedRect: captureRectForTeleprompter(),
+                                  edge: Settings.teleprompterStripEdge)
+            }
         default:
             break
         }
@@ -601,8 +715,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         style.webcamCenterY = CGFloat(Settings.webcamPositionY)
         style.webcamZoom = CGFloat(Settings.webcamZoom)
         style.webcamDiameterFraction = CGFloat(Settings.webcamSize)
-        style.useBackground = Settings.useRegion
-        if Settings.useRegion {
+        style.useBackground = Settings.useRegion && Settings.framedBackground
+        if style.useBackground {
             style.backgroundImageURL = backgroundURL()
         }
         if Settings.brandingEnabled, !Settings.brandingImagePath.isEmpty,

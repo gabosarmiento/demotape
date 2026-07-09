@@ -106,6 +106,19 @@ on camera (use captions on your real voice instead).
 
 ---
 
+## 5b. Teleprompter
+
+Menu → **Teleprompter → Teleprompter Settings…**
+
+- **Script tab:** paste your text and pick a **Speed** (1× is a natural reading pace) or tick
+  **Fit to a set duration**. **Test** previews the scroll live (not recorded).
+- **Display tab:** choose which **edge** the strip sits on (top/bottom/left/right), shown on a
+  diagram of the capture area.
+- Enable it from **Teleprompter → Enable Teleprompter**. While recording, the script scrolls in
+  that strip — **outside the recording**, so it never appears in the video. In full-screen a
+  thin strip on the chosen edge is reserved (leave a little headroom in your content); in
+  Select Recording Area mode it scrolls in the margin around your selection.
+
 ## 6. Auto-Cut & Speed Up (local, no AI)
 
 Menu bar → **Auto-Cut & Speed Up Latest…**

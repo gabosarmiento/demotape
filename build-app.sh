@@ -20,6 +20,10 @@ mkdir -p "${BUNDLE}/Contents/Resources"
 cp "${BIN_PATH}" "${BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp "Resources/Info.plist" "${BUNDLE}/Contents/Info.plist"
 
+# App icon (Finder, alert dialogs) + menu-bar status icon.
+[ -f "Resources/AppIcon.icns" ] && cp "Resources/AppIcon.icns" "${BUNDLE}/Contents/Resources/AppIcon.icns"
+[ -f "Resources/MenuBarIcon.png" ] && cp "Resources/MenuBarIcon.png" "${BUNDLE}/Contents/Resources/MenuBarIcon.png"
+
 # Bundle background images for framed (region) recordings.
 if [ -d "Resources/background" ]; then
     mkdir -p "${BUNDLE}/Contents/Resources/background"

@@ -132,6 +132,8 @@ final class RecorderBarController: NSObject {
         panel.backgroundColor = .clear
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
         panel.hasShadow = false                    // no dark border/shadow ring
+        panel.sharingType = .none                  // best-effort; note AVCaptureScreenInput ignores it
+                                                   // (full-screen recording hides the bar instead)
         panel.isMovableByWindowBackground = true   // drag the bar anywhere
         panel.autorecalculatesKeyViewLoop = true   // Tab cycles the buttons
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]

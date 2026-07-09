@@ -7,6 +7,7 @@ import AppKit
 final class RegionSelector: NSObject {
     private var panel: NSPanel?
     private var onDone: ((Bool) -> Void)?
+    private var escMonitor: Any?
 
     func selectArea(completion: @escaping (Bool) -> Void) {
         guard panel == nil, let screen = NSScreen.main else { completion(false); return }
@@ -25,12 +26,20 @@ final class RegionSelector: NSObject {
         panel.contentView = view
 
         self.panel = panel
+        // Borderless overlay panels don't reliably become key, so keyDown never fires — use a
+        // local monitor so Esc cancels the selection.
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self = self, self.panel != nil, e.keyCode == 53 else { return e }
+            self.finish(rect: nil, screenSize: .zero)
+            return nil
+        }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
     }
 
     private func finish(rect: CGRect?, screenSize: CGSize) {
+        if let m = escMonitor { NSEvent.removeMonitor(m); escMonitor = nil }
         if let rect = rect, rect.width > 20, rect.height > 20, screenSize.width > 0 {
             // View coords are bottom-left; convert to top-left normalized for storage.
             let nx = rect.minX / screenSize.width
