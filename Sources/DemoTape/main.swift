@@ -20,7 +20,12 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
         let metadata = try decoder.decode(RecordingMetadata.self, from: data)
         let camURL = videoURL.deletingPathExtension().appendingPathExtension("cam.mov")
         let camera = FileManager.default.fileExists(atPath: camURL.path) ? camURL : nil
-        try VideoRenderer().render(videoURL: videoURL, metadata: metadata, cameraURL: camera, to: outURL)
+        var style = VideoRenderer.Style()
+        if let brand = ProcessInfo.processInfo.environment["DEMOTAPE_BRAND_IMAGE"],
+           FileManager.default.fileExists(atPath: brand) {
+            style.brandingImageURL = URL(fileURLWithPath: brand)   // headless branding smoke-test
+        }
+        try VideoRenderer().render(videoURL: videoURL, metadata: metadata, cameraURL: camera, to: outURL, style: style)
         print("rendered: \(outURL.path)")
         exit(0)
     } catch {
