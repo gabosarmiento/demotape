@@ -34,8 +34,11 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
   remains visible while recording without appearing in the capture. Region recordings are
   **framed** on a gradient background with padding, rounded corners, and a soft shadow.
 - **Background gallery** (bundled gradient wallpapers) + custom image picker.
-- **Branding watermark**: upload a logo, drag it anywhere and size it in a live editor, and it's
-  baked into the styled export. Toggle on/off from the menu.
+- **Branding watermark**: upload a logo, drag it anywhere and size it (top-right handle) in a
+  live editor, and it's baked into the styled export. Toggle on/off from the menu.
+- **Teleprompter**: paste a script and scroll it while you record so you can read as you go.
+  It scrolls in a strip **outside the recording** (a chosen edge — top/bottom/left/right — in
+  full-screen, or the margin around a selected area), so it never appears in the video.
 - **Webcam overlay** — a live, draggable, resizable, zoomable circular PiP with a settings
   overlay. Mic + webcam share one capture clock, so lip-sync stays tight.
 - **Microphone** capture with automatic loudness normalization.
@@ -95,7 +98,11 @@ A record icon appears in your menu bar.
 - **Record Full Screen** / **Select Recording Area…** choose the capture mode.
 - **Record Microphone**, **Record Webcam**, **Webcam Settings…**, **Background…** toggle and
   configure overlays.
-- **Enable Branding** / **Branding Settings…** add and position a logo watermark on exports.
+- The menu groups settings into submenus — **Input** (mic/webcam), **Background** (image or
+  **No Background**), **Branding**, **Teleprompter** — with post-record actions under **After
+  Recording**. On launch the recorder bar shows in full-screen mode, ready to record.
+- **Branding** (submenu) adds/positions a logo watermark on exports. **Teleprompter** (submenu)
+  scrolls a script beside/around the recording so you can read while capturing (never recorded).
 - On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
 - **Recording Folder → Open / Change Output Directory…** opens or relocates where recordings are
   saved (your choice is remembered).
@@ -162,6 +169,8 @@ Sources/DemoTape/
   WebcamSettingsController.swift  Live webcam positioning overlay
   BackgroundPicker.swift      Background gallery
   BrandingSettingsController.swift  Logo watermark editor (upload/drag/size)
+  TeleprompterOverlay.swift   Scrolling teleprompter (excluded from capture) + strip geometry
+  TeleprompterSettingsController.swift  Script + speed + Display (strip edge) editor
   WebPublishController.swift  Web export panel
   GlobalHotKey.swift          Carbon global hotkey (⇧⌘S)
   Log.swift / Paths.swift     Diagnostics + output folder

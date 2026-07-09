@@ -63,15 +63,25 @@ final class RecordingEngine {
         // Region capture: crop to the selected area (AVCaptureScreenInput.cropRect is
         // in display points with a bottom-left origin).
         regionRect = nil
+        let bounds = CGDisplayBounds(displayID)
         if Settings.useRegion {
-            let b = CGDisplayBounds(displayID)
-            let rx = CGFloat(Settings.regionX) * b.width
-            let ryTop = CGFloat(Settings.regionY) * b.height
-            let rw = CGFloat(Settings.regionW) * b.width
-            let rh = CGFloat(Settings.regionH) * b.height
-            input.cropRect = CGRect(x: rx, y: b.height - ryTop - rh, width: rw, height: rh)
+            let rx = CGFloat(Settings.regionX) * bounds.width
+            let ryTop = CGFloat(Settings.regionY) * bounds.height
+            let rw = CGFloat(Settings.regionW) * bounds.width
+            let rh = CGFloat(Settings.regionH) * bounds.height
+            input.cropRect = CGRect(x: rx, y: bounds.height - ryTop - rh, width: rw, height: rh)
             regionRect = CGRect(x: rx, y: ryTop, width: rw, height: rh) // top-left for events
             Log.write("prepare(): region crop \(Int(rw))x\(Int(rh))")
+        } else if Settings.teleprompterActive {
+            // Full screen minus a thin strip (on the chosen edge), so the teleprompter that
+            // scrolls in that strip is not part of the recording.
+            let (crop, region) = TeleprompterStrip.crop(
+                width: bounds.width, height: bounds.height,
+                edge: Settings.teleprompterStripEdge,
+                fraction: CGFloat(Settings.teleprompterTopStripFraction))
+            input.cropRect = crop
+            regionRect = region
+            Log.write("prepare(): full screen minus teleprompter \(Settings.teleprompterStripEdge) strip")
         }
 
         guard session.canAddInput(input) else {

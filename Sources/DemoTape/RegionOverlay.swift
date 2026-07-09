@@ -49,6 +49,7 @@ final class RegionOverlay {
         w.level = .floating          // below the recorder bar (which is floating+1)
         w.hasShadow = false
         w.acceptsMouseMovedEvents = true
+        w.sharingType = .none        // best-effort; the border is drawn outside the crop regardless
         w.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         window = w
         return w

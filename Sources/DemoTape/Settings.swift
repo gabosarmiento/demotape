@@ -56,6 +56,12 @@ enum Settings {
         get { defaults.string(forKey: "backgroundFile") ?? "gradient_wave_wallpaper_01.png" }
         set { defaults.set(newValue, forKey: "backgroundFile") }
     }
+    /// Whether a region recording is framed on a background. Off = "No Background": record the
+    /// selected area at its own resolution, edge-to-edge, keeping proportions.
+    static var framedBackground: Bool {
+        get { defaults.object(forKey: "framedBackground") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "framedBackground") }
+    }
 
     // MARK: - Branding (logo watermark)
 
@@ -81,6 +87,46 @@ enum Settings {
     static var brandingWidthFraction: Double {
         get { defaults.object(forKey: "brandingWidthFraction") as? Double ?? 0.14 }
         set { defaults.set(newValue, forKey: "brandingWidthFraction") }
+    }
+
+    // MARK: - Teleprompter
+
+    static var teleprompterEnabled: Bool {
+        get { defaults.bool(forKey: "teleprompterEnabled") }
+        set { defaults.set(newValue, forKey: "teleprompterEnabled") }
+    }
+    static var teleprompterText: String {
+        get { defaults.string(forKey: "teleprompterText") ?? "" }
+        set { defaults.set(newValue, forKey: "teleprompterText") }
+    }
+    /// How long (minutes) the script takes to scroll — used only in "fit to duration" mode.
+    static var teleprompterMinutes: Double {
+        get { defaults.object(forKey: "teleprompterMinutes") as? Double ?? 3.0 }
+        set { defaults.set(newValue, forKey: "teleprompterMinutes") }
+    }
+    /// Scroll speed multiplier (1.0 = a natural reading pace). Used unless "fit to duration".
+    static var teleprompterSpeed: Double {
+        get { defaults.object(forKey: "teleprompterSpeed") as? Double ?? 1.0 }
+        set { defaults.set(newValue, forKey: "teleprompterSpeed") }
+    }
+    /// When true, scroll the whole script to fit `teleprompterMinutes` instead of using speed.
+    static var teleprompterFitDuration: Bool {
+        get { defaults.bool(forKey: "teleprompterFitDuration") }
+        set { defaults.set(newValue, forKey: "teleprompterFitDuration") }
+    }
+    /// Fraction of the screen reserved for the teleprompter strip in full-screen mode
+    /// (kept thin; this strip is excluded from the recording).
+    static let teleprompterTopStripFraction: Double = 0.12
+    /// Which edge the full-screen teleprompter strip sits on: "top" (default), "bottom",
+    /// "left", or "right".
+    static var teleprompterStripEdge: String {
+        get { defaults.string(forKey: "teleprompterStripEdge") ?? "top" }
+        set { defaults.set(newValue, forKey: "teleprompterStripEdge") }
+    }
+
+    /// The teleprompter will actually show (enabled + has a script).
+    static var teleprompterActive: Bool {
+        teleprompterEnabled && !teleprompterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Output directory
