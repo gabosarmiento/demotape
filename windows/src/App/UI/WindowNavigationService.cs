@@ -17,6 +17,7 @@ public sealed class WindowNavigationService : INavigationService
     private WebPublishWindow? _webPublish;
     private RegionSelectorWindow? _regionSelector;
     private BackgroundPickerWindow? _backgroundPicker;
+    private WebcamSettingsWindow? _webcamSettings;
 
     public WindowNavigationService(IServiceProvider services, WindowsUserInteraction interaction, ISettingsStore settingsStore)
     {
@@ -54,7 +55,11 @@ public sealed class WindowNavigationService : INavigationService
         _backgroundPicker.Activate();
     }
 
-    public void OpenWebcamSettings() =>
-        _ = _interaction.ShowMessageAsync("Webcam settings",
-            "Live webcam positioning is coming next. For now the webcam records at its default size/position.");
+    public void OpenWebcamSettings()
+    {
+        if (_webcamSettings is not null) { _webcamSettings.Activate(); return; }
+        _webcamSettings = new WebcamSettingsWindow(_settingsStore);
+        _webcamSettings.Closed += (_, _) => _webcamSettings = null;
+        _webcamSettings.Activate();
+    }
 }
