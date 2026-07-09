@@ -28,6 +28,7 @@ public sealed class WindowsRecordingController : IRecordingController
     private ScreenCaptureRecorder? _capture;
     private EventRecorder? _events;
     private WebcamRecorder? _webcam;
+    private Task<bool>? _webcamPrepare;
     private string _rawPath = "";
     private string _sidecarPath = "";
     private string? _camPath;
@@ -56,11 +57,34 @@ public sealed class WindowsRecordingController : IRecordingController
     private Task StartAsync()
     {
         SetState(RecordingState.Countdown);
+        // Warm up the webcam concurrently with the countdown so recording begins instantly at
+        // zero (no camera cold-start lag / black frames) — matches the macOS behavior.
+        _webcamPrepare = PrepareWebcamAsync();
         return RunOnUiAsync(async () =>
         {
             var countdown = new CountdownWindow();
             await countdown.RunAsync(3, BeginCaptureAsync);
         });
+    }
+
+    private async Task<bool> PrepareWebcamAsync()
+    {
+        var settings = _settingsStore.Load();
+        if (!settings.CaptureWebcam) { _webcam = null; return false; }
+
+        if (!CameraAllowed())
+        {
+            _ = _interaction.ShowMessageAsync("Enable camera access",
+                "Windows is blocking the camera for desktop apps, so the webcam records a blank frame. " +
+                "Turn on Settings → Privacy & security → Camera → \"Let desktop apps access your camera\" " +
+                "(and \"Camera access\"), then record again.");
+            OpenCameraPrivacySettings();
+        }
+
+        _webcam = _services.GetRequiredService<WebcamRecorder>();
+        if (await _webcam.PrepareAsync(withMicrophone: false)) return true;
+        _webcam = null;
+        return false;
     }
 
     private async Task BeginCaptureAsync()
@@ -75,15 +99,16 @@ public sealed class WindowsRecordingController : IRecordingController
 
             var settings = _settingsStore.Load();
 
-            // Webcam picture-in-picture (optional). Starts alongside the screen capture.
+            // Begin the (already-warmed) webcam recording — fast, so it's aligned with the screen.
             _camPath = null;
-            if (settings.CaptureWebcam)
+            bool camReady = _webcamPrepare is not null && await _webcamPrepare;
+            if (camReady && _webcam is not null)
             {
-                _webcam = _services.GetRequiredService<WebcamRecorder>();
                 var cam = _rawPath[..^".mp4".Length] + ".cam.mp4";
-                if (await _webcam.StartAsync(cam, withMicrophone: false)) _camPath = cam;
+                if (await _webcam.BeginAsync(cam)) _camPath = cam;
                 else _webcam = null;
             }
+            else _webcam = null;
 
             _events = _services.GetRequiredService<EventRecorder>();
             var display = BuildDisplay();
@@ -147,6 +172,27 @@ public sealed class WindowsRecordingController : IRecordingController
             _events = null;
             _webcam = null;
         }
+    }
+
+    private static bool CameraAllowed()
+    {
+        try
+        {
+            var status = Windows.Security.Authorization.AppCapabilityAccess.AppCapability
+                .Create("webcam").CheckAccess();
+            return status == Windows.Security.Authorization.AppCapabilityAccess.AppCapabilityAccessStatus.Allowed;
+        }
+        catch { return true; } // check unsupported → let MediaCapture try
+    }
+
+    private void OpenCameraPrivacySettings()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "ms-settings:privacy-webcam") { UseShellExecute = true });
+        }
+        catch { /* best effort */ }
     }
 
     private DisplayInfo BuildDisplay()

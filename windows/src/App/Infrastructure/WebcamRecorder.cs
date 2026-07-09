@@ -21,8 +21,11 @@ public sealed class WebcamRecorder
 
     public WebcamRecorder(ILogger<WebcamRecorder> logger) => _logger = logger;
 
-    /// <summary>Starts recording the webcam to <paramref name="camPath"/> (.mp4). Returns false if unavailable.</summary>
-    public async Task<bool> StartAsync(string camPath, bool withMicrophone)
+    /// <summary>
+    /// Warms up the camera (initializes the capture session). Called during the countdown so that
+    /// <see cref="BeginAsync"/> starts recording instantly at zero — no cold-start lag / black frames.
+    /// </summary>
+    public async Task<bool> PrepareAsync(bool withMicrophone)
     {
         try
         {
@@ -33,12 +36,27 @@ public sealed class WebcamRecorder
             };
             _capture = new MediaCapture();
             await _capture.InitializeAsync(init);
+            _logger.LogInformation("Webcam prepared (warming up)");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Webcam unavailable; continuing without it");
+            Cleanup();
+            return false;
+        }
+    }
 
+    /// <summary>Begins writing to <paramref name="camPath"/>. Fast — the session is already warm.</summary>
+    public async Task<bool> BeginAsync(string camPath)
+    {
+        if (_capture is null) return false;
+        try
+        {
             var profile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD720p);
             var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(camPath)!);
             var file = await folder.CreateFileAsync(Path.GetFileName(camPath), CreationCollisionOption.ReplaceExisting);
             await _capture.StartRecordToStorageFileAsync(profile, file);
-
             _path = camPath;
             _recording = true;
             _logger.LogInformation("Webcam recording -> {Name}", Path.GetFileName(camPath));
@@ -46,8 +64,7 @@ public sealed class WebcamRecorder
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Webcam unavailable; continuing without it");
-            Cleanup();
+            _logger.LogWarning(ex, "Webcam begin failed");
             return false;
         }
     }
