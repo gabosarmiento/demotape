@@ -17,8 +17,8 @@ public sealed class AppSettings
     /// <summary>Webcam zoom factor (1.0 = full frame, higher = zoomed in).</summary>
     public double WebcamZoom { get; set; } = 1.0;
 
-    /// <summary>Webcam circle diameter as a fraction of screen width.</summary>
-    public double WebcamSize { get; set; } = 0.22;
+    /// <summary>Webcam circle diameter as a fraction of screen width (kept small for web demos).</summary>
+    public double WebcamSize { get; set; } = 0.16;
 
     /// <summary>Capture a selected region (with framing) instead of the full screen.</summary>
     public bool UseRegion { get; set; }

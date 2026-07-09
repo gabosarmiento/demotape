@@ -91,7 +91,9 @@ public sealed class StyledVideoRenderer
             bool useCam = settings.CaptureWebcam && cameraPath is not null && File.Exists(cameraPath);
             MediaPlayer? camPlayer = null;
             CanvasRenderTarget? camSurface = null;
-            var camLock = new object();
+            // One lock serializes ALL Win2D device access: the two frame-server callbacks
+            // (screen + webcam) run on different threads and the device is not thread-safe.
+            var deviceLock = new object();
             bool camHasFrame = false;
             if (useCam)
             {
@@ -106,7 +108,7 @@ public sealed class StyledVideoRenderer
                 camPlayer.MediaFailed += (_, _) => camOpened.TrySetResult(true);
                 camPlayer.VideoFrameAvailable += (_, _) =>
                 {
-                    try { lock (camLock) { camPlayer.CopyFrameToVideoSurface(camSurface); camHasFrame = true; } }
+                    try { lock (deviceLock) { camPlayer.CopyFrameToVideoSurface(camSurface); camHasFrame = true; } }
                     catch { /* ignore */ }
                 };
                 camPlayer.Source = MediaSource.CreateFromStorageFile(camFile);
@@ -131,6 +133,8 @@ public sealed class StyledVideoRenderer
             {
                 try
                 {
+                  lock (deviceLock)
+                  {
                     player.CopyFrameToVideoSurface(frameSurface);
                     double t = player.PlaybackSession.Position.TotalSeconds;
                     double eventT = t + eventOffset;
@@ -173,7 +177,7 @@ public sealed class StyledVideoRenderer
                         }
                         // Webcam PiP — fixed position/size (does not zoom).
                         if (useCam && camHasFrame && camSurface is not null)
-                            lock (camLock) DrawWebcam(ds, camSurface, settings, outW, outH);
+                            DrawWebcam(ds, camSurface, settings, outW, outH);
                     }
 
                     using (var ds = flipRT.CreateDrawingSession())
@@ -185,6 +189,7 @@ public sealed class StyledVideoRenderer
                     channel.Writer.TryWrite((flipRT.GetPixelBytes(), TimeSpan.FromSeconds(t)));
                     frameCount++;
                     if (durationSec > 0) progress?.Report(Math.Clamp(t / durationSec, 0, 1));
+                  } // lock (deviceLock)
                 }
                 catch (Exception ex) { _logger.LogWarning(ex, "Styled frame skipped"); }
             };

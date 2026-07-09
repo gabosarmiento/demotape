@@ -6,24 +6,24 @@
 
     <Grid x:Name="Root" Background="#73000000">
         <Canvas x:Name="Layer">
-            <!-- Draggable / resizable webcam circle -->
+            <!-- Draggable / resizable webcam circle (placeholder preview) -->
             <Grid x:Name="Puck" Width="240" Height="240">
-                <Ellipse x:Name="Circle" Width="240" Height="240">
-                    <Ellipse.Fill>
-                        <ImageBrush x:Name="CamBrush" Stretch="UniformToFill" />
-                    </Ellipse.Fill>
-                </Ellipse>
+                <Ellipse x:Name="Circle" Width="240" Height="240" Fill="#FF282C34" />
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="4"
+                            IsHitTestVisible="False" Margin="0,0,0,44">
+                    <FontIcon Glyph="&#xE960;" FontSize="40" Foreground="#73FFFFFF" HorizontalAlignment="Center" />
+                    <TextBlock Text="Webcam" Foreground="#73FFFFFF" HorizontalAlignment="Center" />
+                </StackPanel>
                 <Ellipse Width="240" Height="240" Stroke="White" StrokeThickness="3" IsHitTestVisible="False" />
 
                 <!-- Zoom slider with a magnifier icon beneath it -->
                 <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Center"
                             Margin="0,0,0,34" Spacing="2">
-                    <Slider x:Name="ZoomSlider" Width="150" Minimum="1" Maximum="3"
-                            StepFrequency="0.05" />
+                    <Slider x:Name="ZoomSlider" Width="150" Minimum="1" Maximum="3" StepFrequency="0.05" />
                     <FontIcon Glyph="&#xE71E;" Foreground="White" FontSize="16" HorizontalAlignment="Center" />
                 </StackPanel>
 
-                <!-- Resize handle (top-right, ~45° on the ring) with a size icon -->
+                <!-- Resize handle (top-right) with a size icon -->
                 <Border x:Name="Handle" Width="32" Height="32" CornerRadius="16"
                         Background="#8C000000" HorizontalAlignment="Right" VerticalAlignment="Top"
                         Margin="0,4,4,0">
@@ -34,13 +34,13 @@
 
         <!-- Centered instruction card with the Save button -->
         <Border HorizontalAlignment="Center" VerticalAlignment="Center"
-                Width="440" CornerRadius="18" Padding="24" Background="#22FFFFFF"
+                Width="460" CornerRadius="18" Padding="24" Background="#22FFFFFF"
                 BorderBrush="#8CFFFFFF" BorderThickness="1">
             <StackPanel Spacing="12" HorizontalAlignment="Center">
                 <TextBlock Text="Position the camera" FontSize="22" FontWeight="SemiBold"
                            Foreground="White" HorizontalAlignment="Center" />
                 <TextBlock TextWrapping="Wrap" TextAlignment="Center" Foreground="#B8FFFFFF"
-                           Text="Drag the circle to reposition it. Use the corner handle to resize and the slider to zoom in." />
+                           Text="Drag the circle to reposition it. Use the corner handle to resize and the slider to set zoom. Your live camera appears here in the recording." />
                 <Button x:Name="SaveButton" Content="Save Position" Style="{ThemeResource AccentButtonStyle}"
                         HorizontalAlignment="Center" Padding="18,8" Click="OnSave" />
                 <TextBlock Text="Esc to cancel" FontSize="12" Foreground="#8CFFFFFF"

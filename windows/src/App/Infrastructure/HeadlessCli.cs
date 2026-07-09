@@ -103,8 +103,10 @@ public static class HeadlessCli
             var renderer = new StyledVideoRenderer(new ConsoleLogger<StyledVideoRenderer>());
             var settingsStore = new JsonSettingsStore(new PathService(), NullLogger<JsonSettingsStore>.Instance);
             var settings = settingsStore.Load();
-            Console.WriteLine($"render: {raw} (+ {Path.GetFileName(sidecar)}) region={settings.UseRegion} -> {output}");
-            var result = await renderer.RenderAsync(raw, sidecar, output, settings);
+            var cam = raw.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ? raw[..^4] + ".cam.mp4" : null;
+            var camPath = cam is not null && File.Exists(cam) ? cam : null;
+            Console.WriteLine($"render: {raw} (+ {Path.GetFileName(sidecar)}) region={settings.UseRegion} cam={camPath is not null} -> {output}");
+            var result = await renderer.RenderAsync(raw, sidecar, output, settings, cameraPath: camPath);
             Console.WriteLine(result is null ? "render: FAILED" : $"render: OK -> {output} ({new FileInfo(output).Length / 1024} KB)");
             return true;
         }

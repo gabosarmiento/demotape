@@ -1,39 +1,29 @@
 using System.Runtime.InteropServices;
 using DemoTape.Domain.Abstractions;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
-using Windows.Graphics.Imaging;
-using Windows.Media.Capture;
-using Windows.Media.Capture.Frames;
 using Windows.System;
-using Windows.UI;
 using WinRT.Interop;
 
 namespace DemoTape.App.UI;
 
 /// <summary>
-/// Full-screen overlay for positioning the webcam circle — live preview, drag to move, corner
-/// handle to resize, and an in-circle zoom slider. Mirrors the macOS WebcamSettingsController.
-/// Save persists position, size, and zoom to settings.
+/// Full-screen overlay for positioning the webcam circle — drag to move, corner handle to resize,
+/// and an in-circle zoom slider with a magnifier icon. Mirrors the macOS WebcamSettingsController
+/// layout. Save persists position, size, and zoom to settings.
+///
+/// Note: a live camera preview here proved unstable (WinUI's SoftwareBitmapSource path crashes via
+/// native COM marshaling), so the circle shows a placeholder; the real webcam is composited into
+/// the recording using the position/size/zoom saved here.
 /// </summary>
 public sealed partial class WebcamSettingsWindow : Window
 {
     private enum Mode { None, Move, Resize }
 
     private readonly ISettingsStore _settingsStore;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher =
-        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-    private readonly SoftwareBitmapSource _preview = new();
-
-    private MediaCapture? _capture;
-    private MediaFrameReader? _reader;
-    private volatile bool _updating;
-
     private Mode _mode;
     private Point _pointerStart;
     private Point _puckStart;
@@ -47,14 +37,11 @@ public sealed partial class WebcamSettingsWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         MakeFullScreenOverlay(hwnd);
 
-        CamBrush.ImageSource = _preview;
         Root.Loaded += OnLoaded;
         Root.KeyDown += (_, e) => { if (e.Key == VirtualKey.Escape) Close(); };
         Puck.PointerPressed += OnPointerPressed;
         Puck.PointerMoved += OnPointerMoved;
         Puck.PointerReleased += OnPointerReleased;
-        ZoomSlider.ValueChanged += (_, _) => ApplyZoom();
-        Closed += (_, _) => StopPreview();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -70,84 +57,13 @@ public sealed partial class WebcamSettingsWindow : Window
         Canvas.SetLeft(Puck, cx - d / 2);
         Canvas.SetTop(Puck, cy - d / 2);
         ZoomSlider.Value = Math.Clamp(s.WebcamZoom, 1, 3);
-        ApplyZoom();
 
         Root.Focus(FocusState.Programmatic);
-        _ = StartPreviewAsync();
-    }
-
-    // ---- Live preview via MediaFrameReader (graceful if unavailable) ----
-
-    private async Task StartPreviewAsync()
-    {
-        try
-        {
-            _capture = new MediaCapture();
-            await _capture.InitializeAsync(new MediaCaptureInitializationSettings
-            {
-                StreamingCaptureMode = StreamingCaptureMode.Video,
-                MemoryPreference = MediaCaptureMemoryPreference.Cpu,
-                SharingMode = MediaCaptureSharingMode.ExclusiveControl,
-            });
-
-            var source = _capture.FrameSources.Values.FirstOrDefault(
-                f => f.Info.SourceKind == MediaFrameSourceKind.Color) ?? _capture.FrameSources.Values.FirstOrDefault();
-            if (source is null) { ShowPlaceholder(); return; }
-
-            _reader = await _capture.CreateFrameReaderAsync(source);
-            _reader.FrameArrived += OnFrameArrived;
-            await _reader.StartAsync();
-        }
-        catch
-        {
-            ShowPlaceholder();
-        }
-    }
-
-    private void OnFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
-    {
-        if (_updating) return;
-        using var frame = sender.TryAcquireLatestFrame();
-        var bmp = frame?.VideoMediaFrame?.SoftwareBitmap;
-        if (bmp is null) return;
-
-        var converted = SoftwareBitmap.Convert(bmp, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-        _updating = true;
-        _dispatcher.TryEnqueue(async () =>
-        {
-            try { await _preview.SetBitmapAsync(converted); }
-            catch { }
-            finally { converted.Dispose(); _updating = false; }
-        });
-    }
-
-    private void ShowPlaceholder() =>
-        _dispatcher.TryEnqueue(() => Circle.Fill = new SolidColorBrush(Color.FromArgb(255, 40, 44, 52)));
-
-    private async void StopPreview()
-    {
-        try
-        {
-            if (_reader is not null) { _reader.FrameArrived -= OnFrameArrived; await _reader.StopAsync(); _reader.Dispose(); _reader = null; }
-        }
-        catch { }
-        try { _capture?.Dispose(); } catch { }
-        _capture = null;
-    }
-
-    // ---- Interaction ----
-
-    private void ApplyZoom()
-    {
-        double z = ZoomSlider.Value;
-        // Mirror (selfie) + zoom, centered in the brush's 0..1 space.
-        CamBrush.RelativeTransform = new CompositeTransform { CenterX = 0.5, CenterY = 0.5, ScaleX = -z, ScaleY = z };
     }
 
     private void SetDiameter(double d)
     {
         Puck.Width = d; Puck.Height = d;
-        Circle.Width = d; Circle.Height = d;
         foreach (var el in Puck.Children.OfType<Microsoft.UI.Xaml.Shapes.Ellipse>())
         {
             el.Width = d; el.Height = d;
@@ -173,10 +89,8 @@ public sealed partial class WebcamSettingsWindow : Window
 
         if (_mode == Mode.Move)
         {
-            double left = _puckStart.X + (p.X - _pointerStart.X);
-            double top = _puckStart.Y + (p.Y - _pointerStart.Y);
-            left = Math.Clamp(left, 0, Math.Max(0, Root.ActualWidth - Puck.Width));
-            top = Math.Clamp(top, 0, Math.Max(0, Root.ActualHeight - Puck.Height));
+            double left = Math.Clamp(_puckStart.X + (p.X - _pointerStart.X), 0, Math.Max(0, Root.ActualWidth - Puck.Width));
+            double top = Math.Clamp(_puckStart.Y + (p.Y - _pointerStart.Y), 0, Math.Max(0, Root.ActualHeight - Puck.Height));
             Canvas.SetLeft(Puck, left);
             Canvas.SetTop(Puck, top);
         }
