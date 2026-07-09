@@ -14,6 +14,8 @@ final class BrandingSettingsController: NSObject {
     private var card: NSView!
 
     private var onClose: (() -> Void)?
+    private var imagePath = ""            // persisted only on Confirm
+    private var escMonitor: Any?
 
     func show(onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -79,14 +81,18 @@ final class BrandingSettingsController: NSObject {
         sizeSlider.frame = NSRect(x: 80, y: 102, width: cardW - 120, height: 22)
         card.addSubview(sizeSlider)
 
+        // Button row: Upload | Remove | Cancel | Confirm.
         let upload = makeButton("Upload Logo…", action: #selector(uploadLogo), accent: true)
-        upload.frame = NSRect(x: cardW / 2 - 200, y: 30, width: 150, height: 40)
+        upload.frame = NSRect(x: 20, y: 26, width: 130, height: 40)
         card.addSubview(upload)
         removeButton = makeButton("Remove", action: #selector(removeLogo), accent: false)
-        removeButton.frame = NSRect(x: cardW / 2 - 40, y: 30, width: 100, height: 40)
+        removeButton.frame = NSRect(x: 156, y: 26, width: 84, height: 40)
         card.addSubview(removeButton)
+        let cancel = makeButton("Cancel", action: #selector(cancel), accent: false)
+        cancel.frame = NSRect(x: 244, y: 26, width: 84, height: 40)
+        card.addSubview(cancel)
         let confirm = makeButton("Confirm", action: #selector(confirm), accent: true)
-        confirm.frame = NSRect(x: cardW / 2 + 70, y: 30, width: 130, height: 40)
+        confirm.frame = NSRect(x: 334, y: 26, width: 126, height: 40)
         confirm.keyEquivalent = "\r"
         card.addSubview(confirm)
 
@@ -105,6 +111,13 @@ final class BrandingSettingsController: NSObject {
         loadExistingLogo()
         updateState()
 
+        // Esc closes the editor (borderless panels don't get cancelOperation reliably).
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.panel != nil, event.keyCode == 53 else { return event }
+            self.cancel()
+            return nil
+        }
+
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
@@ -113,6 +126,7 @@ final class BrandingSettingsController: NSObject {
         let path = Settings.brandingImagePath
         guard !path.isEmpty, FileManager.default.fileExists(atPath: path),
               let image = NSImage(contentsOfFile: path) else { return }
+        imagePath = path
         addLogoView(image: image,
                     centerX: CGFloat(Settings.brandingCenterX),
                     centerY: CGFloat(Settings.brandingCenterY),
@@ -151,27 +165,35 @@ final class BrandingSettingsController: NSObject {
         panelOpen.allowedContentTypes = [.png, .jpeg, .tiff, .image]
         panelOpen.allowsMultipleSelection = false
         panelOpen.canChooseDirectories = false
-        guard panelOpen.runModal() == .OK, let url = panelOpen.url,
-              let image = NSImage(contentsOf: url) else { return }
-        Settings.brandingImagePath = url.path
-        let frac = CGFloat(sizeSlider.doubleValue)
-        addLogoView(image: image, centerX: 0.86, centerY: 0.90, widthFraction: frac)
+        // Our overlay sits at screenSaver level, which would hide the picker — drop below it
+        // for the duration of the modal, then restore.
+        panel?.level = .normal
+        let result = panelOpen.runModal()
+        panel?.level = .screenSaver
+        panel?.makeKeyAndOrderFront(nil)
+        guard result == .OK, let url = panelOpen.url, let image = NSImage(contentsOf: url) else { return }
+        imagePath = url.path
+        addLogoView(image: image, centerX: 0.86, centerY: 0.90,
+                    widthFraction: CGFloat(sizeSlider.doubleValue))
         updateState()
     }
 
     @objc private func removeLogo() {
         logoView?.removeFromSuperview(); logoView = nil
+        imagePath = ""
         Settings.brandingImagePath = ""
         Settings.brandingEnabled = false
-        updateState()
         close()
     }
 
+    @objc private func cancel() { close() }   // discard: nothing persisted until Confirm
+
     @objc private func confirm() {
-        if let v = logoView, let screen = NSScreen.main, let panel = panel {
+        if let v = logoView, !imagePath.isEmpty, let screen = NSScreen.main, let panel = panel {
             let center = CGPoint(x: v.frame.midX, y: v.frame.midY)
             let screenPt = panel.convertPoint(toScreen: center)
             let f = screen.frame
+            Settings.brandingImagePath = imagePath
             Settings.brandingCenterX = Double(min(max((screenPt.x - f.minX) / f.width, 0), 1))
             Settings.brandingCenterY = Double(min(max(1 - (screenPt.y - f.minY) / f.height, 0), 1))
             Settings.brandingWidthFraction = sizeSlider.doubleValue
@@ -187,6 +209,7 @@ final class BrandingSettingsController: NSObject {
     }
 
     private func close() {
+        if let m = escMonitor { NSEvent.removeMonitor(m); escMonitor = nil }
         panel?.orderOut(nil); panel = nil; logoView = nil
         onClose?(); onClose = nil
     }
