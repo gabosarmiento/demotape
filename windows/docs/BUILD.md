@@ -10,7 +10,7 @@ while the WinUI 3 desktop shell requires the Windows App SDK tooling.
 | `src/App/Domain/DemoTape.Domain.csproj` | `net8.0` | .NET 8 SDK only |
 | `src/App/ViewModels/DemoTape.ViewModels.csproj` | `net8.0` | .NET 8 SDK only |
 | `tests/DemoTape.Tests/DemoTape.Tests.csproj` | `net8.0` | .NET 8 SDK only |
-| `src/App/DemoTape.App.csproj` | `net8.0-windows10.0.19041.0` (WinUI 3) | .NET 8 SDK + **Windows SDK** + Windows App SDK |
+| `src/App/DemoTape.App.csproj` | `net8.0-windows10.0.22621.0` (WinUI 3) | .NET 8 SDK + **Windows SDK** + Windows App SDK |
 
 ## Prerequisites
 

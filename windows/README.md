@@ -38,7 +38,7 @@ src/App/
   ViewModels/        DemoTape.ViewModels (net8.0)  ShellViewModel · WebPublishViewModel (MVVM)
   Infrastructure/    (in DemoTape.App)             Windows impls: transcoder, stores, hotkey, logging
   UI/                (in DemoTape.App)             WinUI 3 windows + navigation
-  DemoTape.App.csproj  WinUI 3 tray app (net8.0-windows10.0.19041.0)
+  DemoTape.App.csproj  WinUI 3 tray app (net8.0-windows10.0.22621.0)
 tests/
   DemoTape.Tests/    xUnit — Domain + Services + ViewModels
 ```
@@ -57,7 +57,10 @@ the thin **App** shell (UI + Infrastructure) needs the Windows App SDK toolchain
   tray-driven `WindowsRecordingController` state machine
 - ✅ Ported + unit-tested business logic: focus timeline, spring camera, render geometry,
   publish planning, audio normalization, input mapping
-- ℹ️ The capture/render components require the **Windows SDK** to compile (see `docs/BUILD.md`);
-  the portable business logic does not. Custom-effect activation on unpackaged builds falls back
-  to saving the raw capture — see the caveat in `docs/BUILD.md`.
-- ⏭️ Next: region-crop capture + framed background, webcam PiP, and mic loudness muxing
+- ✅ **Region-crop capture + framed background** (drag-to-select overlay + background gallery)
+- ✅ **Webcam PiP** (circular overlay) with a **live Webcam Settings** positioner (CommunityToolkit CameraPreview)
+- ✅ **Microphone** capture muxed into the styled output
+- ✅ Sequential frame-server render (~real-time) with in-tray progress
+- ℹ️ The capture/render/preview components require the **Windows SDK** to compile (see `docs/BUILD.md`);
+  the portable business logic (Domain/Services/ViewModels) does not.
+- ⏭️ Possible next steps: MSIX packaging + code signing, system-audio capture, render-progress bar
