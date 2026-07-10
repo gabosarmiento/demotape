@@ -39,6 +39,11 @@ enum Settings {
         get { defaults.object(forKey: "useRegion") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "useRegion") }
     }
+    /// Selected recording-area preset name (aspect lock + target export size). "Freeform" = none.
+    static var regionPreset: String {
+        get { defaults.string(forKey: "regionPreset") ?? "Freeform" }
+        set { defaults.set(newValue, forKey: "regionPreset") }
+    }
     /// Selected region, normalized to the display (top-left origin).
     static var regionX: Double { get { defaults.double(forKey: "regionX") } set { defaults.set(newValue, forKey: "regionX") } }
     static var regionY: Double { get { defaults.double(forKey: "regionY") } set { defaults.set(newValue, forKey: "regionY") } }
@@ -49,6 +54,17 @@ enum Settings {
     static var publishTiers: [Int] {
         get { (defaults.array(forKey: "publishTiers") as? [Int]) ?? [540] }
         set { defaults.set(newValue, forKey: "publishTiers") }
+    }
+
+    /// Web Publish: also export an animated GIF, and its width/fps.
+    static var publishGIF: Bool {
+        get { defaults.bool(forKey: "publishGIF") }
+        set { defaults.set(newValue, forKey: "publishGIF") }
+    }
+    /// GIF quality preset name: "Smaller", "Balanced" (default), or "Sharp".
+    static var gifQuality: String {
+        get { defaults.string(forKey: "gifQuality") ?? "Balanced" }
+        set { defaults.set(newValue, forKey: "gifQuality") }
     }
 
     /// Background image file (in the bundled Resources/background folder) for framed mode.

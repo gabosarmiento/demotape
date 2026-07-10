@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+        Notifier.shared.setup()   // ask for notification permission on first launch
         // Brand the app icon (used by Finder and by NSAlert dialogs).
         if let url = Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns"),
            let icon = NSImage(contentsOf: url) {
@@ -316,6 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state = .rendering
         teleprompter.stop()
         dismissRecorderBar()   // close the bar + border; rendering starts
+        Notifier.shared.renderStarted()   // "cooking your DemoTape…"
         Task {
             let raw = await engine.stop()
             guard let raw = raw else {
@@ -653,6 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 regionOverlay = overlay
             }
+            regionOverlay?.aspect = AreaPreset.named(Settings.regionPreset).aspect
             regionOverlay?.show(region: region, editable: true)  // adjustable until recording
         } else {
             regionOverlay?.hide()
@@ -719,6 +722,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if style.useBackground {
             style.backgroundImageURL = backgroundURL()
         }
+        if Settings.useRegion, let target = AreaPreset.named(Settings.regionPreset).targetSize {
+            style.exportSize = target   // scale the export to the preset's target resolution
+        }
         if Settings.brandingEnabled, !Settings.brandingImagePath.isEmpty,
            FileManager.default.fileExists(atPath: Settings.brandingImagePath) {
             style.brandingImageURL = URL(fileURLWithPath: Settings.brandingImagePath)
@@ -746,6 +752,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Alerts
 
     private func notifySaved(at url: URL) {
+        // Prefer a native notification with a Reveal action; fall back to an alert if
+        // notifications aren't authorized.
+        if Notifier.shared.renderFinished(url: url) { return }
         let alert = NSAlert()
         alert.messageText = "Recording saved"
         alert.informativeText = url.path

@@ -49,6 +49,10 @@ final class VideoRenderer {
         /// Zoom into the camera image (1 = full frame).
         var webcamZoom: CGFloat = 1.0
 
+        /// Final output size (aspect-fit + centered on black). Used by area presets to export
+        /// at an exact target resolution (e.g. 1080×1350). nil = native composed size.
+        var exportSize: CGSize?
+
         // Branding (logo watermark) — fixed position/size, does not zoom.
         var brandingImageURL: URL?
         /// Logo center, normalized to the output (top-left origin).
@@ -97,6 +101,9 @@ final class VideoRenderer {
         let outH = even(H + pad * 2)
         let contentW = outW - pad * 2
         let contentH = outH - pad * 2
+        // Final encoded size: a preset's target, or the native composed size.
+        let finalW = style.exportSize.map { even($0.width) } ?? outW
+        let finalH = style.exportSize.map { even($0.height) } ?? outH
         let frameInterval = 1.0 / style.outputFPS
 
         // Reader
@@ -115,10 +122,10 @@ final class VideoRenderer {
         let keyframeInterval = Int((style.outputFPS * 2).rounded())
         let writerSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(outW),
-            AVVideoHeightKey: Int(outH),
+            AVVideoWidthKey: Int(finalW),
+            AVVideoHeightKey: Int(finalH),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: Int(outW * outH) * 8,
+                AVVideoAverageBitRateKey: Int(finalW * finalH) * 8,
                 AVVideoMaxKeyFrameIntervalKey: keyframeInterval,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoAllowFrameReorderingKey: true
@@ -130,8 +137,8 @@ final class VideoRenderer {
             assetWriterInput: writerInput,
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: Int(outW),
-                kCVPixelBufferHeightKey as String: Int(outH)
+                kCVPixelBufferWidthKey as String: Int(finalW),
+                kCVPixelBufferHeightKey as String: Int(finalH)
             ])
         guard writer.canAdd(writerInput) else { throw RenderError.writerFailed("cannot add input") }
         writer.add(writerInput)
@@ -378,6 +385,19 @@ final class VideoRenderer {
 
             composite = composite.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
 
+            // Scale to the exact export size (aspect-fit, centered on black) when a preset set it.
+            if style.exportSize != nil {
+                let s = min(finalW / outW, finalH / outH)
+                let tx = ((finalW - outW * s) / 2).rounded()
+                let ty = ((finalH - outH * s) / 2).rounded()
+                composite = composite
+                    .transformed(by: CGAffineTransform(scaleX: s, y: s))
+                    .transformed(by: CGAffineTransform(translationX: tx, y: ty))
+                    .composited(over: CIImage(color: CIColor.black)
+                        .cropped(to: CGRect(x: 0, y: 0, width: finalW, height: finalH)))
+                    .cropped(to: CGRect(x: 0, y: 0, width: finalW, height: finalH))
+            }
+
             guard let pool = adaptor.pixelBufferPool else {
                 renderError = RenderError.noPixelBufferPool
                 writerInput.markAsFinished(); videoDone.signal(); return
@@ -386,7 +406,7 @@ final class VideoRenderer {
             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuffer)
             guard let outBuffer = outBuffer else { continue }
             ciContext.render(composite, to: outBuffer,
-                             bounds: CGRect(x: 0, y: 0, width: outW, height: outH),
+                             bounds: CGRect(x: 0, y: 0, width: finalW, height: finalH),
                              colorSpace: colorSpace)
 
             adaptor.append(outBuffer, withPresentationTime: pts)
