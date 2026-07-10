@@ -22,18 +22,24 @@ VOL_NAME="${APP_NAME} ${VERSION}"
 STAGE_ROOT="$(mktemp -d)"
 STAGE="${STAGE_ROOT}/${APP_NAME}"
 
+# Ship a universal binary so the download runs natively on both Apple Silicon
+# and Intel (no Rosetta). Cross-compiling both slices works from either host
+# with recent Command Line Tools.
+ARCHS=(--arch arm64 --arch x86_64)
+
 cleanup() { rm -rf "${STAGE_ROOT}"; }
 trap cleanup EXIT
 
-echo "==> Building (${CONFIG})..."
-swift build -c "${CONFIG}"
-BIN_PATH="$(swift build -c "${CONFIG}" --show-bin-path)/${APP_NAME}"
+echo "==> Building universal (${CONFIG}: arm64 + x86_64)..."
+swift build -c "${CONFIG}" "${ARCHS[@]}"
+BIN_PATH="$(swift build -c "${CONFIG}" "${ARCHS[@]}" --show-bin-path)/${APP_NAME}"
 
 echo "==> Assembling ${BUNDLE} (v${VERSION})..."
 rm -rf "${BUNDLE}"
 mkdir -p "${BUNDLE}/Contents/MacOS" "${BUNDLE}/Contents/Resources"
 cp "${BIN_PATH}" "${BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp "Resources/Info.plist" "${BUNDLE}/Contents/Info.plist"
+echo "    architectures: $(lipo -archs "${BUNDLE}/Contents/MacOS/${APP_NAME}")"
 [ -f "Resources/AppIcon.icns" ]   && cp "Resources/AppIcon.icns"   "${BUNDLE}/Contents/Resources/AppIcon.icns"
 [ -f "Resources/MenuBarIcon.png" ] && cp "Resources/MenuBarIcon.png" "${BUNDLE}/Contents/Resources/MenuBarIcon.png"
 if [ -d "Resources/background" ]; then
