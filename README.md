@@ -92,10 +92,10 @@ version matched to *your* Mac.
 3. The agent builds, signs, and installs the app, then tells you when to grant the one-time
    Screen Recording permission (the only step it can't click for you).
 
-Why this route is better than a download: it produces a **native-arch** build (no Rosetta), a
-**stable local signature** so macOS keeps your Screen Recording permission across updates, and
-there's **nothing to un-quarantine** because it's built locally, not downloaded. To update
-later: `git pull` and ask the agent to re-run the install step.
+Why this route is better than a download: it signs with a **stable local identity** so macOS
+keeps your Screen Recording permission across updates, and there's **nothing to un-quarantine
+or approve in Gatekeeper** because it's built locally, not downloaded. To update later:
+`git pull` and ask the agent to re-run the install step.
 
 No agent? Follow [Build & run](#build--run) — it's the same commands, by hand.
 
