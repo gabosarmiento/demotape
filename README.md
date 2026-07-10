@@ -44,9 +44,14 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - **Microphone** capture with automatic loudness normalization.
 - **3-2-1 countdown** with the capture warmed up so recording starts instantly at zero.
 - **Global hotkey** (⇧⌘S) to start/stop without touching the menu.
+- **Recording-area presets**: pick a shape on the area screen (4:5, 1:1, 16:9, 9:16, or
+  Freeform) and it drops a suggested, aspect-locked area; the export scales to the platform
+  target size (e.g. LinkedIn 1080×1350).
 - **Web Publish**: transcode to lightweight, fast-loading MP4s (H.264 + AAC, faststart) at
-  360/480/540/720p tiers with a live size estimate, plus a poster frame and a responsive
-  `<video>` embed snippet.
+  360/480/540/720p tiers with a live size estimate, a poster frame, a responsive `<video>`
+  embed snippet, and an optional **animated GIF** (Smaller / Balanced / Sharp presets) for READMEs.
+- **Notifications**: a native "cooking your DemoTape…" alert when rendering starts and a
+  "ready" notification with **Reveal in Finder** when it's done (shown even in the foreground).
 - **Auto-Cut & Speed Up** (local, no AI): removes silent gaps (jump-cut style) and optionally
   speeds the video up 1.1–1.5× with the voice kept natural (pitch preserved) → `…tight.mp4`.
 - **AI captions (opt-in, bring-your-own-key)**: transcribe a recording's audio via any
@@ -163,8 +168,11 @@ Sources/DemoTape/
   AISettingsController.swift  AI enable + provider/key settings
   Keychain.swift              Secure storage for BYO API keys
   CountdownController.swift   3-2-1 overlay
-  RegionSelector.swift        Drag-to-select area overlay
+  RegionSelector.swift        Drag-to-select area overlay + aspect-ratio presets
   RegionOverlay.swift         Persistent, movable/resizable recording-area frame
+  AreaPreset.swift            Recording-area aspect presets (shape + target export size)
+  GifEncoder.swift            Animated GIF export (ImageIO, dependency-free)
+  Notifier.swift              Local notifications (render started / ready)
   RecorderBarController.swift Floating recorder HUD (start/stop, timer, toggles)
   WebcamSettingsController.swift  Live webcam positioning overlay
   BackgroundPicker.swift      Background gallery

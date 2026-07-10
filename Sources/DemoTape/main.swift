@@ -25,6 +25,10 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
            FileManager.default.fileExists(atPath: brand) {
             style.brandingImageURL = URL(fileURLWithPath: brand)   // headless branding smoke-test
         }
+        if let ex = ProcessInfo.processInfo.environment["DEMOTAPE_EXPORT"] {  // e.g. 1080x1350
+            let parts = ex.lowercased().split(separator: "x").compactMap { Double($0) }
+            if parts.count == 2 { style.exportSize = CGSize(width: parts[0], height: parts[1]) }
+        }
         try VideoRenderer().render(videoURL: videoURL, metadata: metadata, cameraURL: camera, to: outURL, style: style)
         print("rendered: \(outURL.path)")
         exit(0)
@@ -137,6 +141,22 @@ if let i = args.firstIndex(of: "--tighten"), args.count > i + 1 {
         exit(0)
     } catch {
         FileHandle.standardError.write("tighten error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless GIF export:  DemoTape --gif <input> <maxWidth> <fps> <output.gif>
+if let i = args.firstIndex(of: "--gif"), args.count > i + 4 {
+    let input = URL(fileURLWithPath: args[i + 1])
+    let width = Int(args[i + 2]) ?? 640
+    let fps = Double(args[i + 3]) ?? 12
+    let out = URL(fileURLWithPath: args[i + 4])
+    do {
+        try GifEncoder().encode(video: input, to: out, maxWidth: width, fps: fps)
+        print("gif: \(out.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("gif error: \(error.localizedDescription)\n".data(using: .utf8)!)
         exit(1)
     }
 }

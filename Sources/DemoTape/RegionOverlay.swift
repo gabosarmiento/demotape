@@ -10,6 +10,8 @@ final class RegionOverlay {
 
     /// Called with the region in screen coordinates (bottom-left origin) whenever it changes.
     var onChange: ((CGRect) -> Void)?
+    /// When set, resizing keeps this width/height ratio.
+    var aspect: CGFloat?
 
     private var window: NSWindow?
     private var view: RegionEditView?
@@ -29,6 +31,7 @@ final class RegionOverlay {
         v.regionLocal = CGRect(x: region.minX - screen.frame.minX,
                                y: region.minY - screen.frame.minY,
                                width: region.width, height: region.height)
+        v.aspect = aspect
         setEditable(editable)
         win.orderFrontRegardless()
     }
@@ -61,6 +64,7 @@ private final class RegionEditView: NSView {
     var screenOrigin: CGPoint = .zero
     var onChange: ((CGRect) -> Void)?
     var editable = false { didSet { needsDisplay = true } }
+    var aspect: CGFloat?
 
     /// Region in view-local coordinates (bottom-left origin).
     var regionLocal: CGRect = .zero { didSet { needsDisplay = true } }
@@ -203,6 +207,14 @@ private final class RegionEditView: NSView {
         case .bl:     r.origin.x += dx; r.size.width -= dx; r.origin.y += dy; r.size.height -= dy
         case .br:     r.size.width += dx; r.origin.y += dy; r.size.height -= dy
         case .none:   break
+        }
+        // Keep the locked aspect ratio (width drives height); keep the opposite edge fixed.
+        if let a = aspect, zone != .move, zone != .none {
+            let newH = r.size.width / a
+            if zone == .bottom || zone == .bl || zone == .br {
+                r.origin.y += (r.size.height - newH)
+            }
+            r.size.height = newH
         }
         return clamp(r)
     }

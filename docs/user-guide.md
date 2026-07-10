@@ -131,6 +131,15 @@ Menu bar → **Auto-Cut & Speed Up Latest…**
 This is fully local — no network, no key, no cost. It's the fastest way to make a demo feel
 snappy. Tip: run it, then **Web Publish** the result to shrink it for sharing.
 
+## 6b. Recording-area presets & GIF export
+
+- **Select Recording Area…** shows preset chips (4:5, 1:1, 16:9, 9:16, or Freeform). Click one
+  and it drops a suggested, aspect-locked area — adjust with the handles, then record. The
+  export is scaled to that platform's target size (e.g. LinkedIn feed → 1080×1350). Freeform
+  lets you drag any area.
+- **Web Publish** has an **Animated GIF** option (Smaller / Balanced / Sharp) that writes a
+  looping `demo.gif` for dropping into a README with `![](demo.gif)`.
+
 ## 7. Output files
 
 Everything lands next to the recording in `~/Movies/DemoTape/`:
