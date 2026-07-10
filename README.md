@@ -144,6 +144,15 @@ open /Applications/DemoTape.app
 
 A record icon appears in your menu bar.
 
+> **`swift build` fails with `no such module 'PackageDescription'`?** Your Command Line
+> Tools install is corrupted (this can happen even when `xcode-select -p` succeeds and
+> `swiftc` compiles a plain file). Reinstall them, then finish the GUI installer that
+> appears, and re-run the build:
+> ```bash
+> sudo rm -rf /Library/Developer/CommandLineTools
+> xcode-select --install
+> ```
+
 > **Run it from `/Applications`, not from a synced/Desktop folder.** macOS grants Screen
 > Recording permission unreliably to apps in TCC-protected folders. `build-app.sh` installs
 > to `/Applications` for this reason.

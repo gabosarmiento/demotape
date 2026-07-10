@@ -61,6 +61,19 @@ xcode-select -p >/dev/null 2>&1 || xcode-select --install   # installs Command L
 #   If it launched the CLT installer, STOP and tell the user to finish the GUI
 #   installer, then re-run. Do not proceed until `xcode-select -p` succeeds.
 
+#   IMPORTANT: `xcode-select -p` only proves the *path* is set — it does NOT prove
+#   the toolchain is healthy. A partially corrupted Command Line Tools install can
+#   pass every check above and still fail the build with the cryptic error
+#   `no such module 'PackageDescription'` / `Invalid manifest`. Verify SwiftPM can
+#   actually resolve a package manifest before continuing:
+swift package --version >/dev/null 2>&1 || {
+    echo "SwiftPM is broken (likely a corrupted Command Line Tools install)."
+    echo "Fix, then re-run this runbook:"
+    echo "  sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install"
+    exit 1
+}
+#   See the 'no such module PackageDescription' entry under Troubleshooting below.
+
 # 1. Build + verify ---------------------------------------------------------
 swift build -c release             # must succeed
 swift test                         # 46 tests; all must pass (pure logic, no GUI/network)
@@ -140,6 +153,37 @@ Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
 - **Add/extend tests** for new pure logic (parsing, formatting, URL building). Keep tests
   network-free — factor the testable logic out of the network call (see `Captions.parseCues`
   / `transcriptionEndpoint`).
+
+## Troubleshooting
+
+### `no such module 'PackageDescription'` / `Invalid manifest`
+
+`swift build` fails immediately while compiling `Package.swift`, e.g.:
+
+```
+error: 'demotape': Invalid manifest
+Package.swift:2:8: error: no such module 'PackageDescription'
+```
+
+**Cause:** a corrupted or incomplete **Command Line Tools** install. The SwiftPM
+manifest API files (`PackageDescription.swiftinterface` / `.swiftmodule`) are missing
+from `…/CommandLineTools/usr/lib/swift/pm/ManifestAPI/` even though `swiftc` compiles a
+plain file fine and `xcode-select -p` succeeds. Confirm with:
+
+```bash
+swift package --version                                            # errors when broken
+ls /Library/Developer/CommandLineTools/usr/lib/swift/pm/ManifestAPI # only the .dylib, no swiftmodule
+```
+
+**Fix:** reinstall the Command Line Tools, then finish the GUI installer that appears:
+
+```bash
+sudo rm -rf /Library/Developer/CommandLineTools
+xcode-select --install
+```
+
+If a full Xcode is installed instead, point the toolchain at it:
+`sudo xcode-select -s /Applications/Xcode.app`. Re-run the runbook from step 0 afterward.
 
 ## Where things live
 
