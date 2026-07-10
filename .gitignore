@@ -5,6 +5,10 @@ Package.resolved
 # Packaged app bundle (produced by build-app.sh)
 *.app/
 
+# Distributable disk images (produced by make-dmg.sh)
+dist/
+*.dmg
+
 # Signing artifacts
 *.p12
 *.pem

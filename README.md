@@ -71,6 +71,65 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - macOS **12.3 or later** (Intel or Apple Silicon)
 - **Xcode Command Line Tools** (`xcode-select --install`) — full Xcode is **not** required
 
+## Try it (recommended): let your coding agent set it up
+
+If you use **Claude Code**, **Codex**, or a similar coding agent, this is the easiest and
+safest way to try DemoTape — no download warnings, no Gatekeeper fights, and it builds a
+version matched to *your* Mac.
+
+1. Clone this repo:
+   ```bash
+   git clone https://github.com/gabosarmiento/demotape.git
+   cd demotape
+   ```
+2. Open your coding agent in that folder and paste:
+
+   > Set up and install DemoTape on my Mac by following the "Agent-assisted setup for a
+   > tester" runbook in AGENTS.md. Run the commands, check each precondition, tell me exactly
+   > when you need me to click something in System Settings, and stop with a clear message if
+   > any step fails.
+
+3. The agent builds, signs, and installs the app, then tells you when to grant the one-time
+   Screen Recording permission (the only step it can't click for you).
+
+Why this route is better than a download: it produces a **native-arch** build (no Rosetta), a
+**stable local signature** so macOS keeps your Screen Recording permission across updates, and
+there's **nothing to un-quarantine** because it's built locally, not downloaded. To update
+later: `git pull` and ask the agent to re-run the install step.
+
+No agent? Follow [Build & run](#build--run) — it's the same commands, by hand.
+
+## Install from the .dmg (testers without a coding agent)
+
+Grab `DemoTape-<version>.dmg` from the [Releases page](https://github.com/gabosarmiento/demotape/releases/latest),
+open it, and drag **DemoTape** into **Applications**.
+
+The build is **not notarized** (no paid Apple Developer account yet), so Gatekeeper blocks it
+on first launch. Get past it once:
+
+- **macOS 14 (Sonoma) and earlier:** right-click `DemoTape.app` in `/Applications` →
+  **Open** → **Open**.
+- **macOS 15 (Sequoia) and later:** double-click once (it gets blocked), then open
+  **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+- **Terminal shortcut (any version):** clear the download quarantine flag:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/DemoTape.app
+  ```
+
+macOS remembers the choice, so later launches are normal double-clicks. Then grant permissions
+as described under [First launch](#first-launch-grant-permissions). This is safe: DemoTape is
+open source, runs fully local, and makes no network calls outside the opt-in
+bring-your-own-key AI features.
+
+> **Heads-up on updates:** the `.dmg` build is ad-hoc signed, so macOS asks you to re-grant
+> Screen Recording on each new version. The agent/source build above keeps the grant across
+> updates — prefer it if you can.
+>
+> **Maintainers:** produce the disk image with `./make-dmg.sh release` (writes
+> `dist/DemoTape-<version>.dmg`), then attach it to the release:
+> `gh release upload v<version> dist/DemoTape-<version>.dmg`. Publish a checksum too:
+> `shasum -a 256 dist/DemoTape-<version>.dmg`.
+
 ## Build & run
 
 ```bash

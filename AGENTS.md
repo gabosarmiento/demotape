@@ -36,6 +36,63 @@ open /Applications/DemoTape.app
 > Always run the app from **/Applications** (build-app.sh installs it there). macOS grants
 > Screen Recording permission unreliably to apps in Desktop/Documents/Downloads.
 
+## Agent-assisted setup for a tester (run this on the tester's Mac)
+
+This is the recommended way to try DemoTape without a notarized download. Building on the
+tester's own machine produces a **native-arch** binary (no Rosetta), signs it with a **stable
+local identity** (so Screen Recording permission survives updates), and involves **no
+Gatekeeper/quarantine prompt** because nothing is downloaded and run — it's built locally.
+
+**If you are the human tester:** paste the prompt below to your coding agent (Claude Code,
+Codex, etc.) from inside a clone of this repo, and let it run the steps.
+
+> Set up and install DemoTape on my Mac by following the "Agent-assisted setup for a tester"
+> runbook in AGENTS.md. Run the commands, check each precondition, tell me exactly when you
+> need me to click something in System Settings, and stop with a clear message if any step
+> fails.
+
+**If you are the agent, run these steps in order and verify each one:**
+
+```bash
+# 0. Preconditions ----------------------------------------------------------
+sw_vers -productVersion            # must be >= 12.3; abort with a message if lower
+uname -m                           # arm64 (Apple Silicon) or x86_64 (Intel) — just informational
+xcode-select -p >/dev/null 2>&1 || xcode-select --install   # installs Command Line Tools if missing
+#   If it launched the CLT installer, STOP and tell the user to finish the GUI
+#   installer, then re-run. Do not proceed until `xcode-select -p` succeeds.
+
+# 1. Build + verify ---------------------------------------------------------
+swift build -c release             # must succeed
+swift test                         # 46 tests; all must pass (pure logic, no GUI/network)
+
+# 2. Stable signing identity (one-time; persists Screen Recording permission) --
+security find-identity -v -p codesigning | grep -q "DemoTape Dev" || ./create-identity.sh
+
+# 3. Package + sign + install to /Applications ------------------------------
+./build-app.sh release             # assembles .app, signs with "DemoTape Dev", installs
+open /Applications/DemoTape.app    # a record icon appears in the menu bar
+```
+
+**Then hand off to the human for the one-time macOS permission grant (the agent cannot click
+these):**
+
+1. Click the DemoTape menu-bar icon and press **Start** once. macOS shows a Screen Recording
+   prompt.
+2. Open **System Settings → Privacy & Security → Screen Recording**, enable **DemoTape**.
+3. **Quit and reopen** DemoTape (required — macOS only applies the grant on relaunch).
+4. Microphone / Camera / Accessibility are prompted only if the tester enables those features.
+
+**Notes for the agent:**
+- Do **not** use `make-dmg.sh` for a local tester — that path is ad-hoc signed and loses the
+  Screen Recording grant on every update. The `build-app.sh` + `create-identity.sh` path above
+  keeps the grant stable.
+- This flow needs no notarization, no Apple Developer account, and produces a binary matching
+  the tester's own CPU architecture.
+- To update later, just `git pull` and re-run step 3. The permission persists because the
+  signing identity is unchanged.
+- If you want to smoke-test the render pipeline without granting Screen Recording, use the
+  headless hooks in the next section.
+
 ### Verifying render changes WITHOUT screen-recording permission
 
 The binary has headless hooks so you can test the rendering/encoding pipeline on existing
