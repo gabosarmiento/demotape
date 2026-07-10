@@ -62,16 +62,23 @@ xcode-select -p >/dev/null 2>&1 || xcode-select --install   # installs Command L
 #   installer, then re-run. Do not proceed until `xcode-select -p` succeeds.
 
 #   IMPORTANT: `xcode-select -p` only proves the *path* is set — it does NOT prove
-#   the toolchain is healthy. A partially corrupted Command Line Tools install can
-#   pass every check above and still fail the build with the cryptic error
-#   `no such module 'PackageDescription'` / `Invalid manifest`. Verify SwiftPM can
-#   actually resolve a package manifest before continuing:
-swift package --version >/dev/null 2>&1 || {
-    echo "SwiftPM is broken (likely a corrupted Command Line Tools install)."
-    echo "Fix, then re-run this runbook:"
+#   the toolchain is healthy. A partially corrupted Command Line Tools install
+#   (common after a macOS upgrade) can pass every check above and still fail the
+#   build with the cryptic error `no such module 'PackageDescription'` /
+#   `Invalid manifest`. `swift --version` and even `swift package --version` still
+#   succeed in that state, so they are NOT reliable checks. The only reliable test
+#   is actually compiling a manifest — do that in a throwaway package:
+_dt_probe="$(mktemp -d)"; printf '// swift-tools-version:5.7\nimport PackageDescription\nlet package = Package(name: "probe")\n' > "${_dt_probe}/Package.swift"
+if ! swift package --package-path "${_dt_probe}" dump-package >/dev/null 2>&1; then
+    rm -rf "${_dt_probe}"
+    echo "SwiftPM cannot compile a manifest — your Command Line Tools install is corrupted"
+    echo "(the PackageDescription module is missing). Fix it, then re-run this runbook:"
     echo "  sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install"
+    echo "If that does not resolve it, install full Xcode and select it:"
+    echo "  sudo xcode-select -s /Applications/Xcode.app"
     exit 1
-}
+fi
+rm -rf "${_dt_probe}"
 #   See the 'no such module PackageDescription' entry under Troubleshooting below.
 
 # 1. Build + verify ---------------------------------------------------------
@@ -165,25 +172,37 @@ error: 'demotape': Invalid manifest
 Package.swift:2:8: error: no such module 'PackageDescription'
 ```
 
-**Cause:** a corrupted or incomplete **Command Line Tools** install. The SwiftPM
-manifest API files (`PackageDescription.swiftinterface` / `.swiftmodule`) are missing
-from `…/CommandLineTools/usr/lib/swift/pm/ManifestAPI/` even though `swiftc` compiles a
-plain file fine and `xcode-select -p` succeeds. Confirm with:
+**Cause:** a corrupted or incomplete **Command Line Tools** install, most often
+triggered by a **recent macOS upgrade**. The SwiftPM manifest API files
+(`PackageDescription.swiftinterface` / `.swiftmodule`) are missing from
+`…/CommandLineTools/usr/lib/swift/pm/ManifestAPI/` even though `swiftc` compiles a plain
+file fine and `xcode-select -p` succeeds. Note that `swift --version` and
+`swift package --version` also still succeed in this state — they do **not** detect the
+problem. Confirm with either of these instead:
 
 ```bash
-swift package --version                                            # errors when broken
-ls /Library/Developer/CommandLineTools/usr/lib/swift/pm/ManifestAPI # only the .dylib, no swiftmodule
+# The ManifestAPI dir should contain a .swiftinterface/.swiftmodule, not just the .dylib:
+ls /Library/Developer/CommandLineTools/usr/lib/swift/pm/ManifestAPI
+# Or actually try to compile a manifest (fails when broken):
+swift package dump-package >/dev/null    # run from any package dir
 ```
 
-**Fix:** reinstall the Command Line Tools, then finish the GUI installer that appears:
+**Fix (in order of preference):**
 
-```bash
-sudo rm -rf /Library/Developer/CommandLineTools
-xcode-select --install
-```
+1. Reinstall the Command Line Tools, then finish the GUI installer that appears:
+   ```bash
+   sudo rm -rf /Library/Developer/CommandLineTools
+   xcode-select --install
+   ```
+2. If the reinstall doesn't resolve it, install **full Xcode** from the App Store — it
+   ships a complete, self-contained toolchain — then point the active toolchain at it:
+   ```bash
+   sudo xcode-select -s /Applications/Xcode.app
+   ```
+   (Full Xcode is **not** normally required to build DemoTape; it's only a fallback when
+   the lighter Command Line Tools install stays broken.)
 
-If a full Xcode is installed instead, point the toolchain at it:
-`sudo xcode-select -s /Applications/Xcode.app`. Re-run the runbook from step 0 afterward.
+Re-run the runbook from step 0 afterward.
 
 ## Where things live
 
