@@ -256,6 +256,11 @@ final class AboutController: NSObject, NSWindowDelegate {
         openReleaseButton.isHidden = true
         content.addSubview(openReleaseButton)
 
+        let reportButton = NSButton(title: "Report an Issue", target: self, action: #selector(reportIssue))
+        reportButton.bezelStyle = .rounded
+        reportButton.frame = NSRect(x: w - 24 - 140, y: y - 44, width: 140, height: 28)
+        content.addSubview(reportButton)
+
         updateStatus = NSTextField(wrappingLabelWithString: "")
         updateStatus.font = .systemFont(ofSize: 11)
         updateStatus.textColor = .secondaryLabelColor
@@ -347,6 +352,12 @@ final class AboutController: NSObject, NSWindowDelegate {
     @objc private func openLatestRelease() {
         let url = latestReleaseURL ?? URL(string: "https://github.com/\(Self.repo)/releases/latest")!
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func reportIssue() {
+        if let url = URL(string: "https://github.com/\(Self.repo)/issues/new") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func checkForUpdates() {

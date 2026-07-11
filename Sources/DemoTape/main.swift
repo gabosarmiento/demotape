@@ -38,6 +38,37 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
     }
 }
 
+// Headless template apply:  DemoTape --template <master.mp4> <templateID> <output.mp4>
+// Derives the sibling .cam.mov if present; branding via DEMOTAPE_BRAND_IMAGE. No GUI.
+if let i = args.firstIndex(of: "--template"), args.count > i + 3 {
+    if #available(macOS 12.3, *) {
+        let master = URL(fileURLWithPath: args[i + 1])
+        let id = args[i + 2]
+        let out = URL(fileURLWithPath: args[i + 3])
+        guard let template = VideoTemplate.byID(id) else {
+            let ids = VideoTemplate.catalog.map { $0.id }.joined(separator: ", ")
+            FileHandle.standardError.write("template error: unknown id '\(id)'. Options: \(ids)\n".data(using: .utf8)!)
+            exit(1)
+        }
+        var base = master.deletingPathExtension().lastPathComponent
+        if base.hasSuffix(".styled") { base = String(base.dropLast(".styled".count)) }
+        let camCandidate = master.deletingLastPathComponent().appendingPathComponent(base + ".cam.mov")
+        let cam = FileManager.default.fileExists(atPath: camCandidate.path) ? camCandidate : nil
+        let brand = ProcessInfo.processInfo.environment["DEMOTAPE_BRAND_IMAGE"].map { URL(fileURLWithPath: $0) }
+        do {
+            try TemplateComposer().compose(master: master, cam: cam, branding: brand,
+                                           template: template, to: out) { _ in }
+            print("template: \(out.path)")
+            exit(0)
+        } catch {
+            FileHandle.standardError.write("template error: \(error.localizedDescription)\n".data(using: .utf8)!)
+            exit(1)
+        }
+    } else {
+        exit(1)
+    }
+}
+
 // Headless captions test:  DemoTape --captions <input.mp4>
 // Uses DEMOTAPE_STT_KEY (and optional DEMOTAPE_STT_BASEURL / DEMOTAPE_STT_MODEL) from
 // the environment so it runs without the GUI/Keychain. Writes .srt + .vtt sidecars.
