@@ -37,7 +37,7 @@ final class HeyGenAvatarProvider: AvatarVideoProvider {
             self.session = session
         } else {
             let cfg = URLSessionConfiguration.ephemeral
-            cfg.timeoutIntervalForRequest = 60
+            cfg.timeoutIntervalForRequest = 120   // /v2/avatars can be a large payload
             cfg.timeoutIntervalForResource = 600
             self.session = URLSession(configuration: cfg)
         }

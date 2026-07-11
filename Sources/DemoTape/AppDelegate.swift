@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+        LaunchLocationGuard.check()   // warn if we're translocated / outside /Applications
         Notifier.shared.setup()   // ask for notification permission on first launch
         // Brand the app icon (used by Finder and by NSAlert dialogs).
         if let url = Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns"),
@@ -483,11 +484,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// user can have captions without voiceover (or vice versa).
     private func refreshAIMenuItems() {
         captionsMenuItem?.isEnabled = Settings.captionsEnabled
-            && Keychain.get(account: Keychain.sttAPIKeyAccount) != nil
+            && Keychain.exists(account: Keychain.sttAPIKeyAccount)
         voiceoverMenuItem?.isEnabled = Settings.voiceoverEnabled
-            && Keychain.get(account: Keychain.elevenAPIKeyAccount) != nil
+            && Keychain.exists(account: Keychain.elevenAPIKeyAccount)
         // Avatar needs a HeyGen key and a latest voiceover (with its narration sidecar).
-        avatarMenuItem?.isEnabled = Keychain.get(account: Keychain.heygenAPIKeyAccount) != nil
+        avatarMenuItem?.isEnabled = Keychain.exists(account: Keychain.heygenAPIKeyAccount)
             && latestVoiceover() != nil
     }
 
@@ -654,7 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Settings.voiceoverEnabled, !key.isEmpty else {
             let alert = NSAlert()
             alert.messageText = "Enable voiceover first"
-            alert.informativeText = (Keychain.get(account: Keychain.elevenAPIKeyAccount) != nil)
+            alert.informativeText = (Keychain.exists(account: Keychain.elevenAPIKeyAccount))
                 ? "Turn on Voiceover in AI Settings to generate narration."
                 : "Voiceover uses ElevenLabs text-to-speech. Add and test your ElevenLabs key in "
                     + "AI Settings, enable Voiceover, then try again."
@@ -708,7 +709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Settings.captionsEnabled, !key.isEmpty else {
             let alert = NSAlert()
             alert.messageText = "Enable captions first"
-            alert.informativeText = (Keychain.get(account: Keychain.sttAPIKeyAccount) != nil)
+            alert.informativeText = (Keychain.exists(account: Keychain.sttAPIKeyAccount))
                 ? "Turn on Captions in AI Settings to transcribe this recording."
                 : "Captions use an OpenAI-compatible speech-to-text API. Add and test your key in "
                     + "AI Settings, enable Captions, then try again."

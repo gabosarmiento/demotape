@@ -12,17 +12,32 @@ enum Keychain {
     @discardableResult
     static func set(_ value: String, account: String) -> Bool {
         let data = Data(value.utf8)
-        // Replace any existing item.
-        let query: [String: Any] = [
+        let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(query as CFDictionary)
-        var attrs = query
+        // Prefer an in-place update — reliably overwrites an existing item (delete-then-add
+        // can leave a stale value if the item was created by a different code signature and
+        // the delete is denied).
+        let update = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if update == errSecSuccess { return true }
+        if update == errSecItemNotFound {
+            var attrs = base
+            attrs[kSecValueData as String] = data
+            attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            return SecItemAdd(attrs as CFDictionary, nil) == errSecSuccess
+        }
+        // Update failed for another reason — fall back to delete + add.
+        SecItemDelete(base as CFDictionary)
+        var attrs = base
         attrs[kSecValueData as String] = data
         attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return SecItemAdd(attrs as CFDictionary, nil) == errSecSuccess
+        let add = SecItemAdd(attrs as CFDictionary, nil)
+        if add == errSecDuplicateItem {
+            return SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecSuccess
+        }
+        return add == errSecSuccess
     }
 
     static func get(account: String) -> String? {
@@ -39,6 +54,20 @@ enum Keychain {
               let value = String(data: data, encoding: .utf8), !value.isEmpty
         else { return nil }
         return value
+    }
+
+    /// Whether an item exists WITHOUT reading its secret data. This avoids the macOS keychain
+    /// access prompt that `get` triggers when the app's signature has changed (common across
+    /// local rebuilds). Use for UI gating; use `get` only when the secret is actually needed.
+    static func exists(account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: false,           // don't decrypt → no ACL prompt
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
     @discardableResult

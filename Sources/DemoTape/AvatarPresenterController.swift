@@ -33,6 +33,7 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
     private var generateButton: NSButton!
 
     private var avatars: [AvatarDescriptor] = []
+    private var avatarsLoaded = false
     private var photoURL: URL?
     private var cancelledFlag = false
     private var durationSeconds: Double = 0
@@ -77,7 +78,8 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
         y -= 36
 
         avatarPopup = NSPopUpButton(frame: NSRect(x: fieldX, y: y, width: w - fieldX - 24, height: 26))
-        avatarPopup.addItem(withTitle: "Loading avatars…"); avatarPopup.isEnabled = false
+        avatarPopup.addItem(withTitle: "—"); avatarPopup.isEnabled = false
+        avatarPopup.isHidden = true    // shown only when "Library avatar" is chosen
         c.addSubview(avatarPopup)
 
         choosePhotoButton = NSButton(title: "Choose Photo…", target: self, action: #selector(choosePhoto))
@@ -133,9 +135,12 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
         win.contentView = c
         self.window = win
         win.center()
+        // Default to "Upload a photo…" (the hero flow) so the window opens instantly without
+        // fetching HeyGen's large avatar library. The library loads lazily on demand.
+        sourcePopup.selectItem(at: 1)
+        sourceChanged()
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
-        loadAvatars()
     }
 
     // MARK: - Cost estimate
@@ -155,6 +160,9 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
     // MARK: - Avatars
 
     private func loadAvatars() {
+        avatarsLoaded = true
+        avatarPopup.removeAllItems(); avatarPopup.addItem(withTitle: "Loading avatars…"); avatarPopup.isEnabled = false
+        status("Loading avatars…", .secondaryLabelColor)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             do {
@@ -162,8 +170,9 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
                 DispatchQueue.main.async { self.populate(list) }
             } catch {
                 DispatchQueue.main.async {
+                    self.avatarsLoaded = false   // allow a retry
                     self.avatarPopup.removeAllItems(); self.avatarPopup.addItem(withTitle: "—")
-                    self.status("Couldn't load avatars.", .systemRed)
+                    self.status("Couldn't load avatars: \(error.localizedDescription)", .systemRed)
                 }
             }
         }
@@ -191,6 +200,7 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
         avatarPopup.isHidden = usePhoto
         choosePhotoButton.isHidden = !usePhoto
         photoLabel.isHidden = !usePhoto
+        if !usePhoto && !avatarsLoaded { loadAvatars() }   // fetch the library only when needed
     }
 
     @objc private func choosePhoto() {
@@ -368,8 +378,9 @@ final class AvatarPresenterController: NSObject, NSWindowDelegate {
     // MARK: - UI helpers
 
     private func addLabel(_ t: String, y: CGFloat, x: CGFloat, on v: NSView) {
+        // Right-aligned label column just left of the fields at fieldX (130).
         let l = NSTextField(labelWithString: t); l.font = .systemFont(ofSize: 12); l.alignment = .right
-        l.frame = NSRect(x: x - 76, y: y, width: 72, height: 18); v.addSubview(l)
+        l.frame = NSRect(x: 12, y: y, width: 108, height: 18); v.addSubview(l)
     }
     private func status(_ t: String, _ color: NSColor) { statusLabel.stringValue = t; statusLabel.textColor = color }
     private func progress(_ t: String) { DispatchQueue.main.async { self.status(t, .secondaryLabelColor) } }
