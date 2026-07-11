@@ -194,13 +194,31 @@ swift package dump-package >/dev/null    # run from any package dir
    sudo rm -rf /Library/Developer/CommandLineTools
    xcode-select --install
    ```
-2. If the reinstall doesn't resolve it, install **full Xcode** from the App Store — it
-   ships a complete, self-contained toolchain — then point the active toolchain at it:
+   Note: `xcode-select --install` alone is a no-op if the tools directory still exists
+   ("already installed") — the `sudo rm -rf` first is what forces a genuinely fresh
+   download.
+
+2. **If the reinstall still doesn't fix it, install full Xcode from the App Store.** This
+   is the reliable fix — some machines keep getting a Command Line Tools payload without
+   the SwiftPM manifest module no matter how many times you reinstall, but full Xcode
+   ships a complete, self-contained toolchain that includes it. Confirmed in practice on
+   macOS 12.7.6 / Intel: after installing Xcode 14.2, its toolchain **has** the module the
+   broken CLT lacked:
    ```bash
+   # Xcode's toolchain includes PackageDescription.swiftmodule (the CLT was missing it):
+   ls /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/pm/ManifestAPI/
+   #   -> PackageDescription.swiftmodule   libPackageDescription.dylib   (both present)
+
+   # Point the active toolchain at Xcode, accept its license, and verify:
    sudo xcode-select -s /Applications/Xcode.app
+   sudo xcodebuild -license accept
+   swift package dump-package >/dev/null && echo "SwiftPM OK"   # run from any package dir
    ```
-   (Full Xcode is **not** normally required to build DemoTape; it's only a fallback when
-   the lighter Command Line Tools install stays broken.)
+   Full Xcode is **not** normally required to build DemoTape (a healthy Command Line Tools
+   install is enough), and it is **free** — no paid Apple Developer account is needed. It's
+   only the fallback for when the lighter Command Line Tools install stays broken. Xcode is
+   large (~12 GB+ on disk, plus download/expansion headroom), so free up space first if the
+   volume is tight.
 
 Re-run the runbook from step 0 afterward.
 

@@ -153,9 +153,17 @@ A record icon appears in your menu bar.
 > sudo rm -rf /Library/Developer/CommandLineTools
 > xcode-select --install
 > ```
-> If that doesn't fix it, install full Xcode from the App Store and select it with
-> `sudo xcode-select -s /Applications/Xcode.app` (full Xcode isn't normally required —
-> it's just a reliable fallback when the Command Line Tools stay broken).
+> **If `xcode-select --install` still doesn't fix it, install full Xcode from the App
+> Store** (free — no paid Apple Developer account needed). On some machines the Command
+> Line Tools keep coming back without the SwiftPM manifest module, but Xcode's toolchain
+> includes it. Then point the toolchain at Xcode and accept its license:
+> ```bash
+> sudo xcode-select -s /Applications/Xcode.app
+> sudo xcodebuild -license accept
+> ```
+> Full Xcode isn't normally required (a healthy Command Line Tools install is enough) — it's
+> just the reliable fallback. Note it needs ~12 GB+ of disk space, so free some up first if
+> your volume is tight.
 
 > **Run it from `/Applications`, not from a synced/Desktop folder.** macOS grants Screen
 > Recording permission unreliably to apps in TCC-protected folders. `build-app.sh` installs
