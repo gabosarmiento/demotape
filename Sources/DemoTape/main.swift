@@ -128,9 +128,9 @@ if let i = args.firstIndex(of: "--voiceover"), args.count > i + 2 {
     let model = env["DEMOTAPE_ELEVEN_MODEL"] ?? "eleven_multilingual_v2"
     do {
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
-        let out = try Voiceover().generate(video: video, script: script,
-                                           voiceId: voiceId, model: model, apiKey: key)
-        print("voiceover: \(out.path)")
+        let result = try Voiceover().generate(video: video, script: script,
+                                              voiceId: voiceId, model: model, apiKey: key)
+        print("voiceover: \(result.videoURL.path)\nnarration: \(result.narrationAudioURL.path)")
         exit(0)
     } catch {
         FileHandle.standardError.write("voiceover error: \(error.localizedDescription)\n".data(using: .utf8)!)

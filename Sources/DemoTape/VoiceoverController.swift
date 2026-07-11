@@ -166,11 +166,13 @@ final class VoiceoverController: NSObject, NSWindowDelegate {
         let video = self.video, key = self.apiKey, model = Settings.elevenModel
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
-                let out = try Voiceover().generate(video: video, script: script,
-                                                   voiceId: voice.id, model: model, apiKey: key)
+                let result = try Voiceover().generate(video: video, script: script,
+                                                      voiceId: voice.id, model: model, apiKey: key)
                 DispatchQueue.main.async {
+                    // Keep the durable narration (…voiceover.narration.m4a) in place — a later
+                    // avatar step reuses it. It is not deleted when this window closes.
                     self?.window?.close()
-                    NSWorkspace.shared.activateFileViewerSelecting([out])
+                    NSWorkspace.shared.activateFileViewerSelecting([result.videoURL])
                 }
             } catch {
                 DispatchQueue.main.async {
