@@ -157,6 +157,7 @@ final class VoiceoverController: NSObject, NSWindowDelegate {
         let voice = voices[voicePopup.indexOfSelectedItem]
         Settings.elevenVoiceId = voice.id
         Settings.elevenVoiceName = voice.name
+        Settings.elevenVoiceGender = voice.gender   // for avatar gender auto-match
 
         generateButton.isEnabled = false
         generateButton.title = "Generating…"

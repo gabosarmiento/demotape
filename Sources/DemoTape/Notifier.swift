@@ -44,6 +44,21 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
              category: nil)
     }
 
+    /// Avatar generation is a longer (cloud) job — reassure the user it's working.
+    func avatarStarted() {
+        guard authorized else { return }
+        post(title: "Generating your avatar presenter…",
+             body: "This runs on HeyGen and takes a few minutes. You can keep working.", category: nil)
+    }
+
+    @discardableResult
+    func avatarReady(url: URL) -> Bool {
+        guard authorized else { return false }
+        lastReadyURL = url
+        post(title: "Your avatar presenter is ready 🎬", body: url.lastPathComponent, category: readyCategory)
+        return true
+    }
+
     /// Posts the "ready" notification (with a Reveal action). Returns false if notifications
     /// aren't authorized, so the caller can fall back to an alert.
     @discardableResult

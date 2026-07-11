@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var welcomeController: WelcomeController?
     private weak var captionsMenuItem: NSMenuItem?
     private weak var voiceoverMenuItem: NSMenuItem?
+    private weak var avatarMenuItem: NSMenuItem?
+    private var avatarPresenterController: AvatarPresenterController?
 
     private lazy var startItem = NSMenuItem(
         title: "Start Recording  (⇧⌘S)", action: #selector(startRecording), keyEquivalent: "")
@@ -151,6 +153,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        action: #selector(generateVoiceover), keyEquivalent: "")
         voiceoverItem.target = self
         aiMenu.addItem(voiceoverItem)
+
+        let avatarItem = NSMenuItem(title: "Generate Avatar Presenter for Latest…",
+                                    action: #selector(generateAvatarPresenter), keyEquivalent: "")
+        avatarItem.target = self
+        aiMenu.addItem(avatarItem)
+        self.avatarMenuItem = avatarItem
+
         aiItem.submenu = aiMenu
         // Enable each action only when its feature is turned on with a key ready. The delegate
         // refreshes this every time the submenu opens.
@@ -477,6 +486,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && Keychain.get(account: Keychain.sttAPIKeyAccount) != nil
         voiceoverMenuItem?.isEnabled = Settings.voiceoverEnabled
             && Keychain.get(account: Keychain.elevenAPIKeyAccount) != nil
+        // Avatar needs a HeyGen key and a latest voiceover (with its narration sidecar).
+        avatarMenuItem?.isEnabled = Keychain.get(account: Keychain.heygenAPIKeyAccount) != nil
+            && latestVoiceover() != nil
+    }
+
+    /// Newest `…voiceover.mp4` whose narration sidecar still exists.
+    private func latestVoiceover() -> URL? {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(
+            at: Paths.outputDirectory, includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]) else { return nil }
+        func modified(_ u: URL) -> Date {
+            (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        }
+        return items
+            .filter { $0.lastPathComponent.hasSuffix(".voiceover.mp4") }
+            .filter { fm.fileExists(atPath: $0.deletingPathExtension().appendingPathExtension("narration.m4a").path) }
+            .max { modified($0) < modified($1) }
+    }
+
+    @objc private func generateAvatarPresenter() {
+        guard let key = Keychain.get(account: Keychain.heygenAPIKeyAccount), !key.isEmpty else {
+            let a = NSAlert()
+            a.messageText = "Add a HeyGen key first"
+            a.informativeText = "Avatar Presenter uses HeyGen (bring-your-own-key). Add it in AI Settings."
+            a.addButton(withTitle: "Open AI Settings…"); a.addButton(withTitle: "Cancel")
+            if a.runModal() == .alertFirstButtonReturn { openAISettings() }
+            return
+        }
+        guard let voiceover = latestVoiceover() else {
+            presentPermissionHelp(title: "No voiceover found",
+                                  message: "Generate an ElevenLabs voiceover first — the avatar is lip-synced to it.")
+            return
+        }
+        // narration sidecar: <base>.voiceover.mp4 → <base>.voiceover.narration.m4a
+        let narration = voiceover.deletingPathExtension().appendingPathExtension("narration.m4a")
+        guard FileManager.default.fileExists(atPath: narration.path) else {
+            presentPermissionHelp(title: "Narration missing",
+                                  message: "Re-generate the voiceover — its narration audio is needed for the avatar.")
+            return
+        }
+        let controller = AvatarPresenterController(voiceoverVideo: voiceover, narrationAudio: narration,
+                                                   apiKey: key, voiceGender: Settings.elevenVoiceGender)
+        avatarPresenterController = controller
+        controller.show(onClose: { [weak self] in self?.avatarPresenterController = nil })
     }
 
     @objc private func changeOutputDirectory() {

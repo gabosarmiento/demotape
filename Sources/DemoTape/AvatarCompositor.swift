@@ -152,30 +152,40 @@ final class AvatarCompositor {
         guard e.width > 0, e.height > 0 else { return screen }
         let d = size.width * layout.diameterFraction
         let box = CGRect(x: 0, y: 0, width: d, height: d)
+        let cx = layout.centerX * size.width
+        let cyTop = layout.centerY * size.height
+        let ox = cx - d / 2
+        let oy = (size.height - cyTop) - d / 2
 
-        let scale = max(d / e.width, d / e.height)          // aspect-fill (cover)
+        // Frosted disc: a blurred crop of the screen behind the circle. A chroma-keyed avatar
+        // (transparent background) then sits cleanly on this disc instead of showing the desktop
+        // through it; an opaque avatar simply covers it.
+        let discBG = screen.cropped(to: CGRect(x: ox, y: oy, width: d, height: d))
+            .transformed(by: CGAffineTransform(translationX: -ox, y: -oy))
+            .clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: d * 0.08])
+            .applyingFilter("CIColorControls", parameters: [kCIInputBrightnessKey: -0.05])
+            .cropped(to: box)
+
+        // Avatar: aspect-fill the disc, top-biased crop so the head stays in frame.
+        let scale = max(d / e.width, d / e.height)
         var img = avatar.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         img = img.transformed(by: CGAffineTransform(translationX: -img.extent.minX, y: -img.extent.minY))
-        // Center horizontally; bias the crop toward the top so the head stays in frame.
         let cropX = (img.extent.width - d) / 2
-        let cropY = max(0, img.extent.height - d)           // top region (CI origin bottom-left)
-        var masked = img.cropped(to: CGRect(x: cropX, y: cropY, width: d, height: d))
+        let cropY = max(0, img.extent.height - d)
+        let person = img.cropped(to: CGRect(x: cropX, y: cropY, width: d, height: d))
             .transformed(by: CGAffineTransform(translationX: -cropX, y: -cropY))
 
+        var combined = person.composited(over: discBG).cropped(to: box)
         if let m = CIFilter(name: "CIRoundedRectangleGenerator") {
             m.setValue(CIVector(cgRect: box), forKey: "inputExtent")
             m.setValue(d / 2, forKey: "inputRadius")
             m.setValue(CIColor.white, forKey: "inputColor")
             if let mask = m.outputImage?.cropped(to: box) {
-                masked = masked.applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputMaskImageKey: mask])
+                combined = combined.applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputMaskImageKey: mask])
             }
         }
-
-        let cx = layout.centerX * size.width
-        let cyTop = layout.centerY * size.height
-        let ox = cx - d / 2
-        let oy = (size.height - cyTop) - d / 2
-        return masked.transformed(by: CGAffineTransform(translationX: ox, y: oy)).composited(over: screen)
+        return combined.transformed(by: CGAffineTransform(translationX: ox, y: oy)).composited(over: screen)
     }
 
     /// Chroma-keyed cutout placed in a corner, scaled by height.

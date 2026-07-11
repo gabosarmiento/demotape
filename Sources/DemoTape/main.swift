@@ -102,13 +102,15 @@ if let i = args.firstIndex(of: "--avatar-composite"), args.count > i + 3 {
         let out = URL(fileURLWithPath: args[i + 3])
         let pos: AvatarPosition = (args.count > i + 4 && args[i + 4] == "left") ? .bottomLeft : .bottomRight
         let mode = args.count > i + 5 ? args[i + 5] : "photo"
-        let remover: BackgroundRemover = (mode == "chroma") ? ChromaKeyRemover() : PassthroughRemover()
+        // Photo path chroma-keys too: HeyGen returns green for padded photos (keyed to a clean
+        // cutout on the frosted disc); if a render keeps the room, keying green is a harmless no-op.
+        let remover: BackgroundRemover = ChromaKeyRemover()
         var layout = AvatarCompositor.Layout()
         if mode == "chroma" {
             layout.shape = .cutout
             layout.position = pos
         } else {
-            // Photo avatars keep their own background → webcam-style circle at the webcam's slot.
+            // Webcam-style circle at the webcam's slot, on a frosted disc.
             layout.shape = .circle
             layout.centerX = CGFloat(Settings.webcamPositionX)
             layout.centerY = CGFloat(Settings.webcamPositionY)

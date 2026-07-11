@@ -17,10 +17,11 @@ enum AvatarImagePrep {
         let e = ci.extent
         guard e.width > 0, e.height > 0 else { return imageURL }
 
-        // Margins: generous headroom on top, modest sides/bottom.
-        let topPad = e.height * 0.55
-        let bottomPad = e.height * 0.12
-        let sidePad = e.width * 0.22
+        // Margins: modest headroom on top, small sides/bottom. Enough that the generated
+        // avatar isn't cropped tight, without pushing the face too low.
+        let topPad = e.height * 0.22
+        let bottomPad = e.height * 0.06
+        let sidePad = e.width * 0.14
         let canvasW = e.width + sidePad * 2
         let canvasH = e.height + topPad + bottomPad
 

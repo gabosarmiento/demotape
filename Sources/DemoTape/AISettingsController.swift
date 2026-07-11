@@ -44,6 +44,13 @@ final class AISettingsController: NSObject, NSWindowDelegate {
     private var elevenTestResult: NSTextField!
     private var verifiedEleven = false
 
+    // Avatar (HeyGen)
+    private var heygenKeyField: SecureKeyField!
+    private var heygenSavedBadge: NSTextField!
+    private var heygenRemoveButton: NSButton!
+    private var heygenTestButton: NSButton!
+    private var heygenTestResult: NSTextField!
+
     private var statusLabel: NSTextField!
 
     private let w: CGFloat = 520
@@ -57,7 +64,7 @@ final class AISettingsController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let h: CGFloat = 700
+        let h: CGFloat = 860
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "AI Features"
@@ -165,6 +172,34 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         y -= 28
 
         (elevenTestButton, elevenTestResult) = addTestRow(at: y, on: content, action: #selector(testElevenKey))
+        y -= 30
+
+        let divider2 = NSBox(frame: NSRect(x: leftX, y: y, width: w - leftX - 28, height: 1))
+        divider2.boxType = .separator
+        content.addSubview(divider2)
+        y -= 18
+
+        // ===== Avatar (HeyGen) =====
+        y = addSectionHeader("Avatar Presenter", subtitle: "Photorealistic presenter via HeyGen — paid, best for short clips.",
+                             at: y, on: content)
+        let hgLink = linkButton(title: "Get an API key ↗", action: #selector(openHeyGenKeyPage))
+        hgLink.frame = NSRect(x: fieldX, y: y - 4, width: 160, height: 16)
+        content.addSubview(hgLink)
+        y -= 26
+
+        addLabel("API key", y: y - 4, at: leftX, on: content)
+        heygenKeyField = SecureKeyField(frame: NSRect(x: fieldX, y: y - 8, width: fieldW, height: 26))
+        heygenKeyField.placeholderString = "HeyGen API key"
+        heygenKeyField.markStored(Keychain.get(account: Keychain.heygenAPIKeyAccount) != nil)
+        content.addSubview(heygenKeyField)
+        y -= 30
+
+        (heygenSavedBadge, heygenRemoveButton) = addSavedRow(
+            at: y, on: content, stored: Keychain.get(account: Keychain.heygenAPIKeyAccount) != nil,
+            removeAction: #selector(removeHeyGenKey))
+        y -= 28
+
+        (heygenTestButton, heygenTestResult) = addTestRow(at: y, on: content, action: #selector(testHeyGenKey))
         y -= 34
 
         // Keychain reassurance.
@@ -359,6 +394,48 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         status("Voiceover key removed.", .secondaryLabelColor)
     }
 
+    @objc private func openHeyGenKeyPage() {
+        if let url = URL(string: "https://app.heygen.com/settings") { NSWorkspace.shared.open(url) }
+    }
+
+    @objc private func removeHeyGenKey() {
+        Keychain.remove(account: Keychain.heygenAPIKeyAccount)
+        heygenKeyField.stringValue = ""
+        heygenSavedBadge.isHidden = true
+        heygenRemoveButton.isHidden = true
+        heygenTestResult.stringValue = ""
+        status("HeyGen key removed.", .secondaryLabelColor)
+    }
+
+    @objc private func testHeyGenKey() {
+        let typed = heygenKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = typed.isEmpty ? (Keychain.get(account: Keychain.heygenAPIKeyAccount) ?? "") : typed
+        guard !key.isEmpty else { heygenTestResult.textColor = .systemRed; heygenTestResult.stringValue = "✗ Enter a key first."; return }
+        heygenTestButton.isEnabled = false
+        heygenTestResult.textColor = .secondaryLabelColor
+        heygenTestResult.stringValue = "Testing…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let ok: Bool
+            var count = 0
+            do { count = try HeyGenAvatarProvider(apiKey: key).listAvatars().count; ok = true }
+            catch { ok = false }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.heygenTestButton.isEnabled = true
+                if ok {
+                    if !typed.isEmpty { Keychain.set(typed, account: Keychain.heygenAPIKeyAccount) }
+                    self.heygenSavedBadge.isHidden = false
+                    self.heygenRemoveButton.isHidden = false
+                    self.heygenTestResult.textColor = .systemGreen
+                    self.heygenTestResult.stringValue = "✓ Key verified (\(count) avatars)."
+                } else {
+                    self.heygenTestResult.textColor = .systemRed
+                    self.heygenTestResult.stringValue = "✗ Key rejected by HeyGen."
+                }
+            }
+        }
+    }
+
     @objc private func testSTTKey() {
         let typed = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = typed.isEmpty ? (Keychain.get(account: Keychain.sttAPIKeyAccount) ?? "") : typed
@@ -427,6 +504,8 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         if !key.isEmpty { Keychain.set(key, account: Keychain.sttAPIKeyAccount) }
         let voKey = elevenKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if !voKey.isEmpty { Keychain.set(voKey, account: Keychain.elevenAPIKeyAccount) }
+        let hgKey = heygenKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !hgKey.isEmpty { Keychain.set(hgKey, account: Keychain.heygenAPIKeyAccount) }
 
         // Persist per-feature enablement — only if a key is actually available.
         Settings.captionsEnabled = (captionsEnableBox.state == .on) && sttKeyAvailable()
