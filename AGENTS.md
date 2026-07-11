@@ -163,6 +163,36 @@ Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
 
 ## Troubleshooting
 
+### Screen Recording shows "not granted" even though it's ticked in System Settings
+
+Almost always a **duplicate bundle** problem: more than one `DemoTape.app` with the same
+bundle id (`dev.demotape.app`) is registered with LaunchServices — e.g. the installed
+`/Applications` copy plus a leftover staging copy in the project folder or one in the Trash.
+macOS then binds the Screen Recording grant to the wrong copy, so the running app never sees
+it. (Microphone/Camera/Accessibility still work because the app requests those itself at
+runtime and binds them correctly.)
+
+Confirm the duplicates:
+
+```bash
+LSR="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+"$LSR" -dump | grep -i "demotape.app (" | sort -u   # should list ONE path: /Applications/DemoTape.app
+```
+
+Fix:
+
+```bash
+# 1. Delete every DemoTape.app that is NOT in /Applications (project folder, Trash, Downloads…).
+# 2. Re-register just the installed one, and reset the stale grant:
+"$LSR" -f /Applications/DemoTape.app
+tccutil reset ScreenCapture dev.demotape.app
+```
+
+Then reopen DemoTape and grant fresh. If the checkbox still won't "take", remove DemoTape from
+the Screen Recording list, click **+**, and add `/Applications/DemoTape.app` explicitly, then
+quit and reopen. `build-app.sh` now deletes its staging bundle after install to prevent this —
+**always run DemoTape from `/Applications`, never a copy in another folder.**
+
 ### `no such module 'PackageDescription'` / `Invalid manifest`
 
 `swift build` fails immediately while compiling `Package.swift`, e.g.:
