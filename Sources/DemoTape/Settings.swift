@@ -4,6 +4,44 @@ import Foundation
 enum Settings {
     private static let defaults = UserDefaults.standard
 
+    // MARK: - System preferences
+
+    /// Show a Dock icon (regular app) instead of running menu-bar-only. Default off.
+    static var showInDock: Bool {
+        get { defaults.bool(forKey: "showInDock") }
+        set { defaults.set(newValue, forKey: "showInDock") }
+    }
+    /// Apply spring-physics auto-zoom on clicks/typing during the styled render. Default on.
+    static var autoZoomEnabled: Bool {
+        get { defaults.object(forKey: "autoZoomEnabled") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "autoZoomEnabled") }
+    }
+    /// Set once the first-run welcome/onboarding has been completed.
+    static var didCompleteOnboarding: Bool {
+        get { defaults.bool(forKey: "didCompleteOnboarding") }
+        set { defaults.set(newValue, forKey: "didCompleteOnboarding") }
+    }
+    /// How many times the welcome screen has been shown.
+    static var welcomeShowCount: Int {
+        get { defaults.integer(forKey: "welcomeShowCount") }
+        set { defaults.set(newValue, forKey: "welcomeShowCount") }
+    }
+    /// When the welcome screen was last shown (seconds since 1970).
+    static var welcomeLastShown: Double {
+        get { defaults.double(forKey: "welcomeLastShown") }
+        set { defaults.set(newValue, forKey: "welcomeLastShown") }
+    }
+    /// Show the welcome for the first few launches, then only ~monthly, so it doesn't nag.
+    static var shouldShowWelcome: Bool {
+        if welcomeShowCount < 3 { return true }
+        let monthSeconds: Double = 30 * 24 * 60 * 60
+        return (Date().timeIntervalSince1970 - welcomeLastShown) > monthSeconds
+    }
+    static func markWelcomeShown() {
+        welcomeShowCount += 1
+        welcomeLastShown = Date().timeIntervalSince1970
+    }
+
     static var captureMicrophone: Bool {
         get { defaults.object(forKey: "captureMicrophone") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "captureMicrophone") }

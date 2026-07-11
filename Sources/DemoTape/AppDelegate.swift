@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var regionOverlay: RegionOverlay?
     private var whileIdleItems: [NSMenuItem] = []
     private let aboutController = AboutController()
+    private var welcomeController: WelcomeController?
     private weak var captionsMenuItem: NSMenuItem?
     private weak var voiceoverMenuItem: NSMenuItem?
 
@@ -158,6 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aiMenu.delegate = self
         menu.addItem(aiItem)
 
+        let templatesItem = NSMenuItem(title: "Apply Template to Latest…",
+                                       action: #selector(openTemplateGallery), keyEquivalent: "")
+        templatesItem.target = self
+        menu.addItem(templatesItem)
+
         let publishItem = NSMenuItem(title: "Web Publish Latest…",
                                      action: #selector(openWebPublish), keyEquivalent: "")
         publishItem.target = self
@@ -179,6 +185,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(folderItem)
         menu.addItem(.separator())
 
+        // --- System Preferences (submenu of checkable toggles, like Input) ---
+        let sysItem = NSMenuItem(title: "System Preferences", action: nil, keyEquivalent: "")
+        let sysMenu = NSMenu(); sysMenu.autoenablesItems = false
+
+        let loginToggle = NSMenuItem(title: "Launch DemoTape at Login",
+                                     action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        loginToggle.target = self
+        loginToggle.state = LoginItem.isEnabled ? .on : .off
+        loginToggle.toolTip = "Open DemoTape automatically when you log in (it won't record until you press Start)."
+        sysMenu.addItem(loginToggle)
+
+        let dockToggle = NSMenuItem(title: "Show DemoTape in the Dock",
+                                    action: #selector(toggleShowInDock), keyEquivalent: "")
+        dockToggle.target = self
+        dockToggle.state = Settings.showInDock ? .on : .off
+        dockToggle.toolTip = "Run as a normal app with a Dock icon (instead of menu-bar only)."
+        sysMenu.addItem(dockToggle)
+
+        let autoZoomToggle = NSMenuItem(title: "Enable Auto-Zoom",
+                                        action: #selector(toggleAutoZoom), keyEquivalent: "")
+        autoZoomToggle.target = self
+        autoZoomToggle.state = Settings.autoZoomEnabled ? .on : .off
+        autoZoomToggle.toolTip = "Spring-physics zoom that follows your clicks and typing."
+        sysMenu.addItem(autoZoomToggle)
+
+        sysItem.submenu = sysMenu
+        menu.addItem(sysItem)
+
         let aboutItem = NSMenuItem(title: "About DemoTape",
                                    action: #selector(openAbout), keyEquivalent: "")
         aboutItem.target = self
@@ -190,7 +224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Items disabled while a recording is in progress (disabling a submenu's parent
         // greys the whole submenu).
         whileIdleItems = [fullScreenItem, selectAreaItem, inputItem, backgroundItem,
-                          teleprompterItem, brandingItem, tightenItem, aiItem, publishItem, changeDir]
+                          teleprompterItem, brandingItem, tightenItem, aiItem, templatesItem,
+                          publishItem, changeDir]
 
         statusItem.menu = menu
         updateCaptureModeChecks()
@@ -202,10 +237,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         refreshUI()
 
+        // Reflect the saved Dock preference (menu-bar-only by default).
+        applyDockPreference(Settings.showInDock)
+
         // Launch with the recorder bar visible in full-screen mode, ready to go. Dismiss with ✕.
         Settings.useRegion = false
         updateCaptureModeChecks()
         presentRecorderBar()
+
+        // Show the welcome for the first few launches, then only ~monthly (it becomes wallpaper
+        // otherwise). Skip entirely once the user has everything granted and has seen it enough.
+        if Settings.shouldShowWelcome {
+            Settings.markWelcomeShown()
+            let welcome = WelcomeController()
+            welcomeController = welcome
+            welcome.show(onFinish: { [weak self] in self?.welcomeController = nil })
+        }
     }
 
     /// Menu-bar-only (accessory) apps have no application menu by default, so standard
@@ -379,6 +426,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aboutController.show()
     }
 
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        let want = sender.state != .on
+        if LoginItem.setEnabled(want) {
+            sender.state = want ? .on : .off
+        } else {
+            // Reflect the real state and let the user know it couldn't be changed.
+            sender.state = LoginItem.isEnabled ? .on : .off
+            let alert = NSAlert()
+            alert.messageText = "Couldn't update the login item"
+            alert.informativeText = "macOS may need permission to manage login items. Try again, "
+                + "or add DemoTape manually in System Settings → General → Login Items."
+            alert.runModal()
+        }
+    }
+
+    @objc private func toggleShowInDock(_ sender: NSMenuItem) {
+        let want = sender.state != .on
+        sender.state = want ? .on : .off
+        Settings.showInDock = want
+        applyDockPreference(want)
+    }
+
+    @objc private func toggleAutoZoom(_ sender: NSMenuItem) {
+        let want = sender.state != .on
+        sender.state = want ? .on : .off
+        Settings.autoZoomEnabled = want
+    }
+
+    /// Menu-bar-only apps use `.accessory`; `.regular` shows a Dock icon and app menu.
+    /// Switching `.regular → .accessory` while the app is frontmost can leave the Dock tile
+    /// behind, so we deactivate to force macOS to drop it. Dispatched so it runs after the
+    /// current menu event settles.
+    private func applyDockPreference(_ showInDock: Bool) {
+        DispatchQueue.main.async {
+            if showInDock {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+            } else {
+                NSApp.setActivationPolicy(.accessory)
+                NSApp.deactivate()
+            }
+        }
+    }
+
     /// Enable the Generate actions only when their feature is on and a key is stored, so a
     /// user can have captions without voiceover (or vice versa).
     private func refreshAIMenuItems() {
@@ -526,6 +617,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = VoiceoverController(video: video, apiKey: key)
         voiceoverController = controller  // retain while open
         controller.show(onClose: { [weak self] in self?.voiceoverController = nil })
+    }
+
+    private var templateGalleryController: TemplateGalleryController?
+    @objc private func openTemplateGallery() {
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record something first — templates re-edit your latest recording.")
+            return
+        }
+        let controller = TemplateGalleryController(master: video)
+        templateGalleryController = controller  // retain while open
+        controller.show()
     }
 
     private var aiSettingsController: AISettingsController?
@@ -744,6 +847,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         style.webcamCenterY = CGFloat(Settings.webcamPositionY)
         style.webcamZoom = CGFloat(Settings.webcamZoom)
         style.webcamDiameterFraction = CGFloat(Settings.webcamSize)
+        // Auto-zoom off → hold the camera at 1× (no click/typing zoom).
+        if !Settings.autoZoomEnabled { style.maxZoom = 1.0 }
         style.useBackground = Settings.useRegion && Settings.framedBackground
         if style.useBackground {
             style.backgroundImageURL = backgroundURL()
