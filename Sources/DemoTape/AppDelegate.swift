@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recorderBar: RecorderBarController?
     private var regionOverlay: RegionOverlay?
     private var whileIdleItems: [NSMenuItem] = []
+    private let aboutController = AboutController()
+    private weak var captionsMenuItem: NSMenuItem?
+    private weak var voiceoverMenuItem: NSMenuItem?
 
     private lazy var startItem = NSMenuItem(
         title: "Start Recording  (⇧⌘S)", action: #selector(startRecording), keyEquivalent: "")
@@ -148,6 +151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceoverItem.target = self
         aiMenu.addItem(voiceoverItem)
         aiItem.submenu = aiMenu
+        // Enable each action only when its feature is turned on with a key ready. The delegate
+        // refreshes this every time the submenu opens.
+        self.captionsMenuItem = captionsItem
+        self.voiceoverMenuItem = voiceoverItem
+        aiMenu.delegate = self
         menu.addItem(aiItem)
 
         let publishItem = NSMenuItem(title: "Web Publish Latest…",
@@ -170,6 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         folderItem.submenu = folderMenu
         menu.addItem(folderItem)
         menu.addItem(.separator())
+
+        let aboutItem = NSMenuItem(title: "About DemoTape",
+                                   action: #selector(openAbout), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
 
         menu.addItem(NSMenuItem(title: "Quit DemoTape",
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -362,6 +375,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(Paths.outputDirectory)
     }
 
+    @objc private func openAbout() {
+        aboutController.show()
+    }
+
+    /// Enable the Generate actions only when their feature is on and a key is stored, so a
+    /// user can have captions without voiceover (or vice versa).
+    private func refreshAIMenuItems() {
+        captionsMenuItem?.isEnabled = Settings.captionsEnabled
+            && Keychain.get(account: Keychain.sttAPIKeyAccount) != nil
+        voiceoverMenuItem?.isEnabled = Settings.voiceoverEnabled
+            && Keychain.get(account: Keychain.elevenAPIKeyAccount) != nil
+    }
+
     @objc private func changeOutputDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -480,13 +506,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceoverController: VoiceoverController?
     @objc private func generateVoiceover() {
         let key = Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
-        guard Settings.aiEnabled, !key.isEmpty else {
+        guard Settings.voiceoverEnabled, !key.isEmpty else {
             let alert = NSAlert()
-            alert.messageText = "Add an ElevenLabs key first"
-            alert.informativeText = Settings.aiEnabled
-                ? "Add your ElevenLabs API key in AI Settings to generate a voiceover."
-                : "Voiceover uses ElevenLabs text-to-speech. Enable AI features and add your "
-                    + "ElevenLabs key in AI Settings, then try again."
+            alert.messageText = "Enable voiceover first"
+            alert.informativeText = (Keychain.get(account: Keychain.elevenAPIKeyAccount) != nil)
+                ? "Turn on Voiceover in AI Settings to generate narration."
+                : "Voiceover uses ElevenLabs text-to-speech. Add and test your ElevenLabs key in "
+                    + "AI Settings, enable Voiceover, then try again."
             alert.addButton(withTitle: "Open AI Settings…")
             alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
@@ -520,15 +546,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showCaptionsEditor(video: video, cues: cached)
             return
         }
-        // Gate on the AI master switch + a saved key. Otherwise, send the user to settings.
+        // Gate on the captions feature being enabled + a saved key. Otherwise, send to settings.
         let key = Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
-        guard Settings.aiEnabled, !key.isEmpty else {
+        guard Settings.captionsEnabled, !key.isEmpty else {
             let alert = NSAlert()
-            alert.messageText = "Turn on AI features first"
-            alert.informativeText = Settings.aiEnabled
-                ? "Add an API key in AI Settings to generate captions."
-                : "Captions use an OpenAI-compatible speech-to-text API. Enable AI features and add "
-                    + "your key in AI Settings, then try again."
+            alert.messageText = "Enable captions first"
+            alert.informativeText = (Keychain.get(account: Keychain.sttAPIKeyAccount) != nil)
+                ? "Turn on Captions in AI Settings to transcribe this recording."
+                : "Captions use an OpenAI-compatible speech-to-text API. Add and test your key in "
+                    + "AI Settings, enable Captions, then try again."
             alert.addButton(withTitle: "Open AI Settings…")
             alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
@@ -776,5 +802,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+@available(macOS 12.3, *)
+extension AppDelegate: NSMenuDelegate {
+    // Refresh the AI action items right before the submenu opens, reflecting the latest
+    // per-feature settings and stored keys.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        refreshAIMenuItems()
     }
 }
