@@ -61,6 +61,26 @@ xcode-select -p >/dev/null 2>&1 || xcode-select --install   # installs Command L
 #   If it launched the CLT installer, STOP and tell the user to finish the GUI
 #   installer, then re-run. Do not proceed until `xcode-select -p` succeeds.
 
+#   IMPORTANT: `xcode-select -p` only proves the *path* is set — it does NOT prove
+#   the toolchain is healthy. A partially corrupted Command Line Tools install
+#   (common after a macOS upgrade) can pass every check above and still fail the
+#   build with the cryptic error `no such module 'PackageDescription'` /
+#   `Invalid manifest`. `swift --version` and even `swift package --version` still
+#   succeed in that state, so they are NOT reliable checks. The only reliable test
+#   is actually compiling a manifest — do that in a throwaway package:
+_dt_probe="$(mktemp -d)"; printf '// swift-tools-version:5.7\nimport PackageDescription\nlet package = Package(name: "probe")\n' > "${_dt_probe}/Package.swift"
+if ! swift package --package-path "${_dt_probe}" dump-package >/dev/null 2>&1; then
+    rm -rf "${_dt_probe}"
+    echo "SwiftPM cannot compile a manifest — your Command Line Tools install is corrupted"
+    echo "(the PackageDescription module is missing). Fix it, then re-run this runbook:"
+    echo "  sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install"
+    echo "If that does not resolve it, install full Xcode and select it:"
+    echo "  sudo xcode-select -s /Applications/Xcode.app"
+    exit 1
+fi
+rm -rf "${_dt_probe}"
+#   See the 'no such module PackageDescription' entry under Troubleshooting below.
+
 # 1. Build + verify ---------------------------------------------------------
 swift build -c release             # must succeed
 swift test                         # 46 tests; all must pass (pure logic, no GUI/network)
@@ -140,6 +160,67 @@ Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
 - **Add/extend tests** for new pure logic (parsing, formatting, URL building). Keep tests
   network-free — factor the testable logic out of the network call (see `Captions.parseCues`
   / `transcriptionEndpoint`).
+
+## Troubleshooting
+
+### `no such module 'PackageDescription'` / `Invalid manifest`
+
+`swift build` fails immediately while compiling `Package.swift`, e.g.:
+
+```
+error: 'demotape': Invalid manifest
+Package.swift:2:8: error: no such module 'PackageDescription'
+```
+
+**Cause:** a corrupted or incomplete **Command Line Tools** install, most often
+triggered by a **recent macOS upgrade**. The SwiftPM manifest API files
+(`PackageDescription.swiftinterface` / `.swiftmodule`) are missing from
+`…/CommandLineTools/usr/lib/swift/pm/ManifestAPI/` even though `swiftc` compiles a plain
+file fine and `xcode-select -p` succeeds. Note that `swift --version` and
+`swift package --version` also still succeed in this state — they do **not** detect the
+problem. Confirm with either of these instead:
+
+```bash
+# The ManifestAPI dir should contain a .swiftinterface/.swiftmodule, not just the .dylib:
+ls /Library/Developer/CommandLineTools/usr/lib/swift/pm/ManifestAPI
+# Or actually try to compile a manifest (fails when broken):
+swift package dump-package >/dev/null    # run from any package dir
+```
+
+**Fix (in order of preference):**
+
+1. Reinstall the Command Line Tools, then finish the GUI installer that appears:
+   ```bash
+   sudo rm -rf /Library/Developer/CommandLineTools
+   xcode-select --install
+   ```
+   Note: `xcode-select --install` alone is a no-op if the tools directory still exists
+   ("already installed") — the `sudo rm -rf` first is what forces a genuinely fresh
+   download.
+
+2. **If the reinstall still doesn't fix it, install full Xcode from the App Store.** This
+   is the reliable fix — some machines keep getting a Command Line Tools payload without
+   the SwiftPM manifest module no matter how many times you reinstall, but full Xcode
+   ships a complete, self-contained toolchain that includes it. Confirmed in practice on
+   macOS 12.7.6 / Intel: after installing Xcode 14.2, its toolchain **has** the module the
+   broken CLT lacked:
+   ```bash
+   # Xcode's toolchain includes PackageDescription.swiftmodule (the CLT was missing it):
+   ls /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/pm/ManifestAPI/
+   #   -> PackageDescription.swiftmodule   libPackageDescription.dylib   (both present)
+
+   # Point the active toolchain at Xcode, accept its license, and verify:
+   sudo xcode-select -s /Applications/Xcode.app
+   sudo xcodebuild -license accept
+   swift package dump-package >/dev/null && echo "SwiftPM OK"   # run from any package dir
+   ```
+   Full Xcode is **not** normally required to build DemoTape (a healthy Command Line Tools
+   install is enough), and it is **free** — no paid Apple Developer account is needed. It's
+   only the fallback for when the lighter Command Line Tools install stays broken. Xcode is
+   large (~12 GB+ on disk, plus download/expansion headroom), so free up space first if the
+   volume is tight.
+
+Re-run the runbook from step 0 afterward.
 
 ## Where things live
 
