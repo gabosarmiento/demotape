@@ -173,9 +173,22 @@ enum Settings {
     }
     /// Master switch for AI features. Off by default — the app stays fully local until
     /// the user turns this on and configures a key in AI Settings.
+    ///
+    /// Kept as a convenience that reflects whether *either* feature is on. Captions and
+    /// voiceover are enabled independently (see `captionsEnabled` / `voiceoverEnabled`).
     static var aiEnabled: Bool {
-        get { defaults.bool(forKey: "aiEnabled") }
-        set { defaults.set(newValue, forKey: "aiEnabled") }
+        get { captionsEnabled || voiceoverEnabled }
+        set { /* legacy no-op: features are toggled independently now */ }
+    }
+    /// Captions (speech-to-text) enabled. Off by default; turned on once a key is ready.
+    static var captionsEnabled: Bool {
+        get { defaults.bool(forKey: "captionsEnabled") }
+        set { defaults.set(newValue, forKey: "captionsEnabled") }
+    }
+    /// Voiceover (ElevenLabs) enabled. Off by default; turned on once a key is ready.
+    static var voiceoverEnabled: Bool {
+        get { defaults.bool(forKey: "voiceoverEnabled") }
+        set { defaults.set(newValue, forKey: "voiceoverEnabled") }
     }
     /// Chosen provider preset name ("OpenAI", "Groq", or "Custom").
     static var aiProvider: String {
