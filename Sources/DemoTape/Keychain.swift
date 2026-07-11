@@ -54,4 +54,5 @@ enum Keychain {
     // Account keys used by the app.
     static let sttAPIKeyAccount = "stt-api-key"
     static let elevenAPIKeyAccount = "elevenlabs-api-key"
+    static let heygenAPIKeyAccount = "heygen-api-key"
 }
