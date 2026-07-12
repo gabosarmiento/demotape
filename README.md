@@ -62,6 +62,13 @@ hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
 - **AI voiceover (opt-in, bring-your-own-key)**: write or load a script (pre-filled from the
   transcript), pick an [ElevenLabs](https://elevenlabs.io) voice, and generate narration laid
   over the video (`…voiceover.mp4`) — great for silent screen demos.
+- **AI avatar presenter (opt-in, bring-your-own-key, paid)**: turn a voiceover into a
+  photorealistic presenter via [HeyGen](https://heygen.com) — pick a library avatar or upload
+  your own photo — lip-synced to the narration and dropped into the **webcam circle** at
+  whatever spot you dragged it to. Cloud-rendered and metered, so you get a **cost + time
+  estimate and an explicit confirmation before every generation**; best for short clips
+  (ideal ~30s, guidance up to ~2 min). Only the narration audio (and your photo, if you upload
+  one) leaves your Mac — **never the screen recording**.
 - **Local by default, BYO key.** AI is off until you enable it; keys live in the macOS
   Keychain and requests go only to the endpoint you configure. See the
   [**User Guide**](docs/user-guide.md) and [`docs/captions.md`](docs/captions.md).
@@ -203,6 +210,10 @@ A record icon appears in your menu bar.
   `…captioned.mp4`). Reuses a cached transcript on repeat runs.
 - **AI Features → Generate Voiceover for Latest…** turns a script (typed, transcript-filled,
   or loaded from a `.txt`) into an ElevenLabs voice laid over the video (`…voiceover.mp4`).
+- **AI Features → Generate Avatar Presenter for Latest…** (needs a HeyGen key and a
+  voiceover) sends only the narration audio — plus your photo if you upload one — to HeyGen,
+  shows a cost/time estimate you must confirm, then composites the lip-synced presenter into
+  the webcam circle. The `…voiceover.narration.m4a` sidecar is kept so you can re-generate later.
 - Full walkthrough in the [**User Guide**](docs/user-guide.md).
 
 ## How it works
@@ -241,8 +252,13 @@ Sources/DemoTape/
   Captions.swift              Audio→text (STT), SRT/VTT, transcript cache
   CaptionsEditorController.swift  Editable transcript UI (Save / Add to Video)
   CaptionBurner.swift         Burn captions into a …captioned.mp4 (Core Text)
-  Voiceover.swift             ElevenLabs voices + TTS + audio mux
+  Voiceover.swift             ElevenLabs voices + TTS + audio mux (durable narration sidecar)
   VoiceoverController.swift   Script/voice UI → …voiceover.mp4
+  AvatarPresenterController.swift  Avatar source/estimate/confirm UI + orchestration
+  HeyGenAvatarProvider.swift  HeyGen upload/create/poll (isolated request payloads)
+  AvatarCompositor.swift      Chroma-key + circular PiP of the avatar into the webcam slot
+  AvatarImagePrep.swift       Pads an uploaded photo with headroom for framing
+  LaunchLocationGuard.swift   Warns if run translocated / outside /Applications (TCC safety)
   Tightener.swift             Silence detection + trim/speed → …tight.mp4
   TightenController.swift     Auto-Cut & Speed Up panel
   AISettingsController.swift  AI enable + provider/key settings
@@ -275,8 +291,10 @@ create-identity.sh            One-time self-signed signing identity
 
 - **Local by default.** No telemetry, no analytics, no accounts — recording, styling, and
   Web Publish all stay on your Mac. The only network access is the **opt-in AI features**:
-  captions upload a recording's audio to the OpenAI-compatible endpoint *you* configure, and
-  voiceover sends your script text to ElevenLabs — both authenticated with *your* key.
+  captions upload a recording's audio to the OpenAI-compatible endpoint *you* configure,
+  voiceover sends your script text to ElevenLabs, and the avatar presenter uploads only the
+  generated narration audio (and your photo, if you choose to upload one) to HeyGen — all
+  authenticated with *your* key. The **screen recording is never uploaded** to any of them.
   Nothing routes through DemoTape's authors, and with AI left off the app makes no network
   requests. (All verifiable in the source, or with a firewall like Little Snitch.)
 - **Writes only to `~/Movies/DemoTape/`,** and only deletes files it created there. It never
@@ -311,6 +329,8 @@ then produce a polished, narrated, multi-format demo — all locally or with you
 - ✅ **Captions**: transcribe (OpenAI / Groq / local Whisper), edit the lines, export
   `.srt` / `.vtt` or burn them in. Transcript cached for reuse.
 - ✅ **AI voiceover**: script → ElevenLabs voice → laid over the video.
+- ✅ **AI avatar presenter**: voiceover → HeyGen photorealistic presenter (library avatar or
+  your photo), lip-synced into the webcam circle, with a cost/time estimate + confirmation.
 - ✅ **Auto-Cut & Speed Up**: local silence removal + pitch-preserved speed-up.
 
 **Post-production & voice (next)**
