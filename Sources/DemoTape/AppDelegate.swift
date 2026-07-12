@@ -132,6 +132,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // --- After recording (tighten → AI → publish) ---
         menu.addItem(sectionHeader("After Recording"))
 
+        let studioItem = NSMenuItem(title: "Open Project Studio…",
+                                    action: #selector(openProjectStudio), keyEquivalent: "e")
+        studioItem.target = self
+        menu.addItem(studioItem)
+        menu.addItem(.separator())
+
         let tightenItem = NSMenuItem(title: "Auto-Cut & Speed Up Latest…",
                                      action: #selector(openTighten), keyEquivalent: "")
         tightenItem.target = self
@@ -406,6 +412,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await MainActor.run {
                 self.state = .idle
                 self.notifySaved(at: styled ?? raw)
+                // Open the Project Studio on the fresh recording so the user lands right in
+                // the output control panel once rendering is done.
+                self.openStudio(for: ProjectStore.project(for: raw) ?? Project(recording: raw))
             }
         }
     }
@@ -765,6 +774,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = WebPublishController()
         webPublishController = controller
         controller.show()
+    }
+
+    private var projectStudioController: ProjectStudioController?
+    @objc private func openProjectStudio() {
+        openStudio(for: ProjectStore.latest())
+    }
+
+    /// Opens the Project Studio on a specific project (or the latest). Shows guidance if there's
+    /// nothing recorded yet.
+    private func openStudio(for project: Project?) {
+        guard let project = project else {
+            presentPermissionHelp(
+                title: "Nothing to open yet",
+                message: "Record something first — Project Studio works on a recording and everything you make from it.")
+            return
+        }
+        if let existing = projectStudioController {
+            existing.show(onClose: { [weak self] in self?.projectStudioController = nil })
+            return
+        }
+        let controller = ProjectStudioController(project: project)
+        projectStudioController = controller
+        controller.show(onClose: { [weak self] in self?.projectStudioController = nil })
     }
 
     private var backgroundPicker: BackgroundPickerController?
