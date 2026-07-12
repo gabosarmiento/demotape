@@ -263,7 +263,10 @@ extension ProjectStudioController {
     /// Factory for each tool's parameter panel. The Studio shell uses placeholders; later commits
     /// return the real panels here.
     private func makePanel(for tool: StudioTool) -> StudioToolPanel {
-        StudioPlaceholderPanel(tool: tool)
+        switch tool {
+        case .edit: return StudioEditPanel()
+        default:    return StudioPlaceholderPanel(tool: tool)
+        }
     }
 
     // MARK: - Project switching
