@@ -1,6 +1,21 @@
 import Foundation
 import AVFoundation
 
+/// The result of generating a voiceover. Besides the finished video, the synthesized narration
+/// audio is preserved as a durable file next to the output (`…voiceover.narration.m4a`), so a
+/// later step — e.g. avatar generation — can reuse the exact narration without re-synthesizing.
+/// The narration is NOT deleted automatically; call `cleanupNarration()` when it's no longer
+/// needed (after the avatar step finishes, or the user declines it).
+struct VoiceoverResult: Equatable {
+    let videoURL: URL
+    let narrationAudioURL: URL
+
+    /// Explicitly remove the durable narration audio. Safe to call more than once.
+    func cleanupNarration() {
+        try? FileManager.default.removeItem(at: narrationAudioURL)
+    }
+}
+
 /// Lean ElevenLabs voiceover: take a script (typed, from the transcript, or loaded from a
 /// .txt file), synthesize speech, and lay it over the video from the start — replacing the
 /// original audio. No timeline; the user writes/paces the script to match their recording.
@@ -88,15 +103,39 @@ final class Voiceover {
         return out
     }
 
-    // MARK: - Mux (replace the video's audio with the voiceover, from the start)
+    // MARK: - Assembly (local; no network — testable with fixtures)
 
-    /// Produces a new file with `video`'s picture (passthrough — no re-encode/quality loss)
-    /// and `mp3` as the audio, starting at t=0 and clamped to the video's length.
-    func replaceAudio(video: URL, withMP3 mp3: URL, to outURL: URL) throws {
-        // ElevenLabs returns MP3; convert to AAC/m4a first so we can passthrough-mux into MP4.
-        let m4a = try transcodeToM4A(mp3)
-        defer { try? FileManager.default.removeItem(at: m4a) }
+    /// Derives the durable narration path (`…voiceover.narration.m4a`) beside the output for
+    /// a given source video, using the same base-name rule as the voiceover output.
+    static func narrationURL(for video: URL) -> URL {
+        let base = video.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: ".styled", with: "")
+        return video.deletingLastPathComponent().appendingPathComponent("\(base).voiceover.narration.m4a")
+    }
 
+    /// Derives the voiceover output path (`…voiceover.mp4`) beside the source video.
+    static func outputURL(for video: URL) -> URL {
+        let base = video.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: ".styled", with: "")
+        return video.deletingLastPathComponent().appendingPathComponent("\(base).voiceover.mp4")
+    }
+
+    /// Assembles the final voiceover from an already-synthesized narration audio file (any
+    /// AVFoundation-readable format). Writes a DURABLE narration `.m4a` beside the output so it
+    /// survives for a later avatar step, then muxes it over the video (video passthrough, no
+    /// re-encode). The narration audio is intentionally NOT deleted here.
+    @discardableResult
+    func assembleVoiceover(video: URL, narrationAudio: URL) throws -> VoiceoverResult {
+        let out = Self.outputURL(for: video)
+        let narration = Self.narrationURL(for: video)
+        try transcodeToM4A(narrationAudio, to: narration)
+        try muxNarration(video: video, narration: narration, to: out)
+        return VoiceoverResult(videoURL: out, narrationAudioURL: narration)
+    }
+
+    /// Produces a new file with `video`'s picture (passthrough) and `narration` (an .m4a) as
+    /// the audio, starting at t=0 and clamped to the video's length.
+    func muxNarration(video: URL, narration m4a: URL, to outURL: URL) throws {
         let videoAsset = AVAsset(url: video)
         let audioAsset = AVAsset(url: m4a)
         guard let vTrack = videoAsset.tracks(withMediaType: .video).first else {
@@ -138,27 +177,23 @@ final class Voiceover {
         Log.write("Voiceover: wrote \(outURL.lastPathComponent)")
     }
 
-    /// Full convenience pipeline: script -> speech -> new …voiceover.mp4 next to the video.
+    /// Full convenience pipeline: script -> speech -> new …voiceover.mp4 (plus durable
+    /// …voiceover.narration.m4a) next to the video. Returns both URLs.
     @discardableResult
-    func generate(video: URL, script: String, voiceId: String, model: String, apiKey: String) throws -> URL {
+    func generate(video: URL, script: String, voiceId: String, model: String, apiKey: String) throws -> VoiceoverResult {
         let mp3 = try synthesize(text: script, voiceId: voiceId, model: model, apiKey: apiKey)
-        defer { try? FileManager.default.removeItem(at: mp3) }
-        let outBase = video.deletingPathExtension().lastPathComponent
-            .replacingOccurrences(of: ".styled", with: "")
-        let out = video.deletingLastPathComponent().appendingPathComponent("\(outBase).voiceover.mp4")
-        try replaceAudio(video: video, withMP3: mp3, to: out)
-        return out
+        defer { try? FileManager.default.removeItem(at: mp3) }   // only the temp MP3 is transient
+        return try assembleVoiceover(video: video, narrationAudio: mp3)
     }
 
     // MARK: - Helpers
 
-    private func transcodeToM4A(_ input: URL) throws -> URL {
+    /// Re-encodes any AVFoundation-readable audio to AAC/.m4a at the given destination.
+    private func transcodeToM4A(_ input: URL, to out: URL) throws {
         let asset = AVAsset(url: input)
         guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
             throw VoiceoverError.synthFailed("no m4a export session")
         }
-        let out = FileManager.default.temporaryDirectory
-            .appendingPathComponent("demotape-vo-\(UUID().uuidString).m4a")
         try? FileManager.default.removeItem(at: out)
         export.outputURL = out
         export.outputFileType = .m4a
@@ -168,7 +203,6 @@ final class Voiceover {
         guard export.status == .completed else {
             throw VoiceoverError.synthFailed(export.error?.localizedDescription ?? "m4a status \(export.status.rawValue)")
         }
-        return out
     }
 
     private static func sync(_ req: URLRequest) throws -> (Data, HTTPURLResponse) {

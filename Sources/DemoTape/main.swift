@@ -69,6 +69,64 @@ if let i = args.firstIndex(of: "--template"), args.count > i + 3 {
     }
 }
 
+// Headless: pad a photo with headroom for avatar generation.  DemoTape --avatar-prep-image <in> <out.png>
+if let i = args.firstIndex(of: "--avatar-prep-image"), args.count > i + 2 {
+    let out = AvatarImagePrep.paddedForHeadroom(URL(fileURLWithPath: args[i + 1]))
+    let dest = URL(fileURLWithPath: args[i + 2])
+    try? FileManager.default.removeItem(at: dest)
+    do { try FileManager.default.copyItem(at: out, to: dest); print("prepped: \(dest.path)"); exit(0) }
+    catch { FileHandle.standardError.write("prep error: \(error)\n".data(using: .utf8)!); exit(1) }
+}
+
+// Headless: assemble a voiceover.mp4 from a video + an existing narration audio file (no TTS).
+// DemoTape --voiceover-assemble <video> <audioFile>
+if let i = args.firstIndex(of: "--voiceover-assemble"), args.count > i + 2 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    let audio = URL(fileURLWithPath: args[i + 2])
+    do {
+        let r = try Voiceover().assembleVoiceover(video: video, narrationAudio: audio)
+        print("voiceover: \(r.videoURL.path)\nnarration: \(r.narrationAudioURL.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("assemble error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless avatar composite:  DemoTape --avatar-composite <screen.mp4> <avatar.mp4> <out.mp4> [left|right] [chroma|photo]
+// Composites a background-removed (chroma) or webcam-style (photo) avatar over the screen video.
+if let i = args.firstIndex(of: "--avatar-composite"), args.count > i + 3 {
+    if #available(macOS 12.3, *) {
+        let screen = URL(fileURLWithPath: args[i + 1])
+        let avatar = URL(fileURLWithPath: args[i + 2])
+        let out = URL(fileURLWithPath: args[i + 3])
+        let pos: AvatarPosition = (args.count > i + 4 && args[i + 4] == "left") ? .bottomLeft : .bottomRight
+        let mode = args.count > i + 5 ? args[i + 5] : "photo"
+        // Photo path chroma-keys too: HeyGen returns green for padded photos (keyed to a clean
+        // cutout on the frosted disc); if a render keeps the room, keying green is a harmless no-op.
+        let remover: BackgroundRemover = ChromaKeyRemover()
+        var layout = AvatarCompositor.Layout()
+        if mode == "chroma" {
+            layout.shape = .cutout
+            layout.position = pos
+        } else {
+            // Webcam-style circle at the webcam's slot, on a frosted disc.
+            layout.shape = .circle
+            layout.centerX = CGFloat(Settings.webcamPositionX)
+            layout.centerY = CGFloat(Settings.webcamPositionY)
+            layout.diameterFraction = CGFloat(Settings.webcamSize)
+        }
+        do {
+            try AvatarCompositor(remover: remover).compose(screen: screen, avatar: avatar, to: out, layout: layout)
+            print("avatar: \(out.path)")
+            exit(0)
+        } catch {
+            FileHandle.standardError.write("avatar-composite error: \(error.localizedDescription)\n".data(using: .utf8)!)
+            exit(1)
+        }
+    } else { exit(1) }
+}
+
 // Headless captions test:  DemoTape --captions <input.mp4>
 // Uses DEMOTAPE_STT_KEY (and optional DEMOTAPE_STT_BASEURL / DEMOTAPE_STT_MODEL) from
 // the environment so it runs without the GUI/Keychain. Writes .srt + .vtt sidecars.
@@ -128,9 +186,9 @@ if let i = args.firstIndex(of: "--voiceover"), args.count > i + 2 {
     let model = env["DEMOTAPE_ELEVEN_MODEL"] ?? "eleven_multilingual_v2"
     do {
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
-        let out = try Voiceover().generate(video: video, script: script,
-                                           voiceId: voiceId, model: model, apiKey: key)
-        print("voiceover: \(out.path)")
+        let result = try Voiceover().generate(video: video, script: script,
+                                              voiceId: voiceId, model: model, apiKey: key)
+        print("voiceover: \(result.videoURL.path)\nnarration: \(result.narrationAudioURL.path)")
         exit(0)
     } catch {
         FileHandle.standardError.write("voiceover error: \(error.localizedDescription)\n".data(using: .utf8)!)

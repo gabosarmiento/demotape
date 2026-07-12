@@ -106,6 +106,45 @@ on camera (use captions on your real voice instead).
 
 ---
 
+## 5a. Avatar presenter (HeyGen — opt-in, paid)
+
+Turn a voiceover into a **photorealistic presenter** that lip-syncs to the narration and sits
+in the **webcam circle**, wherever you dragged it. It's rendered by [HeyGen](https://heygen.com)
+in the cloud and **metered**, so it's opt-in, needs its own key, and always asks you to confirm
+the cost first.
+
+**Setup:** menu → **AI Features → AI Settings…** → **Avatar Presenter** → paste your HeyGen key,
+click **Test key** (it turns ✓ and saves).
+
+**Generate:** menu → **AI Features → Generate Avatar Presenter for Latest…** (enabled once you
+have a HeyGen key *and* a voiceover for the latest recording).
+
+1. **Pick your presenter:**
+   - **Upload a photo…** — a clear, front-facing photo of a face. DemoTape pads it with a bit
+     of headroom so the framing isn't cropped, then HeyGen animates it.
+   - **Library avatar** — choose one of HeyGen's stock avatars (the list loads on demand).
+2. **Review the estimate.** DemoTape shows the narration length, an approximate **credit cost**
+   and **render time**, and a note that longer clips cost and take proportionally more. You must
+   **confirm** before anything is sent.
+3. **Generate.** Only the **narration audio** — and your photo, if you uploaded one — is sent to
+   HeyGen. The **screen recording is never uploaded.** DemoTape polls until the render is ready,
+   downloads it, chroma-keys out the background, and composites a circular, lip-synced presenter
+   into the webcam slot at your saved webcam position and size, writing a new video alongside the
+   others.
+
+**Sizing expectations.** Best for short clips: **ideal ~30s**, guidance up to **~2 minutes**.
+Render time and cost scale with length (roughly ~20 credits/minute on the photorealistic engine),
+so a 5-minute clip both costs and takes noticeably more — the confirmation dialog spells this out
+before you commit.
+
+**Re-generate later.** DemoTape keeps the `…voiceover.narration.m4a` sidecar after generation, so
+you can produce a different presenter from the same narration without re-running voiceover.
+
+**Tip:** the avatar drops into the webcam circle, so set its position and size first in
+**Input → Webcam Settings…** — the presenter lands exactly where you'd place your live camera.
+
+---
+
 ## 5b. Teleprompter
 
 Menu → **Teleprompter → Teleprompter Settings…**
@@ -151,6 +190,8 @@ Everything lands next to the recording in `~/Movies/DemoTape/`:
 | `…transcript.json` | Cached transcript (reused, no re-charge) |
 | `…captioned.mp4` | Video with captions burned in (**Add to Video**) |
 | `…voiceover.mp4` | Video with the AI narration |
+| `…voiceover.narration.m4a` | Durable narration audio (kept for re-generating an avatar) |
+| `…avatar.mp4` | Video with the HeyGen presenter composited into the webcam circle |
 | `…tight.mp4` | Silence-cut / sped-up version (Auto-Cut & Speed Up) |
 | `…-web/` | Web Publish output (per-tier MP4s + poster + `embed.html`) |
 
@@ -159,10 +200,14 @@ Everything lands next to the recording in `~/Movies/DemoTape/`:
 ## 8. Costs & privacy
 
 - Captions bill per minute of audio (a 2-minute demo is a fraction of a cent on OpenAI).
-  ElevenLabs bills per character of narration. You pay your provider directly.
+  ElevenLabs bills per character of narration. The **avatar presenter** is the priciest step —
+  HeyGen meters it by rendered minute (roughly ~20 credits/minute on the photorealistic engine),
+  which is why DemoTape shows an estimate and asks you to confirm before every generation. You
+  pay each provider directly.
 - Nothing is sent anywhere unless you enable AI and trigger an action, and then only to the
-  provider you configured with your key. No telemetry, no accounts. Verifiable in the source
-  or with a firewall like Little Snitch.
+  provider you configured with your key. For the avatar, only the narration audio (and your
+  photo, if uploaded) is sent — **never the screen recording**. No telemetry, no accounts.
+  Verifiable in the source or with a firewall like Little Snitch.
 
 ---
 
@@ -176,6 +221,12 @@ Everything lands next to the recording in `~/Movies/DemoTape/`:
   URL), or a Base URL that doesn't end at `…/v1`.
 - **Voiceover feels off against a talking head** — expected; voiceover suits screen-only
   demos. Use captions for on-camera narration.
+- **"Generate Avatar Presenter" is greyed out** — it needs both a saved HeyGen key (test it in
+  AI Settings) and a voiceover for the latest recording. Generate the voiceover first.
+- **Avatar is cropped or too close** — upload a clear, front-facing photo with some space
+  around the head; DemoTape adds headroom, but a tightly-cropped source still frames tight.
+- **Avatar render is slow / costs more than expected** — cost and time scale with narration
+  length; keep clips short (ideal ~30s). The confirmation dialog shows the estimate first.
 - **Menu item missing** — you're on an older build; re-run `./build-app.sh release` and
   relaunch from `/Applications`.
 - **Can't paste your key** — fixed in v2 (the app now has a standard Edit menu); make sure

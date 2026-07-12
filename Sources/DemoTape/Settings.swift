@@ -228,6 +228,11 @@ enum Settings {
         get { defaults.bool(forKey: "voiceoverEnabled") }
         set { defaults.set(newValue, forKey: "voiceoverEnabled") }
     }
+    /// Gender of the last-used ElevenLabs voice ("male"/"female"/""), used to auto-match an avatar.
+    static var elevenVoiceGender: String {
+        get { defaults.string(forKey: "elevenVoiceGender") ?? "" }
+        set { defaults.set(newValue, forKey: "elevenVoiceGender") }
+    }
     /// Chosen provider preset name ("OpenAI", "Groq", or "Custom").
     static var aiProvider: String {
         get { defaults.string(forKey: "aiProvider") ?? "OpenAI" }

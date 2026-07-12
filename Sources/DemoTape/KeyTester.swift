@@ -32,6 +32,25 @@ enum KeyTester {
         }
     }
 
+    /// Validates a HeyGen key with the lightweight `GET /v1/user/me` (tiny response, unlike the
+    /// large `/v2/avatars` list), using the `x-api-key` header.
+    static func testHeyGen(apiKey: String, completion: @escaping (Result) -> Void) {
+        guard !apiKey.isEmpty else { return finish(.invalid("Enter a key first."), completion) }
+        guard let url = URL(string: "https://api.heygen.com/v1/user/me") else {
+            return finish(.failed("Invalid URL."), completion)
+        }
+        var req = URLRequest(url: url)
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.timeoutInterval = 15
+        send(req, completion) { code in
+            switch code {
+            case 200: return .ok("Key verified.")
+            case 401, 403: return .invalid("Key rejected by HeyGen (\(code)).")
+            default: return .failed("Unexpected response (HTTP \(code)).")
+            }
+        }
+    }
+
     /// Validates an ElevenLabs key with `GET /v1/voices` using the `xi-api-key` header.
     static func testElevenLabs(apiKey: String, completion: @escaping (Result) -> Void) {
         guard !apiKey.isEmpty else { return finish(.invalid("Enter a key first."), completion) }
