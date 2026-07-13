@@ -14,32 +14,19 @@ final class NoiseReducer {
     private let fftSize = 1024
     private let hop = 256               // 75% overlap (WOLA with Hann analysis+synthesis)
 
-    enum NRError: LocalizedError {
-        case noAudio, failed(String)
-        var errorDescription: String? {
-            switch self {
-            case .noAudio: return "The video has no audio to clean."
-            case .failed(let m): return "Noise reduction failed: \(m)"
-            }
-        }
-    }
-
     // MARK: - Video pipeline
 
     /// Cleans the audio of `video` and writes a copy at `out` (video copied without re-encoding,
-    /// audio replaced with the denoised track). Throws `.noAudio` if there's nothing to clean.
+    /// audio replaced with the denoised track). Throws if there's nothing to clean.
     func reduce(video: URL, strength: Double, to out: URL) throws {
-        let asset = AVAsset(url: video)
-        guard let audioTrack = asset.tracks(withMediaType: .audio).first else { throw NRError.noAudio }
-
-        let (channels, sampleRate) = try readPCM(track: audioTrack, asset: asset)
+        let (channels, sampleRate) = try AudioTrackIO.readChannels(from: AVAsset(url: video))
         let cleaned = channels.map { Self.denoiseMono($0, strength: strength, fftSize: fftSize, hop: hop) }
 
         let tempAudio = FileManager.default.temporaryDirectory
             .appendingPathComponent("demotape-nr-\(UUID().uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: tempAudio) }
-        try writeAAC(channels: cleaned, sampleRate: sampleRate, to: tempAudio)
-        try mux(video: video, audio: tempAudio, to: out)
+        try AudioTrackIO.writeAAC(channels: cleaned, sampleRate: sampleRate, to: tempAudio)
+        try AudioTrackIO.mux(video: video, audio: tempAudio, to: out)
     }
 
     // MARK: - Core (pure, testable)
@@ -181,124 +168,3 @@ final class NoiseReducer {
     }
 }
 
-// MARK: - Audio I/O
-
-extension NoiseReducer {
-
-    /// Reads an audio track into deinterleaved Float channels + sample rate.
-    private func readPCM(track: AVAssetTrack, asset: AVAsset) throws -> (channels: [[Float]], sampleRate: Double) {
-        let desc = (track.formatDescriptions.first as! CMAudioFormatDescription)
-        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)!.pointee
-        let sampleRate = asbd.mSampleRate > 0 ? asbd.mSampleRate : 48000
-        let channelCount = max(1, Int(asbd.mChannelsPerFrame))
-
-        let reader = try AVAssetReader(asset: asset)
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false,       // interleaved float
-            AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: channelCount
-        ]
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
-        output.alwaysCopiesSampleData = false
-        reader.add(output)
-        guard reader.startReading() else { throw NRError.failed(reader.error?.localizedDescription ?? "reader") }
-
-        var interleaved = [Float]()
-        while let sample = output.copyNextSampleBuffer() {
-            guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
-            var length = 0
-            var dataPtr: UnsafeMutablePointer<Int8>?
-            CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil,
-                                        totalLengthOut: &length, dataPointerOut: &dataPtr)
-            if let dataPtr = dataPtr {
-                let count = length / MemoryLayout<Float>.size
-                dataPtr.withMemoryRebound(to: Float.self, capacity: count) { fp in
-                    interleaved.append(contentsOf: UnsafeBufferPointer(start: fp, count: count))
-                }
-            }
-            CMSampleBufferInvalidate(sample)
-        }
-        if reader.status == .failed { throw NRError.failed(reader.error?.localizedDescription ?? "read") }
-
-        // Deinterleave.
-        var channels = [[Float]](repeating: [], count: channelCount)
-        let frames = interleaved.count / channelCount
-        for c in 0..<channelCount {
-            var ch = [Float](repeating: 0, count: frames)
-            for i in 0..<frames { ch[i] = interleaved[i * channelCount + c] }
-            channels[c] = ch
-        }
-        return (channels, sampleRate)
-    }
-
-    /// Writes Float channels to an AAC `.m4a` file.
-    private func writeAAC(channels: [[Float]], sampleRate: Double, to url: URL) throws {
-        let channelCount = max(1, channels.count)
-        let frames = channels.map { $0.count }.max() ?? 0
-        guard frames > 0 else { throw NRError.failed("empty audio") }
-
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: channelCount,
-            AVEncoderBitRateKey: 128_000
-        ]
-        let file = try AVAudioFile(forWriting: url, settings: settings)
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate,
-                                         channels: AVAudioChannelCount(channelCount)) else {
-            throw NRError.failed("format")
-        }
-        // Write in chunks.
-        let chunk = 16384
-        var offset = 0
-        while offset < frames {
-            let this = min(chunk, frames - offset)
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(this)) else { break }
-            buffer.frameLength = AVAudioFrameCount(this)
-            for c in 0..<channelCount {
-                let dst = buffer.floatChannelData![c]
-                let src = channels[c]
-                for i in 0..<this { dst[i] = i + offset < src.count ? src[i + offset] : 0 }
-            }
-            try file.write(from: buffer)
-            offset += this
-        }
-    }
-
-    /// Copies the video track (no re-encode) and attaches the cleaned audio.
-    private func mux(video: URL, audio: URL, to out: URL) throws {
-        let comp = AVMutableComposition()
-        let videoAsset = AVAsset(url: video)
-        let audioAsset = AVAsset(url: audio)
-        let range = CMTimeRange(start: .zero, duration: videoAsset.duration)
-
-        if let v = videoAsset.tracks(withMediaType: .video).first,
-           let vComp = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            try vComp.insertTimeRange(range, of: v, at: .zero)
-            vComp.preferredTransform = v.preferredTransform
-        }
-        if let a = audioAsset.tracks(withMediaType: .audio).first,
-           let aComp = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            let aDur = min(audioAsset.duration, videoAsset.duration)
-            try aComp.insertTimeRange(CMTimeRange(start: .zero, duration: aDur), of: a, at: .zero)
-        }
-
-        try? FileManager.default.removeItem(at: out)
-        guard let export = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) else {
-            throw NRError.failed("no export session")
-        }
-        export.outputURL = out
-        export.outputFileType = .mp4
-        export.shouldOptimizeForNetworkUse = true
-        let sema = DispatchSemaphore(value: 0)
-        export.exportAsynchronously { sema.signal() }
-        sema.wait()
-        guard export.status == .completed else {
-            throw NRError.failed(export.error?.localizedDescription ?? "export \(export.status.rawValue)")
-        }
-    }
-}
