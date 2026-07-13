@@ -17,6 +17,8 @@ public sealed class WindowNavigationService : INavigationService
     private WebPublishWindow? _webPublish;
     private BackgroundPickerWindow? _backgroundPicker;
     private WebcamSettingsWindow? _webcamSettings;
+    private AISettingsWindow? _aiSettings;
+    private ActionPreviewWindow? _actionPreview;
 
     public WindowNavigationService(IServiceProvider services, WindowsUserInteraction interaction, ISettingsStore settingsStore)
     {
@@ -52,5 +54,40 @@ public sealed class WindowNavigationService : INavigationService
         _webcamSettings = new WebcamSettingsWindow(_settingsStore);
         _webcamSettings.Closed += (_, _) => _webcamSettings = null;
         _webcamSettings.Activate();
+    }
+
+    public void OpenAiSettings()
+    {
+        if (_aiSettings is not null) { _aiSettings.Activate(); return; }
+        _aiSettings = new AISettingsWindow(_settingsStore,
+            _services.GetRequiredService<IKeyStore>(),
+            _services.GetRequiredService<KeyTester>());
+        _aiSettings.Closed += (_, _) => _aiSettings = null;
+        _aiSettings.Activate();
+    }
+
+    // The post-recording action pipelines (transcription, TTS, avatar) arrive in later phases; the
+    // two-pane window + menu wiring are in place now. Each opens against the latest styled recording.
+    public void GenerateCaptions() => OpenAction("Captions",
+        "Captions arrive in an upcoming update — transcription and burn-in are next.");
+    public void GenerateVoiceover() => OpenAction("Voiceover",
+        "Voiceover arrives in an upcoming update — ElevenLabs narration is next.");
+    public void GenerateAvatar() => OpenAction("Avatar Presenter",
+        "Avatar presenter arrives in an upcoming update — HeyGen integration is next.");
+
+    private void OpenAction(string title, string comingSoon)
+    {
+        var latest = _services.GetRequiredService<IRecordingStore>().LatestStyled();
+        if (latest is null)
+        {
+            _ = _interaction.ShowMessageAsync("No recording yet",
+                "Record something first — post-recording actions run on your latest styled recording.");
+            return;
+        }
+        if (_actionPreview is not null) { _actionPreview.Activate(); return; }
+        ActionPreviewWindow.RenderDelegate stub = (_, _, _) => Task.FromResult<string?>(null);
+        _actionPreview = new ActionPreviewWindow(title, latest.StyledPath, controls: null, stub, _interaction, comingSoon);
+        _actionPreview.Closed += (_, _) => _actionPreview = null;
+        _actionPreview.Activate();
     }
 }

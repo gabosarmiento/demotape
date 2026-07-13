@@ -18,6 +18,8 @@ public static class ServiceRegistration
         // Infrastructure (platform implementations of Domain abstractions)
         services.AddSingleton<IPathService, PathService>();
         services.AddSingleton<ISettingsStore, JsonSettingsStore>();
+        services.AddSingleton<IKeyStore, CredentialManagerKeyStore>();
+        services.AddSingleton<KeyTester>();
         services.AddSingleton<IVideoTranscoder, MediaFoundationTranscoder>();
         services.AddSingleton<IRecordingStore, FileRecordingStore>();
         services.AddSingleton<WindowsUserInteraction>();

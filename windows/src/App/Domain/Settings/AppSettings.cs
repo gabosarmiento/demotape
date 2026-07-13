@@ -43,5 +43,25 @@ public sealed class AppSettings
     /// <summary>Whether to render keyboard-shortcut badges (requires the keystroke hook).</summary>
     public bool ShowShortcutBadges { get; set; } = true;
 
+    // ---- AI features (opt-in, bring-your-own-key; secrets live in Credential Manager, not here) ----
+
+    /// <summary>Captions (speech-to-text) enabled. Off by default; requires a stored key.</summary>
+    public bool CaptionsEnabled { get; set; }
+
+    /// <summary>Voiceover (ElevenLabs TTS) enabled. Off by default; requires a stored key.</summary>
+    public bool VoiceoverEnabled { get; set; }
+
+    /// <summary>Selected STT provider preset name (OpenAI / Groq / Custom).</summary>
+    public string AiProvider { get; set; } = "OpenAI";
+
+    /// <summary>STT (transcription) API base URL.</summary>
+    public string SttBaseUrl { get; set; } = "https://api.openai.com/v1";
+
+    /// <summary>STT model id.</summary>
+    public string SttModel { get; set; } = "whisper-1";
+
+    /// <summary>Optional ISO language hint for transcription (empty = auto-detect).</summary>
+    public string SttLanguage { get; set; } = "";
+
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 }

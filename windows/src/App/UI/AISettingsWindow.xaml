@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.AISettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <StackPanel Padding="28" Spacing="6" MaxWidth="620">
+            <TextBlock Text="AI Features" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock Text="Opt-in and bring-your-own-key. Keys are stored in Windows Credential Manager — never in settings — and used only when you test or run a feature."
+                       TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,0,0,10" />
+
+            <!-- ===== Captions ===== -->
+            <TextBlock Text="Captions" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <TextBlock Text="Transcribe recordings into subtitles." Opacity="0.7" FontSize="12" />
+            <CheckBox x:Name="CaptionsEnable" Content="Enable captions" />
+            <Grid ColumnSpacing="10" RowSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Provider" VerticalAlignment="Center" />
+                <ComboBox x:Name="ProviderCombo" Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="API key" VerticalAlignment="Center" />
+                <PasswordBox x:Name="SttKey" Grid.Row="1" Grid.Column="1" PlaceholderText="sk-…  /  gsk_…" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" />
+                <TextBox x:Name="SttBase" Grid.Row="2" Grid.Column="1" PlaceholderText="https://api.openai.com/v1" />
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Model" VerticalAlignment="Center" />
+                <TextBox x:Name="SttModel" Grid.Row="3" Grid.Column="1" PlaceholderText="whisper-1" />
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Language" VerticalAlignment="Center" />
+                <TextBox x:Name="SttLang" Grid.Row="4" Grid.Column="1" PlaceholderText="auto (e.g. en, es, fr)" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                <Button x:Name="SttTest" Content="Test key" Click="OnTestStt" />
+                <HyperlinkButton x:Name="SttKeyLink" Content="Get an API key" Click="OnOpenSttKeys" />
+                <Button x:Name="SttRemove" Content="Remove" Click="OnRemoveStt" Visibility="Collapsed" />
+            </StackPanel>
+            <TextBlock x:Name="SttResult" FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
+
+            <!-- ===== Voiceover ===== -->
+            <TextBlock Text="Voiceover" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" />
+            <TextBlock Text="Narration powered by ElevenLabs." Opacity="0.7" FontSize="12" />
+            <CheckBox x:Name="VoiceoverEnable" Content="Enable voiceover" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="API key" Width="110" VerticalAlignment="Center" />
+                <PasswordBox x:Name="ElevenKey" PlaceholderText="sk_…" Width="360" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                <Button x:Name="ElevenTest" Content="Test key" Click="OnTestEleven" />
+                <HyperlinkButton Content="Get an API key" Click="OnOpenElevenKeys" />
+                <Button x:Name="ElevenRemove" Content="Remove" Click="OnRemoveEleven" Visibility="Collapsed" />
+            </StackPanel>
+            <TextBlock x:Name="ElevenResult" FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
+
+            <!-- ===== Avatar ===== -->
+            <TextBlock Text="Avatar Presenter" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" />
+            <TextBlock Text="Photorealistic presenter via HeyGen — paid, best for short clips." Opacity="0.7" FontSize="12" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="API key" Width="110" VerticalAlignment="Center" />
+                <PasswordBox x:Name="HeyGenKey" PlaceholderText="HeyGen API key" Width="360" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                <Button x:Name="HeyGenTest" Content="Test key" Click="OnTestHeyGen" />
+                <HyperlinkButton Content="Get an API key" Click="OnOpenHeyGenKeys" />
+                <Button x:Name="HeyGenRemove" Content="Remove" Click="OnRemoveHeyGen" Visibility="Collapsed" />
+            </StackPanel>
+            <TextBlock x:Name="HeyGenResult" FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
+
+            <!-- ===== Footer ===== -->
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Opacity="0.8"
+                           HorizontalAlignment="Left" />
+                <Button Content="Cancel" Click="OnCancel" />
+                <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Click="OnSave" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

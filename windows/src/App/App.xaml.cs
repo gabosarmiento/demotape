@@ -151,6 +151,15 @@ public partial class App : Application
         menu.Items.Add(capture);
         menu.Items.Add(new MenuFlyoutSeparator());
 
+        // After Recording — post-processing actions (each opens a focused two-pane window).
+        var aiFeatures = new MenuFlyoutSubItem { Text = "AI Features" };
+        aiFeatures.Items.Add(new MenuFlyoutItem { Text = "AI Settings…", Command = shell.OpenAiSettingsCommand });
+        aiFeatures.Items.Add(new MenuFlyoutSeparator());
+        aiFeatures.Items.Add(new MenuFlyoutItem { Text = "Generate Captions for Latest…", Command = shell.GenerateCaptionsCommand });
+        aiFeatures.Items.Add(new MenuFlyoutItem { Text = "Generate Voiceover for Latest…", Command = shell.GenerateVoiceoverCommand });
+        aiFeatures.Items.Add(new MenuFlyoutItem { Text = "Generate Avatar Presenter for Latest…", Command = shell.GenerateAvatarCommand });
+        menu.Items.Add(aiFeatures);
+
         menu.Items.Add(new MenuFlyoutItem { Text = "Web Publish Latest…", Command = shell.OpenWebPublishCommand });
         menu.Items.Add(new MenuFlyoutItem { Text = "Open Recordings Folder", Command = shell.OpenRecordingsFolderCommand });
         menu.Items.Add(new MenuFlyoutSeparator());

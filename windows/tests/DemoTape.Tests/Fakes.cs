@@ -87,8 +87,12 @@ internal sealed class FakeRecordingController : IRecordingController
 
 internal sealed class FakeNavigation : INavigationService
 {
-    public int WebPublish, Background, Webcam;
+    public int WebPublish, Background, Webcam, AiSettings, Captions, Voiceover, Avatar;
     public void OpenWebPublish() => WebPublish++;
     public void OpenBackgroundPicker() => Background++;
     public void OpenWebcamSettings() => Webcam++;
+    public void OpenAiSettings() => AiSettings++;
+    public void GenerateCaptions() => Captions++;
+    public void GenerateVoiceover() => Voiceover++;
+    public void GenerateAvatar() => Avatar++;
 }

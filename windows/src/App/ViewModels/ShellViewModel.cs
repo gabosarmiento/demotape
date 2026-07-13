@@ -119,5 +119,17 @@ public sealed partial class ShellViewModel : ObservableObject
     private void OpenWebcamSettings() => _navigation.OpenWebcamSettings();
 
     [RelayCommand]
+    private void OpenAiSettings() => _navigation.OpenAiSettings();
+
+    [RelayCommand]
+    private void GenerateCaptions() => _navigation.GenerateCaptions();
+
+    [RelayCommand]
+    private void GenerateVoiceover() => _navigation.GenerateVoiceover();
+
+    [RelayCommand]
+    private void GenerateAvatar() => _navigation.GenerateAvatar();
+
+    [RelayCommand]
     private void OpenRecordingsFolder() => _interaction.RevealInExplorer(_paths.OutputDirectory);
 }

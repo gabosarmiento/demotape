@@ -40,4 +40,12 @@ public interface INavigationService
     void OpenWebPublish();
     void OpenBackgroundPicker();
     void OpenWebcamSettings();
+
+    /// <summary>Opens the opt-in AI features settings (keys + toggles).</summary>
+    void OpenAiSettings();
+
+    /// <summary>Opens the two-pane action window for the given post-recording action.</summary>
+    void GenerateCaptions();
+    void GenerateVoiceover();
+    void GenerateAvatar();
 }

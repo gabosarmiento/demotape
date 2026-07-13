@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.ActionPreviewWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="24" RowSpacing="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: working file + Change… -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+            <TextBlock x:Name="SourceName" FontWeight="SemiBold" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" MaxWidth="640" />
+            <Button Content="Change…" Click="OnChangeSource" />
+        </StackPanel>
+
+        <!-- Source / Result players -->
+        <Grid Grid.Row="1" ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Spacing="6">
+                <TextBlock Text="Source" FontWeight="SemiBold" FontSize="12" />
+                <MediaPlayerElement x:Name="SourcePlayer" AreTransportControlsEnabled="True"
+                                    Stretch="Uniform" Background="Black" MinHeight="240" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Result" FontWeight="SemiBold" FontSize="12" />
+                    <TextBlock x:Name="ResultBadge" Text="not generated yet" FontSize="10" Opacity="0.6"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+                <MediaPlayerElement x:Name="ResultPlayer" AreTransportControlsEnabled="True"
+                                    Stretch="Uniform" Background="Black" MinHeight="240" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Action controls (subclass-supplied) -->
+        <Border x:Name="ControlsHost" Grid.Row="2" />
+
+        <!-- Generate cluster -->
+        <StackPanel Grid.Row="3" HorizontalAlignment="Center" Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                <Button x:Name="GenerateButton" Content="Generate preview" Click="OnGenerate"
+                        Style="{StaticResource AccentButtonStyle}" />
+                <ProgressRing x:Name="Busy" IsActive="False" Width="22" Height="22" />
+            </StackPanel>
+            <TextBlock x:Name="Message" HorizontalAlignment="Center" FontSize="12" Opacity="0.8"
+                       TextWrapping="Wrap" />
+            <StackPanel x:Name="ResultRow" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center"
+                        Visibility="Collapsed">
+                <TextBlock x:Name="ResultLink" VerticalAlignment="Center" FontSize="12" />
+                <Button Content="Reveal in Explorer" Click="OnReveal" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Footer -->
+        <Button Grid.Row="4" Content="Close" HorizontalAlignment="Left" Click="OnClose" />
+    </Grid>
+</Window>
