@@ -91,6 +91,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         noiseItem.state = Settings.noiseSuppressionEnabled ? .on : .off
         self.noiseToggleItem = noiseItem
         inputMenu.addItem(noiseItem)
+        let enhanceItem = NSMenuItem(title: "Enhance Voice",
+                                     action: #selector(toggleEnhanceVoice), keyEquivalent: "")
+        enhanceItem.target = self
+        enhanceItem.state = Settings.enhanceVoiceEnabled ? .on : .off
+        self.enhanceToggleItem = enhanceItem
+        inputMenu.addItem(enhanceItem)
         inputMenu.addItem(.separator())
         inputMenu.addItem(webcamSettings)
         inputMenu.delegate = self
@@ -413,9 +419,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let camera = self.engine.lastCameraURL
             let style = await MainActor.run { self.makeStyle() }
             let styled = self.renderStyled(from: raw, camera: camera, style: style)
-            // Smart noise suppression: clean the styled output's mic audio in place (on-device).
-            if let styled = styled, Settings.noiseSuppressionEnabled, Settings.captureMicrophone {
-                self.applyNoiseSuppression(to: styled)
+            // On-device audio cleanup: denoise, then enhance (studio voice). Both in place.
+            if let styled = styled, Settings.captureMicrophone {
+                if Settings.noiseSuppressionEnabled { self.applyNoiseSuppression(to: styled) }
+                if Settings.enhanceVoiceEnabled { self.applyVoiceEnhancement(to: styled) }
             }
             await MainActor.run {
                 self.state = .idle
@@ -437,6 +444,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             try? FileManager.default.removeItem(at: temp)
             Log.write("NoiseReducer skipped: \(error.localizedDescription)")
+        }
+    }
+
+    /// Applies studio-voice enhancement to `url` in place (best-effort; failure leaves it intact).
+    private func applyVoiceEnhancement(to url: URL) {
+        let temp = url.deletingPathExtension().appendingPathExtension("ve.mp4")
+        do {
+            try VoiceEnhancer().enhance(video: url, to: temp)
+            try? FileManager.default.removeItem(at: url)
+            try FileManager.default.moveItem(at: temp, to: url)
+            Log.write("VoiceEnhancer: enhanced \(url.lastPathComponent)")
+        } catch {
+            try? FileManager.default.removeItem(at: temp)
+            Log.write("VoiceEnhancer skipped: \(error.localizedDescription)")
         }
     }
 
@@ -769,10 +790,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var inputMenu: NSMenu?
     private var noiseToggleItem: NSMenuItem?
+    private var enhanceToggleItem: NSMenuItem?
 
     @objc private func toggleNoiseSuppression() {
         Settings.noiseSuppressionEnabled.toggle()
         noiseToggleItem?.state = Settings.noiseSuppressionEnabled ? .on : .off
+    }
+
+    @objc private func toggleEnhanceVoice() {
+        Settings.enhanceVoiceEnabled.toggle()
+        enhanceToggleItem?.state = Settings.enhanceVoiceEnabled ? .on : .off
     }
 
     private var webPublishController: WebPublishController?
@@ -989,6 +1016,7 @@ extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === inputMenu {
             noiseToggleItem?.state = Settings.noiseSuppressionEnabled ? .on : .off
+            enhanceToggleItem?.state = Settings.enhanceVoiceEnabled ? .on : .off
             return
         }
         refreshAIMenuItems()

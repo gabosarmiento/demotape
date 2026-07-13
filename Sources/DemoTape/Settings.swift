@@ -54,6 +54,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "noiseSuppressionEnabled") }
     }
 
+    /// Studio-voice enhancement: EQ + compression to make the mic sound warmer and more present.
+    /// Simple on/off, applied after noise suppression during the render. On-device, no network.
+    static var enhanceVoiceEnabled: Bool {
+        get { defaults.bool(forKey: "enhanceVoiceEnabled") }
+        set { defaults.set(newValue, forKey: "enhanceVoiceEnabled") }
+    }
+
     static var captureWebcam: Bool {
         get { defaults.object(forKey: "captureWebcam") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "captureWebcam") }
