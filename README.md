@@ -4,178 +4,145 @@
 
 # DemoTape
 
-A free, open-source, **local-first screen recorder for macOS** that turns raw captures into
-polished product demos automatically — auto-zoom on clicks, a smooth cursor, keyboard-shortcut
-badges, click ripples, webcam overlay, and framed backgrounds — then publishes them as small,
-web-ready MP4s.
+Record your screen and DemoTape turns it into a polished product demo — automatic zoom on
+your clicks, a smooth cursor, a webcam bubble, captions, voiceover, even an AI presenter.
+It lives in your menu bar, runs fully on your Mac, and needs no account.
 
-It runs on **older Intel Macs and macOS Monterey (12.3+)** — hardware and OS versions many
-polished recorders have left behind. No Xcode required to build, no cloud, no account, no telemetry.
+Works on **macOS 12.3+**, Intel or Apple Silicon. Free and open source.
 
-## Why
+---
 
-Most tools that turn raw screen captures into polished demos require recent macOS and Apple
-Silicon, and they're paid/closed. DemoTape targets the gap: a genuinely useful, free,
-hands-off demo recorder that runs on a 2018-era Intel MacBook on Monterey.
+## Get DemoTape
 
-## Features
+**Easiest — let your coding agent set it up.** Clone the repo, open it in Claude Code / Codex /
+Kiro, and say:
 
-- **Hands-off auto-editing.** Record, and on Stop it renders a styled video automatically —
-  no timeline, no keyframing.
-- **Spring-physics auto-zoom** that follows your clicks and typing, with **text-input
-  tracking** (holds focus on the field while you type instead of zooming out).
-- **Synthetic smooth cursor** (the real cursor is hidden during capture and re-drawn cleanly).
-- **Keyboard-shortcut badges** (⌘C, ⇧⌘Z…) — shown only for actual shortcuts, not typing.
-- **Click ripples** on clicks.
-- **Region capture** with a drag-to-select overlay; region recordings are **framed** on a
-  gradient background with padding, rounded corners, and a soft shadow.
-- **Background gallery** (bundled gradient wallpapers) + custom image picker.
-- **Webcam overlay** — a live, draggable, resizable, zoomable circular PiP with a settings
-  overlay. Mic + webcam share one capture clock, so lip-sync stays tight.
-- **Microphone** capture with automatic loudness normalization.
-- **3-2-1 countdown** with the capture warmed up so recording starts instantly at zero.
-- **Global hotkey** (⇧⌘S) to start/stop without touching the menu.
-- **Web Publish**: transcode to lightweight, fast-loading MP4s (H.264 + AAC, faststart) at
-  360/480/540/720p tiers with a live size estimate, plus a poster frame and a responsive
-  `<video>` embed snippet.
+> Set up and install DemoTape by following the "Agent-assisted setup" runbook in AGENTS.md.
 
-## Requirements
+It builds and installs a version matched to your Mac, then tells you the one thing only you can
+do: grant Screen Recording permission.
 
-- macOS **12.3 or later** (Intel or Apple Silicon)
-- **Xcode Command Line Tools** (`xcode-select --install`) — full Xcode is **not** required
-
-## Build & run
+**Or download the app.** Grab `DemoTape-<version>.dmg` from
+[Releases](https://github.com/gabosarmiento/demotape/releases/latest) and drag it into
+**Applications**. First launch is blocked by macOS (the app isn't notarized) — right-click
+**DemoTape.app → Open → Open**, or run:
 
 ```bash
-# One-time: create a stable self-signed identity so macOS remembers Screen Recording
-# permission across rebuilds (otherwise ad-hoc signing resets it every build).
-./create-identity.sh
+xattr -dr com.apple.quarantine /Applications/DemoTape.app
+```
 
-# Build, package, sign, and install to /Applications
-./build-app.sh release
+> Run DemoTape from **/Applications** so macOS remembers your Screen Recording permission.
+
+**First launch:** the first time you record, macOS asks for **Screen Recording** — turn DemoTape
+on, then quit and reopen. Microphone, Camera, and Accessibility are only requested if you use
+those features.
+
+---
+
+## Record
+
+Click the menu-bar icon (or press **⇧⌘S**) and pick how you want to capture:
+
+- **Full Screen** or **Select Recording Area** — drag out an area; it stays on screen as a frame
+  you can move and resize, and never shows up in the video.
+- A floating **recorder bar** appears with Start/Stop, a timer, and toggles for:
+  - **Microphone** — your narration.
+  - **Webcam** — a draggable, resizable circular bubble.
+  - **Background** — frame the recording on a gradient or your own image.
+  - **Branding** — drop your logo on top.
+  - **Teleprompter** — scroll a script beside the recording so you can read while you record.
+
+A **3-2-1 countdown** gives you a beat to get ready. When you press Stop, DemoTape auto-edits a
+polished video (smooth zoom, clean cursor, shortcut badges) and saves it to
+`~/Movies/DemoTape/`.
+
+---
+
+## Polish it
+
+Everything after recording lives under **After Recording** in the menu. Each one opens a simple
+window: your **source** video on the left, the **result** on the right. Tweak the settings, click
+**Generate preview**, watch the result, and the finished file is saved with a **Reveal in Finder**
+link. Every window has a **Change…** button if you want to work on a different clip.
+
+### ✂️ Auto Cut and Speed
+Trims silent gaps and can speed the clip up while keeping your voice natural. Great for making a
+demo feel tight and snappy. Fully local.
+
+### 💬 Captions
+Transcribes your narration automatically, shows the lines with their timestamps so you can fix
+any wording, then burns them into the video. Pick the language in its tab. (Transcribed once and
+remembered, so re-opening never costs you again.)
+
+### 🎙️ Voiceover
+Turn a script into narration with an [ElevenLabs](https://elevenlabs.io) voice. The script
+pre-fills from your captions, you can **preview any voice with one click**, and the narration is
+laid over the video. Best for screen-only demos.
+
+### 🧑 Avatar Presenter
+Turn your voiceover into a photorealistic presenter that lip-syncs to it and sits in your webcam
+bubble. Upload a **photo** or pick a library avatar. Because it's rendered in the cloud by
+[HeyGen](https://heygen.com) and costs credits, DemoTape shows a clear **cost estimate and asks
+you to confirm** first. Best for short clips.
+
+### 🎬 Apply Template
+Re-edit the video with a paced "look" — Clean, Keynote, Commercial, and more — for intros,
+transitions, and rhythm.
+
+### 🌐 Web Publish
+Export lightweight, fast-loading MP4s for the web, plus a poster, a responsive `<video>` snippet,
+and an optional animated GIF for your README.
+
+---
+
+## Where your files go
+
+Everything lands next to your recording in `~/Movies/DemoTape/`:
+
+| File | What it is |
+|---|---|
+| `…styled.mp4` | Your auto-edited recording |
+| `…tight.mp4` | Silence-cut / sped-up version |
+| `…captioned.mp4` | With captions burned in |
+| `…voiceover.mp4` | With AI narration |
+| `…avatar.mp4` | With the AI presenter in the webcam bubble |
+| `…-web/` | Web-ready MP4s + poster + embed snippet |
+
+Change where recordings are saved from **Recording Folder → Change Output Directory…**.
+
+---
+
+## AI features are optional and private
+
+DemoTape is **local by default**. Captions, Voiceover, and Avatar are **opt-in** and use **your
+own API keys** (stored in the macOS Keychain, never on disk). Turn them on in
+**AI Features → AI Settings…**, where you can paste and test each key.
+
+When AI is off, DemoTape makes **no network calls at all**. When it's on, only what a step needs
+is sent to the provider you chose — captions send the audio, voiceover sends the script, the
+avatar sends the narration (and your photo, if you upload one). **Your screen recording is never
+uploaded.**
+
+---
+
+## Build from source
+
+```bash
+./create-identity.sh    # one-time: stable signing identity (keeps permissions across rebuilds)
+./build-app.sh release  # build, sign, install to /Applications
 open /Applications/DemoTape.app
 ```
 
-A record icon appears in your menu bar.
+No Xcode project and no third-party dependencies — just Apple frameworks and `swift build`.
+Contributors and AI agents: see [`AGENTS.md`](AGENTS.md) for build/verify steps and constraints.
 
-> **Run it from `/Applications`, not from a synced/Desktop folder.** macOS grants Screen
-> Recording permission unreliably to apps in TCC-protected folders. `build-app.sh` installs
-> to `/Applications` for this reason.
+> `swift build` fails with `no such module 'PackageDescription'`? Your Command Line Tools are
+> corrupted (common after a macOS upgrade). Reinstall with `xcode-select --install`, or install
+> full Xcode and run `sudo xcode-select -s /Applications/Xcode.app`.
 
-### First launch: grant permissions
-
-- **Screen Recording** (required): the first Start shows a prompt → enable DemoTape under
-  **System Preferences → Security & Privacy → Privacy → Screen Recording**, then quit and
-  reopen. (One-time macOS requirement for any recorder.)
-- **Microphone / Camera** (optional): prompted when you enable those features.
-- **Accessibility** (optional): needed to capture keystrokes for the shortcut badges.
-
-## Usage
-
-- **⇧⌘S** (or the menu) toggles recording, after a 3-2-1 countdown.
-- **Record Full Screen** / **Select Recording Area…** choose the capture mode.
-- **Record Microphone**, **Show Webcam**, **Webcam Settings…**, **Background…** toggle and
-  configure overlays.
-- On Stop, a styled `…styled.mp4` is written next to the raw capture in `~/Movies/DemoTape/`.
-- **Web Publish Latest…** exports lightweight web MP4s (one per selected tier) + poster +
-  `embed.html` into a `…-web/` folder.
-
-## How it works
-
-- **Capture:** uses the older **`AVCaptureScreenInput`** pipeline rather than ScreenCaptureKit.
-  On the target Monterey/Intel machine ScreenCaptureKit's `startCapture()` succeeds but
-  delivers **zero frames**, so AVFoundation's proven screen-capture path is used instead
-  (works macOS 10.15+). Region capture uses `cropRect`.
-- **Event timeline:** cursor is sampled at 60 Hz; clicks, scrolls, and keystrokes are logged
-  via `NSEvent` global monitors and saved to a `.events.json` sidecar, normalized to the
-  captured region and time-aligned to the video's first frame.
-- **Render:** a Core Image / Metal pipeline (`AVAssetReader` → composite → `AVAssetWriter`)
-  composes the framed image, then applies a critically-damped **spring camera** to the whole
-  composition, and draws the cursor, ripples, webcam, and badges on top. Output is
-  web-standard H.264 (High, yuv420p, faststart) + AAC, 30 fps.
-- **Web Publish:** transcodes the styled master down to the selected height tiers.
-
-## Project layout
-
-```
-Sources/DemoTape/
-  main.swift                  App entry + headless --render / --transcode test hooks
-  AppDelegate.swift           Menu bar UI, state machine, orchestration
-  Settings.swift              UserDefaults-backed preferences
-  RecordingEngine.swift       Screen + mic capture (AVCaptureScreenInput), prepare/begin/stop
-  CameraRecorder.swift        Separate webcam (+ mic) capture session
-  EventRecorder.swift         Cursor/click/scroll/keystroke timeline → .events.json
-  RecordingMetadata.swift     Codable model for the sidecar
-  FocusTimeline.swift         Auto-zoom camera model (clicks + typing → scale/center)
-  VideoRenderer.swift         Core Image/Metal styled render (zoom, cursor, ripples, webcam)
-  Transcoder.swift            Web Publish downscale/encode
-  CountdownController.swift   3-2-1 overlay
-  RegionSelector.swift        Drag-to-select area overlay
-  WebcamSettingsController.swift  Live webcam positioning overlay
-  BackgroundPicker.swift      Background gallery
-  WebPublishController.swift  Web export panel
-  GlobalHotKey.swift          Carbon global hotkey (⇧⌘S)
-  Log.swift / Paths.swift     Diagnostics + output folder
-Resources/
-  Info.plist                  Bundle metadata (LSUIElement menu-bar app)
-  background/                 Bundled gradient backgrounds
-build-app.sh                  Build + package + sign + install to /Applications
-create-identity.sh            One-time self-signed signing identity
-```
-
-## Security & privacy
-
-- **Local-only.** No network code, no telemetry, no analytics, no accounts — recordings and
-  all processing stay on your Mac. (Verifiable in the source, or with a firewall like Little
-  Snitch.)
-- **Writes only to `~/Movies/DemoTape/`,** and only deletes files it created there. It never
-  touches your documents or anything outside its own output folder.
-- **Unprivileged.** No root, no kernel extensions, no system modification — it can't harm
-  macOS; a bug can at most crash the app itself.
-- **Permissions it may request** (all handled locally): **Screen Recording** (required),
-  **Microphone** / **Camera** (only if you enable audio/webcam), and **Accessibility** (only
-  to show keyboard-shortcut badges — keystrokes are logged to a local `.events.json` during
-  recording and never transmitted).
-- **Not notarized.** Builds are signed with a local self-signed identity, so macOS Gatekeeper
-  will warn about an "unidentified developer." Since it's open source, you can read the code
-  and build it yourself. `create-identity.sh` adds an untrusted, code-signing-only certificate
-  to your login keychain for local signing; it grants nothing and can be removed anytime.
-
-## Known limitations (Monterey)
-
-- **System audio** capture needs a macOS 13+ API. On Monterey, route it through a free
-  virtual device (e.g. [BlackHole](https://github.com/ExistentialAudio/BlackHole)).
-  **Microphone** works natively.
-- **H.264 has no alpha channel** (fine for web/demo use).
-- **Distributing to others** requires notarization (an Apple Developer account) or users will
-  see Gatekeeper warnings. Building from source works without it.
-
-## Roadmap / ideas
-
-- Background render with menu-bar progress for long clips
-- Motion blur on fast zoom/cursor transitions
-- HEVC variant for even smaller files (with MP4 fallback)
-- HLS/fMP4 ladder — only if long-form video is added
-
-## Contributing
-
-Issues and PRs welcome. Keep it dependency-free (Apple frameworks only) and matching the
-existing style. There's no external build system — `swift build` and `./build-app.sh`.
-
-**AI coding agents:** see [`AGENTS.md`](AGENTS.md) for build/run/verify steps and constraints.
-
-## Acknowledgments
-
-Built by studying (not copying) these excellent projects:
-
-- [nonstrict-hq/ScreenCaptureKit-Recording-example](https://github.com/nonstrict-hq/ScreenCaptureKit-Recording-example)
-  and their [AVCaptureScreenInput guide](https://nonstrict.eu/blog/2023/recording-to-disk-with-avcapturescreeninput/) — the recording-to-disk patterns
-- [syi0808/Screenize](https://github.com/syi0808/Screenize) — event-capture and spring-zoom concepts
-- [jsattler/BetterCapture](https://github.com/jsattler/BetterCapture),
-  [lihaoyun6/QuickRecorder](https://github.com/lihaoyun6/QuickRecorder),
-  [danieloquelis/EasyDemo](https://github.com/danieloquelis/EasyDemo) — feature/architecture inspiration
-- [keycastr/keycastr](https://github.com/keycastr/keycastr) — keystroke-capture reference
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Built by studying (not copying) several excellent open-source
+screen recorders; DemoTape is its own dependency-free implementation.

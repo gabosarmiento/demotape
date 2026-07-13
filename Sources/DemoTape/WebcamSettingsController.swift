@@ -10,6 +10,7 @@ final class WebcamSettingsController: NSObject {
     private var panel: NSPanel?
     private var session: AVCaptureSession?
     private var circle: CircleControl?
+    private var escMonitor: Any?
 
     func show() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -80,8 +81,10 @@ final class WebcamSettingsController: NSObject {
                                         y: content.bounds.midY - cardH / 2,
                                         width: cardW, height: cardH))
         card.wantsLayer = true
-        card.layer?.backgroundColor = NSColor.clear.cgColor
-        // Dotted rounded border, no fill.
+        // Dark translucent fill so the card text stays readable over whatever's behind it.
+        card.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.72).cgColor
+        card.layer?.cornerRadius = 18
+        card.layer?.cornerCurve = .continuous
         let dashed = CAShapeLayer()
         dashed.path = CGPath(roundedRect: NSRect(x: 1, y: 1, width: cardW - 2, height: cardH - 2),
                              cornerWidth: 18, cornerHeight: 18, transform: nil)
@@ -106,7 +109,12 @@ final class WebcamSettingsController: NSObject {
         help.frame = NSRect(x: 30, y: 78, width: cardW - 60, height: 58)
         card.addSubview(help)
 
-        let confirm = HoverButton(frame: NSRect(x: cardW / 2 - 95, y: 24, width: 190, height: 40))
+        let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(self.cancel))
+        cancelBtn.bezelStyle = .rounded
+        cancelBtn.frame = NSRect(x: cardW / 2 - 190, y: 26, width: 150, height: 38)
+        card.addSubview(cancelBtn)
+
+        let confirm = HoverButton(frame: NSRect(x: cardW / 2 + 20, y: 24, width: 180, height: 40))
         confirm.target = self
         confirm.action = #selector(self.confirm)
         confirm.keyEquivalent = "\r"
@@ -119,9 +127,15 @@ final class WebcamSettingsController: NSObject {
         self.session = session
         self.circle = circle
 
+        escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard let self = self, self.panel != nil, e.keyCode == 53 else { return e }
+            self.close(); return nil          // Esc = close without saving
+        }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
+
+    @objc private func cancel() { close() }
 
     @objc private func confirm() {
         if let panel = panel, let circle = circle, let screen = NSScreen.main {
@@ -139,6 +153,7 @@ final class WebcamSettingsController: NSObject {
     }
 
     private func close() {
+        if let m = escMonitor { NSEvent.removeMonitor(m); escMonitor = nil }
         session?.stopRunning()
         session = nil
         panel?.orderOut(nil)

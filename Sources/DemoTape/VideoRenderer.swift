@@ -48,6 +48,18 @@ final class VideoRenderer {
         var webcamCenterY: CGFloat = 0.82
         /// Zoom into the camera image (1 = full frame).
         var webcamZoom: CGFloat = 1.0
+
+        /// Final output size (aspect-fit + centered on black). Used by area presets to export
+        /// at an exact target resolution (e.g. 1080×1350). nil = native composed size.
+        var exportSize: CGSize?
+
+        // Branding (logo watermark) — fixed position/size, does not zoom.
+        var brandingImageURL: URL?
+        /// Logo center, normalized to the output (top-left origin).
+        var brandingCenterX: CGFloat = 0.86
+        var brandingCenterY: CGFloat = 0.90
+        /// Logo width as a fraction of the output width.
+        var brandingWidthFraction: CGFloat = 0.14
     }
 
     // Cached webcam overlay layers (per render).
@@ -89,6 +101,9 @@ final class VideoRenderer {
         let outH = even(H + pad * 2)
         let contentW = outW - pad * 2
         let contentH = outH - pad * 2
+        // Final encoded size: a preset's target, or the native composed size.
+        let finalW = style.exportSize.map { even($0.width) } ?? outW
+        let finalH = style.exportSize.map { even($0.height) } ?? outH
         let frameInterval = 1.0 / style.outputFPS
 
         // Reader
@@ -107,10 +122,10 @@ final class VideoRenderer {
         let keyframeInterval = Int((style.outputFPS * 2).rounded())
         let writerSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(outW),
-            AVVideoHeightKey: Int(outH),
+            AVVideoWidthKey: Int(finalW),
+            AVVideoHeightKey: Int(finalH),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: Int(outW * outH) * 8,
+                AVVideoAverageBitRateKey: Int(finalW * finalH) * 8,
                 AVVideoMaxKeyFrameIntervalKey: keyframeInterval,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoAllowFrameReorderingKey: true
@@ -122,8 +137,8 @@ final class VideoRenderer {
             assetWriterInput: writerInput,
             sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: Int(outW),
-                kCVPixelBufferHeightKey as String: Int(outH)
+                kCVPixelBufferWidthKey as String: Int(finalW),
+                kCVPixelBufferHeightKey as String: Int(finalH)
             ])
         guard writer.canAdd(writerInput) else { throw RenderError.writerFailed("cannot add input") }
         writer.add(writerInput)
@@ -178,6 +193,8 @@ final class VideoRenderer {
         let cursorImage = style.drawCursor ? makeCursorImage(scale: style.cursorScale) : nil
         let rippleRing = style.showClickRipples ? makeRing(diameter: 220) : nil
         let rippleBase: CGFloat = 220
+        // Branding logo (loaded once) — composited fixed on top of every frame.
+        let brandingLogo: CIImage? = style.brandingImageURL.flatMap { CIImage(contentsOf: $0) }
 
         guard reader.startReading() else { throw RenderError.readerFailed(reader.error?.localizedDescription ?? "unknown") }
         guard writer.startWriting() else { throw RenderError.writerFailed(writer.error?.localizedDescription ?? "unknown") }
@@ -361,7 +378,25 @@ final class VideoRenderer {
                 }
             }
 
+            // Branding watermark — fixed position/size (does not zoom), on top of everything.
+            if let logo = brandingLogo {
+                composite = compositeBranding(logo, over: composite, outW: outW, outH: outH, style: style)
+            }
+
             composite = composite.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
+
+            // Scale to the exact export size (aspect-fit, centered on black) when a preset set it.
+            if style.exportSize != nil {
+                let s = min(finalW / outW, finalH / outH)
+                let tx = ((finalW - outW * s) / 2).rounded()
+                let ty = ((finalH - outH * s) / 2).rounded()
+                composite = composite
+                    .transformed(by: CGAffineTransform(scaleX: s, y: s))
+                    .transformed(by: CGAffineTransform(translationX: tx, y: ty))
+                    .composited(over: CIImage(color: CIColor.black)
+                        .cropped(to: CGRect(x: 0, y: 0, width: finalW, height: finalH)))
+                    .cropped(to: CGRect(x: 0, y: 0, width: finalW, height: finalH))
+            }
 
             guard let pool = adaptor.pixelBufferPool else {
                 renderError = RenderError.noPixelBufferPool
@@ -371,7 +406,7 @@ final class VideoRenderer {
             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuffer)
             guard let outBuffer = outBuffer else { continue }
             ciContext.render(composite, to: outBuffer,
-                             bounds: CGRect(x: 0, y: 0, width: outW, height: outH),
+                             bounds: CGRect(x: 0, y: 0, width: finalW, height: finalH),
                              colorSpace: colorSpace)
 
             adaptor.append(outBuffer, withPresentationTime: pts)
@@ -564,6 +599,23 @@ final class VideoRenderer {
         ctx.addPath(path); ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
         ctx.setLineWidth(1.4 * k); ctx.setLineJoin(.round); ctx.strokePath()
         return CIImage(cgImage: ctx.makeImage()!)
+    }
+
+    /// Composites the logo watermark at a fixed, normalized position and size.
+    private func compositeBranding(_ logo: CIImage, over base: CIImage,
+                                   outW: CGFloat, outH: CGFloat, style: Style) -> CIImage {
+        let ext = logo.extent
+        guard ext.width > 0, ext.height > 0 else { return base }
+        let targetW = max(1, outW * style.brandingWidthFraction)
+        let scale = targetW / ext.width
+        let scaled = logo.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let w = scaled.extent.width, h = scaled.extent.height
+        let cx = style.brandingCenterX * outW
+        let cyBL = outH - style.brandingCenterY * outH   // top-left → bottom-left
+        let tx = cx - w / 2 - scaled.extent.minX
+        let ty = cyBL - h / 2 - scaled.extent.minY
+        return scaled.transformed(by: CGAffineTransform(translationX: tx, y: ty))
+            .composited(over: base)
     }
 
     /// Composites the webcam as a circular picture-in-picture in the bottom-left corner.

@@ -20,6 +20,10 @@ mkdir -p "${BUNDLE}/Contents/Resources"
 cp "${BIN_PATH}" "${BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp "Resources/Info.plist" "${BUNDLE}/Contents/Info.plist"
 
+# App icon (Finder, alert dialogs) + menu-bar status icon.
+[ -f "Resources/AppIcon.icns" ] && cp "Resources/AppIcon.icns" "${BUNDLE}/Contents/Resources/AppIcon.icns"
+[ -f "Resources/MenuBarIcon.png" ] && cp "Resources/MenuBarIcon.png" "${BUNDLE}/Contents/Resources/MenuBarIcon.png"
+
 # Bundle background images for framed (region) recordings.
 if [ -d "Resources/background" ]; then
     mkdir -p "${BUNDLE}/Contents/Resources/background"
@@ -49,5 +53,17 @@ if security find-certificate -c "DemoTape Dev" >/dev/null 2>&1; then
     codesign --force --deep --sign "DemoTape Dev" "${INSTALL_DIR}/${BUNDLE}"
 fi
 
+# Remove the local staging bundle. Leaving a second DemoTape.app in the project folder
+# registers a duplicate with the same bundle id in LaunchServices, which makes macOS bind
+# Screen Recording permission to the wrong copy — the app then reports "not granted" even
+# though the box is ticked. Keep exactly one bundle: the installed /Applications one.
+rm -rf "${BUNDLE}"
+
+# Make sure LaunchServices knows about the installed copy (and only that one).
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+[ -x "${LSREGISTER}" ] && "${LSREGISTER}" -f "${INSTALL_DIR}/${BUNDLE}" >/dev/null 2>&1 || true
+
 echo "==> Done: ${INSTALL_DIR}/${BUNDLE}"
 echo "Launch with:  open \"${INSTALL_DIR}/${BUNDLE}\""
+echo "Run DemoTape ONLY from ${INSTALL_DIR} — running a copy from another folder registers a"
+echo "duplicate bundle id and breaks Screen Recording permission."

@@ -10,12 +10,14 @@
     <string>dev.demotape.app</string>
     <key>CFBundleExecutable</key>
     <string>DemoTape</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>5.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>520</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.3</string>
     <key>LSUIElement</key>

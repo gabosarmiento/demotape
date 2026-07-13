@@ -5,6 +5,10 @@ Package.resolved
 # Packaged app bundle (produced by build-app.sh)
 *.app/
 
+# Distributable disk images (produced by make-dmg.sh)
+dist/
+*.dmg
+
 # Signing artifacts
 *.p12
 *.pem
@@ -21,3 +25,6 @@ xcuserdata/
 *.mov
 *.mp4
 *.events.json
+
+# Local verification scratch dir (live API probes, secrets via env — never commit)
+.verify/
