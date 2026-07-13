@@ -40,4 +40,10 @@ struct SourcePaths {
         let c = directory.appendingPathComponent("\(base).cam.mov")
         return FileManager.default.fileExists(atPath: c.path) ? c : nil
     }
+
+    /// The recording's event-timeline sidecar (`<base>.events.json`) if it exists.
+    var events: URL? {
+        let e = directory.appendingPathComponent("\(base).events.json")
+        return FileManager.default.fileExists(atPath: e.path) ? e : nil
+    }
 }

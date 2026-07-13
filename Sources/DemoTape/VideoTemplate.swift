@@ -39,6 +39,9 @@ struct EditEvent: Equatable {
         case flipH
         case flipV
         case slide(SlideDir)
+        /// Continuous pan across the (zoomed) frame during the event, as a fraction of the
+        /// frame size on each axis. Positive x sweeps the view left→right.
+        case pan(CGFloat, CGFloat)
         case speedRamp(Double)
         case blurIn
         case blurOut

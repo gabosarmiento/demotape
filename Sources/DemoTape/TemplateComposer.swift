@@ -237,6 +237,10 @@ final class TemplateComposer {
                 dy += CGFloat(r.next(in: Int(-amp)...Int(amp)))
             case .float(let deg):
                 rotation += CGFloat(sin(2 * Double.pi * (st - e.start) / max(e.duration, 1)) * deg) * .pi / 180
+            case .pan(let fx, let fy):
+                // Sweep the zoomed frame from one side to the other over the event.
+                dx += CGFloat(0.5 - p) * fx * size.width
+                dy += CGFloat(0.5 - p) * fy * size.height
             default: break
             }
         }

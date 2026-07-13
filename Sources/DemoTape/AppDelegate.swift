@@ -185,10 +185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aiMenu.delegate = self
         menu.addItem(aiItem)
 
-        let templatesItem = NSMenuItem(title: "Apply Template to Latest…",
-                                       action: #selector(openTemplateGallery), keyEquivalent: "")
-        templatesItem.target = self
-        menu.addItem(templatesItem)
+        let autoEditItem = NSMenuItem(title: "Auto-Edit Latest…",
+                                      action: #selector(openAutoEdit), keyEquivalent: "")
+        autoEditItem.target = self
+        menu.addItem(autoEditItem)
 
         let publishItem = NSMenuItem(title: "Web Publish Latest…",
                                      action: #selector(openWebPublish), keyEquivalent: "")
@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Items disabled while a recording is in progress (disabling a submenu's parent
         // greys the whole submenu).
         whileIdleItems = [fullScreenItem, selectAreaItem, inputItem, backgroundItem,
-                          teleprompterItem, brandingItem, tightenItem, aiItem, templatesItem,
+                          teleprompterItem, brandingItem, tightenItem, aiItem, autoEditItem,
                           publishItem, changeDir]
 
         statusItem.menu = menu
@@ -714,16 +714,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.show(onClose: { [weak self] in self?.voiceoverActionController = nil })
     }
 
-    private var templateActionController: TemplateActionController?
-    @objc private func openTemplateGallery() {
+    private var autoEditController: AutoEditActionController?
+    @objc private func openAutoEdit() {
         guard let video = latestRecording() else {
             presentPermissionHelp(title: "No recording found",
-                                  message: "Record something first — templates re-edit your latest recording.")
+                                  message: "Record something first — Auto-Edit re-edits your latest recording.")
             return
         }
-        let controller = TemplateActionController(source: video)
-        templateActionController = controller  // retain while open
-        controller.show(onClose: { [weak self] in self?.templateActionController = nil })
+        let controller = AutoEditActionController(source: video)
+        autoEditController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.autoEditController = nil })
     }
 
     private var aiSettingsController: AISettingsController?
