@@ -47,6 +47,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "captureMicrophone") }
     }
 
+    /// Smart noise suppression: clean steady background noise from the mic during the styled
+    /// render. Simple on/off; applied at a fixed strong level. On-device (Accelerate), no network.
+    static var noiseSuppressionEnabled: Bool {
+        get { defaults.bool(forKey: "noiseSuppressionEnabled") }
+        set { defaults.set(newValue, forKey: "noiseSuppressionEnabled") }
+    }
+
     static var captureWebcam: Bool {
         get { defaults.object(forKey: "captureWebcam") as? Bool ?? false }
         set { defaults.set(newValue, forKey: "captureWebcam") }

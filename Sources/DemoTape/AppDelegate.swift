@@ -84,7 +84,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inputMenu.addItem(micItem)
         inputMenu.addItem(webcamItem)
         inputMenu.addItem(.separator())
+        // Smart noise suppression: a toggle that reveals a 0–100% strength slider.
+        let noiseItem = NSMenuItem(title: "Smart Noise Suppression",
+                                   action: #selector(toggleNoiseSuppression), keyEquivalent: "")
+        noiseItem.target = self
+        noiseItem.state = Settings.noiseSuppressionEnabled ? .on : .off
+        self.noiseToggleItem = noiseItem
+        inputMenu.addItem(noiseItem)
+        inputMenu.addItem(.separator())
         inputMenu.addItem(webcamSettings)
+        inputMenu.delegate = self
+        self.inputMenu = inputMenu
         inputItem.submenu = inputMenu
         menu.addItem(inputItem)
 
@@ -403,10 +413,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let camera = self.engine.lastCameraURL
             let style = await MainActor.run { self.makeStyle() }
             let styled = self.renderStyled(from: raw, camera: camera, style: style)
+            // Smart noise suppression: clean the styled output's mic audio in place (on-device).
+            if let styled = styled, Settings.noiseSuppressionEnabled, Settings.captureMicrophone {
+                self.applyNoiseSuppression(to: styled)
+            }
             await MainActor.run {
                 self.state = .idle
                 self.notifySaved(at: styled ?? raw)
             }
+        }
+    }
+
+    /// Denoises the mic audio of `url` in place (best-effort). Renders to a temp file and swaps it
+    /// in only on success, so a failure never damages the recording.
+    private func applyNoiseSuppression(to url: URL) {
+        let temp = url.deletingPathExtension().appendingPathExtension("nr.mp4")
+        do {
+            // Fixed strong suppression — it's a simple on/off; no user-facing strength dial.
+            try NoiseReducer().reduce(video: url, strength: 0.9, to: temp)
+            try? FileManager.default.removeItem(at: url)
+            try FileManager.default.moveItem(at: temp, to: url)
+            Log.write("NoiseReducer: cleaned \(url.lastPathComponent)")
+        } catch {
+            try? FileManager.default.removeItem(at: temp)
+            Log.write("NoiseReducer skipped: \(error.localizedDescription)")
         }
     }
 
@@ -735,6 +765,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.show()
     }
 
+    // MARK: - Smart noise suppression (menu control)
+
+    private var inputMenu: NSMenu?
+    private var noiseToggleItem: NSMenuItem?
+
+    @objc private func toggleNoiseSuppression() {
+        Settings.noiseSuppressionEnabled.toggle()
+        noiseToggleItem?.state = Settings.noiseSuppressionEnabled ? .on : .off
+    }
+
     private var webPublishController: WebPublishController?
     @objc private func openWebPublish() {
         let controller = WebPublishController()
@@ -947,6 +987,10 @@ extension AppDelegate: NSMenuDelegate {
     // Refresh the AI action items right before the submenu opens, reflecting the latest
     // per-feature settings and stored keys.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === inputMenu {
+            noiseToggleItem?.state = Settings.noiseSuppressionEnabled ? .on : .off
+            return
+        }
         refreshAIMenuItems()
     }
 }
