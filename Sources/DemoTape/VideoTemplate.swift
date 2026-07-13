@@ -176,7 +176,7 @@ struct VideoTemplate {
                 inClose.toggle(); s += seg
             }
             var t = 11.0
-            while t < d - 1 { tl.add(t, 0.5, .punchIn(1.18), .easeOut); tl.add(t, 0.3, .shake(5), .easeOut); t += 11 }
+            while t < d - 1 { tl.add(t, 0.5, .punchIn(1.18), .easeOut); t += 11 }  // clean reveal, no jitter
             return tl
         })
 

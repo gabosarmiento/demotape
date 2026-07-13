@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var captionsMenuItem: NSMenuItem?
     private weak var voiceoverMenuItem: NSMenuItem?
     private weak var avatarMenuItem: NSMenuItem?
-    private var avatarPresenterController: AvatarPresenterController?
+    private var avatarActionController: AvatarActionController?
 
     private lazy var startItem = NSMenuItem(
         title: "Start Recording  (⇧⌘S)", action: #selector(startRecording), keyEquivalent: "")
@@ -528,10 +528,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   message: "Re-generate the voiceover — its narration audio is needed for the avatar.")
             return
         }
-        let controller = AvatarPresenterController(voiceoverVideo: voiceover, narrationAudio: narration,
-                                                   apiKey: key, voiceGender: Settings.elevenVoiceGender)
-        avatarPresenterController = controller
-        controller.show(onClose: { [weak self] in self?.avatarPresenterController = nil })
+        let controller = AvatarActionController(source: voiceover, apiKey: key,
+                                                voiceGender: Settings.elevenVoiceGender)
+        avatarActionController = controller
+        controller.show(onClose: { [weak self] in self?.avatarActionController = nil })
     }
 
     @objc private func changeOutputDirectory() {
@@ -607,16 +607,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
     }
 
-    private var tightenController: TightenController?
+    private var autoCutController: AutoCutActionController?
     @objc private func openTighten() {
         guard let video = latestRecording() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record something first — this trims/speeds up your latest recording.")
             return
         }
-        let controller = TightenController(video: video)
-        tightenController = controller  // retain while open
-        controller.show(onClose: { [weak self] in self?.tightenController = nil })
+        let controller = AutoCutActionController(source: video)
+        autoCutController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.autoCutController = nil })
     }
 
     // MARK: - Captions (AI, bring-your-own-key)
@@ -638,18 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return (styled.isEmpty ? videos : styled).max { modified($0) < modified($1) }
     }
 
-    private var captionsEditor: CaptionsEditorController?
-    private func showCaptionsEditor(video: URL, cues: [CaptionCue]) {
-        guard !cues.isEmpty else {
-            notifySaved(at: video.deletingPathExtension().appendingPathExtension("srt"))
-            return
-        }
-        let editor = CaptionsEditorController(video: video, cues: cues)
-        captionsEditor = editor  // retain while open
-        editor.show(onClose: { [weak self] in self?.captionsEditor = nil })
-    }
-
-    private var voiceoverController: VoiceoverController?
+    private var voiceoverActionController: VoiceoverActionController?
     @objc private func generateVoiceover() {
         let key = Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
         guard Settings.voiceoverEnabled, !key.isEmpty else {
@@ -669,21 +658,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   message: "Record something first — voiceover runs on your latest recording.")
             return
         }
-        let controller = VoiceoverController(video: video, apiKey: key)
-        voiceoverController = controller  // retain while open
-        controller.show(onClose: { [weak self] in self?.voiceoverController = nil })
+        let controller = VoiceoverActionController(source: video, apiKey: key)
+        voiceoverActionController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.voiceoverActionController = nil })
     }
 
-    private var templateGalleryController: TemplateGalleryController?
+    private var templateActionController: TemplateActionController?
     @objc private func openTemplateGallery() {
         guard let video = latestRecording() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record something first — templates re-edit your latest recording.")
             return
         }
-        let controller = TemplateGalleryController(master: video)
-        templateGalleryController = controller  // retain while open
-        controller.show()
+        let controller = TemplateActionController(source: video)
+        templateActionController = controller  // retain while open
+        controller.show(onClose: { [weak self] in self?.templateActionController = nil })
     }
 
     private var aiSettingsController: AISettingsController?
@@ -693,20 +682,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.show()
     }
 
+    private var captionsActionController: CaptionsActionController?
     @objc private func generateCaptions() {
         guard let video = latestRecording() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record something first — captions run on your latest recording.")
             return
         }
-        // Idempotent: if we've already transcribed this recording, reuse it (no API call).
-        if let cached = Captions.loadTranscript(for: video), !cached.isEmpty {
-            showCaptionsEditor(video: video, cues: cached)
-            return
-        }
-        // Gate on the captions feature being enabled + a saved key. Otherwise, send to settings.
+        // Reuse a cached transcript if present (no API call needed to open the window).
+        let cached = Captions.loadTranscript(for: video)
         let key = Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
-        guard Settings.captionsEnabled, !key.isEmpty else {
+
+        // Need either a cached transcript, or the feature enabled with a key to transcribe.
+        if (cached?.isEmpty ?? true) && !(Settings.captionsEnabled && !key.isEmpty) {
             let alert = NSAlert()
             alert.messageText = "Enable captions first"
             alert.informativeText = (Keychain.exists(account: Keychain.sttAPIKeyAccount))
@@ -718,25 +706,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
             return
         }
+
         let config = Captions.Config(baseURL: Settings.sttBaseURL, model: Settings.sttModel,
                                      apiKey: key, language: Settings.sttLanguage)
-
-        state = .rendering  // reuse the "working" UI state
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            do {
-                let result = try Captions().generate(for: video, config: config)
-                DispatchQueue.main.async {
-                    self?.state = .idle
-                    self?.showCaptionsEditor(video: video, cues: result.cues)
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self?.state = .idle
-                    self?.presentPermissionHelp(title: "Captions failed",
-                                                message: error.localizedDescription)
-                }
-            }
-        }
+        let controller = CaptionsActionController(source: video, cachedCues: cached, config: config)
+        captionsActionController = controller
+        controller.show(onClose: { [weak self] in self?.captionsActionController = nil })
     }
 
 
@@ -766,6 +741,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         webPublishController = controller
         controller.show()
     }
+
+
 
     private var backgroundPicker: BackgroundPickerController?
     @objc private func openBackgroundPicker() {
