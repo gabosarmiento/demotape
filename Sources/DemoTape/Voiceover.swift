@@ -28,6 +28,7 @@ final class Voiceover {
         let name: String
         let gender: String
         let accent: String
+        var previewURL: String = ""   // ElevenLabs sample clip, for auditioning the voice
         var label: String { accent.isEmpty ? name : "\(name) (\(accent))" }
     }
 
@@ -52,14 +53,18 @@ final class Voiceover {
     /// Parses the `/v1/voices` response into a simple voice list. Pure/testable.
     static func parseVoices(_ data: Data) throws -> [Voice] {
         struct Response: Decodable {
-            struct V: Decodable { let voice_id: String; let name: String; let labels: [String: String]? }
+            struct V: Decodable {
+                let voice_id: String; let name: String
+                let labels: [String: String]?; let preview_url: String?
+            }
             let voices: [V]
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
         return decoded.voices.map {
             Voice(id: $0.voice_id, name: $0.name,
                   gender: $0.labels?["gender"] ?? "",
-                  accent: $0.labels?["accent"] ?? "")
+                  accent: $0.labels?["accent"] ?? "",
+                  previewURL: $0.preview_url ?? "")
         }
     }
 
