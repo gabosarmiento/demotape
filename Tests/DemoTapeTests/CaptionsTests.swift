@@ -151,4 +151,45 @@ final class CaptionsTests: XCTestCase {
         let cues = [CaptionCue(start: -5, end: 1, text: "Hi")]
         XCTAssertTrue(Captions.vttString(cues).contains("00:00:00.000 --> 00:00:01.000"))
     }
+
+    // MARK: - Word-level timing (animated captions)
+
+    func testParseDistributesWordsToSegmentsByMidpoint() throws {
+        let json = """
+        {"text":"Hello world bye now","segments":[
+          {"start":0.0,"end":1.0,"text":"Hello world"},
+          {"start":1.0,"end":2.0,"text":"bye now"}
+        ],"words":[
+          {"word":"Hello","start":0.0,"end":0.4},
+          {"word":"world","start":0.4,"end":0.9},
+          {"word":"bye","start":1.1,"end":1.4},
+          {"word":"now","start":1.5,"end":1.9}
+        ]}
+        """.data(using: .utf8)!
+        let cues = try Captions.parseCues(fromVerboseJSON: json)
+        XCTAssertEqual(cues.count, 2)
+        XCTAssertEqual(cues[0].words?.map { $0.text }, ["Hello", "world"])
+        XCTAssertEqual(cues[1].words?.map { $0.text }, ["bye", "now"])
+        XCTAssertEqual(cues[0].words?.first?.start ?? -1, 0.0, accuracy: 1e-6)
+    }
+
+    func testParseWithoutWordsLeavesNilWords() throws {
+        let json = """
+        {"text":"Hello","segments":[{"start":0.0,"end":1.0,"text":"Hello"}]}
+        """.data(using: .utf8)!
+        let cues = try Captions.parseCues(fromVerboseJSON: json)
+        XCTAssertNil(cues[0].words)
+    }
+
+    func testParseWholeTextCarriesWords() throws {
+        let json = """
+        {"text":"Hi there","words":[
+          {"word":"Hi","start":0.0,"end":0.3},
+          {"word":"there","start":0.3,"end":0.8}
+        ]}
+        """.data(using: .utf8)!
+        let cues = try Captions.parseCues(fromVerboseJSON: json)
+        XCTAssertEqual(cues.count, 1)
+        XCTAssertEqual(cues[0].words?.count, 2)
+    }
 }

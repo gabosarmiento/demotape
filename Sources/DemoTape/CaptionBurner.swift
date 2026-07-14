@@ -3,12 +3,13 @@ import AVFoundation
 import CoreImage
 import CoreText
 import CoreVideo
+import CoreGraphics
 import Metal
 import AppKit
 
-/// Burns caption cues into a video, producing a new `…captioned.mp4` (H.264 + AAC, faststart).
-/// Full resolution is preserved; text is drawn bottom-center with a rounded translucent box.
-/// Text overlays are rendered once per cue (Core Text → CGImage) and composited per frame.
+/// Burns styled captions into a video (`…captioned.mp4`, H.264 + AAC, faststart). Supports
+/// animated word-timed styles (pop-in, karaoke highlight) and static phrase styles, drawn with
+/// Core Text (thread-safe). Frames are cached per word-state, so we only redraw on word changes.
 final class CaptionBurner {
 
     enum BurnError: LocalizedError {
@@ -29,17 +30,18 @@ final class CaptionBurner {
     }()
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
-    func burn(video: URL, cues: [CaptionCue], to outURL: URL) throws {
+    // Per-frame render cache (only regenerates when the visible word-state changes).
+    private var cacheKey = ""
+    private var cacheImage: CIImage?
+    private var cacheOrigin: CGPoint = .zero
+
+    func burn(video: URL, cues: [CaptionCue], style: CaptionStyle, to outURL: URL) throws {
         let asset = AVAsset(url: video)
         guard let vTrack = asset.tracks(withMediaType: .video).first else { throw BurnError.noVideoTrack }
         let size = vTrack.naturalSize
+        let aspect = size.height > 0 ? size.width / size.height : 1.78
+        let maxWords = style.maxWordsPerLine(forAspect: aspect)
         let sorted = cues.sorted { $0.start < $1.start }
-
-        // Pre-render one overlay image per cue (bottom-center, boxed).
-        var overlays: [Int: CIImage] = [:]
-        for (i, cue) in sorted.enumerated() {
-            if let img = makeOverlay(text: cue.text, videoSize: size) { overlays[i] = img }
-        }
 
         let reader = try AVAssetReader(asset: asset)
         let vOut = AVAssetReaderTrackOutput(track: vTrack,
@@ -70,7 +72,7 @@ final class CaptionBurner {
             ])
         writer.add(vIn)
 
-        // Audio → AAC (concurrent pump, mirrors Transcoder).
+        // Audio → AAC (concurrent pump).
         var aReader: AVAssetReader?
         var aOut: AVAssetReaderTrackOutput?
         var aIn: AVAssetWriterInput?
@@ -124,12 +126,10 @@ final class CaptionBurner {
                 let t = CMTimeGetSeconds(pts)
                 var image = CIImage(cvImageBuffer: pb)
 
-                if let idx = activeCueIndex(at: t, in: sorted), let overlay = overlays[idx] {
-                    // Bottom-center, with a margin proportional to height.
-                    let margin = size.height * 0.06
-                    let x = (size.width - overlay.extent.width) / 2
-                    let placed = overlay.transformed(by: CGAffineTransform(translationX: x, y: margin))
-                    image = placed.composited(over: image)
+                if let (overlay, origin) = captionOverlay(at: t, cues: sorted, style: style,
+                                                          size: size, maxWords: maxWords) {
+                    image = overlay.transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
+                        .composited(over: image)
                 }
 
                 guard let pool = adaptor.pixelBufferPool else { continue }
@@ -152,64 +152,127 @@ final class CaptionBurner {
         guard writer.status == .completed else {
             throw BurnError.failed(writer.error?.localizedDescription ?? "status \(writer.status.rawValue)")
         }
-        Log.write("CaptionBurner: \(sorted.count) cues -> \(outURL.lastPathComponent)")
+        Log.write("CaptionBurner: \(sorted.count) cues, style=\(style.id) -> \(outURL.lastPathComponent)")
     }
 
-    private func activeCueIndex(at t: Double, in cues: [CaptionCue]) -> Int? {
-        for (i, c) in cues.enumerated() where t >= c.start && t < c.end { return i }
-        return nil
+    // MARK: - Per-frame caption overlay (cached by word-state)
+
+    private func captionOverlay(at t: Double, cues: [CaptionCue], style: CaptionStyle,
+                                size: CGSize, maxWords: Int) -> (CIImage, CGPoint)? {
+        guard let idx = cues.firstIndex(where: { t >= $0.start && t < $0.end }) else {
+            cacheKey = ""; return nil
+        }
+        let cue = cues[idx]
+        let words = wordsForCue(cue)
+        guard !words.isEmpty else { return nil }
+
+        // Which words are visible, and the active index (for the cache key + coloring).
+        let visible: [CaptionWord] = (style.animated && !style.revealFuture)
+            ? words.filter { $0.start <= t } : words
+        guard !visible.isEmpty else { cacheKey = ""; return nil }
+        let activeIdx = words.firstIndex { $0.start <= t && t < $0.end } ?? -1
+
+        let key = style.animated ? "\(idx)|\(visible.count)|\(activeIdx)" : "\(idx)"
+        if key == cacheKey, let img = cacheImage { return (img, cacheOrigin) }
+
+        guard let (cg, blockSize) = drawBlock(words: visible, allWords: words, style: style, t: t,
+                                              videoSize: size, maxWords: maxWords) else { return nil }
+        let x = (size.width - blockSize.width) / 2
+        let y: CGFloat
+        switch style.position {
+        case .center:     y = (size.height - blockSize.height) / 2
+        case .lowerThird: y = size.height * 0.16
+        case .bottom:     y = size.height * 0.06
+        }
+        let img = CIImage(cgImage: cg)
+        cacheKey = key; cacheImage = img; cacheOrigin = CGPoint(x: x.rounded(), y: y.rounded())
+        return (img, cacheOrigin)
     }
 
-    /// Renders a caption string into a bottom-bar overlay image (rounded translucent box +
-    /// centered white text), wrapped to ~86% of the video width. Core Text only — no AppKit
-    /// drawing context, so it's safe off the main thread.
-    private func makeOverlay(text: String, videoSize: CGSize) -> CIImage? {
-        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return nil }
+    /// Per-cue words with timing — real word timestamps when present, otherwise synthesized
+    /// evenly across the cue so animation still works on older transcripts.
+    private func wordsForCue(_ cue: CaptionCue) -> [CaptionWord] {
+        if let w = cue.words, !w.isEmpty { return w }
+        let toks = cue.text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        guard !toks.isEmpty else { return [] }
+        let dur = max(0.01, cue.end - cue.start)
+        let per = dur / Double(toks.count)
+        return toks.enumerated().map {
+            CaptionWord(text: $1, start: cue.start + Double($0) * per, end: cue.start + Double($0 + 1) * per)
+        }
+    }
 
-        let fontSize = max(18, videoSize.height * 0.045)
-        let maxTextWidth = videoSize.width * 0.86
-        let padX: CGFloat = fontSize * 0.7
-        let padY: CGFloat = fontSize * 0.45
+    // MARK: - Drawing
 
-        let font = CTFontCreateWithName("HelveticaNeue-Bold" as CFString, fontSize, nil)
-        let para = NSMutableParagraphStyle()
-        para.alignment = .center
-        para.lineBreakMode = .byWordWrapping
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.white.cgColor,
-            .paragraphStyle: para
-        ]
-        let attr = NSAttributedString(string: clean, attributes: attrs)
-        let framesetter = CTFramesetterCreateWithAttributedString(attr)
-        let constraint = CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude)
-        let textSize = CTFramesetterSuggestFrameSizeWithConstraints(
-            framesetter, CFRange(location: 0, length: attr.length), nil, constraint, nil)
+    private func drawBlock(words visible: [CaptionWord], allWords: [CaptionWord], style: CaptionStyle,
+                           t: Double, videoSize: CGSize, maxWords: Int) -> (CGImage, CGSize)? {
+        let fontSize = max(20, videoSize.height * (style.animated ? 0.062 : 0.05))
+        let font = CTFontCreateWithName(style.fontName as CFString, fontSize, nil)
+        let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font)
+        let lineHeight = (ascent + descent) * 1.18
+        let padX = fontSize * 0.55, padY = fontSize * 0.34
 
-        let boxW = ceil(textSize.width) + padX * 2
-        let boxH = ceil(textSize.height) + padY * 2
-        guard boxW > 0, boxH > 0 else { return nil }
+        // Chunk visible words into lines.
+        var lines: [[CaptionWord]] = []
+        var i = 0
+        while i < visible.count {
+            lines.append(Array(visible[i..<min(i + maxWords, visible.count)]))
+            i += maxWords
+        }
+        guard !lines.isEmpty else { return nil }
 
-        guard let ctx = CGContext(data: nil, width: Int(boxW), height: Int(boxH),
-                                  bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+        // Build a CTLine per row and measure.
+        let ctLines: [CTLine] = lines.map { makeLine($0, style: style, font: font, t: t) }
+        let lineWidths = ctLines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }
+        let contentW = ceil(CGFloat(lineWidths.max() ?? 0))
+        let contentH = ceil(CGFloat(lines.count) * lineHeight)
+        let W = max(2, contentW + padX * 2), H = max(2, contentH + padY * 2)
+
+        guard let ctx = CGContext(data: nil, width: Int(W), height: Int(H), bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: colorSpace,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        // Rounded translucent background.
-        let box = CGRect(x: 0, y: 0, width: boxW, height: boxH)
-        let radius = min(boxH * 0.28, 22)
-        let path = CGPath(roundedRect: box, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        ctx.addPath(path)
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor)
-        ctx.fillPath()
+        ctx.clear(CGRect(x: 0, y: 0, width: W, height: H))
 
-        // Text frame, vertically padded.
-        let textRect = CGRect(x: padX, y: padY, width: ceil(textSize.width), height: ceil(textSize.height))
-        let frame = CTFramesetterCreateFrame(framesetter,
-            CFRange(location: 0, length: attr.length),
-            CGPath(rect: textRect, transform: nil), nil)
-        CTFrameDraw(frame, ctx)
+        if let box = style.boxColor {
+            let rect = CGRect(x: 0, y: 0, width: W, height: H)
+            ctx.addPath(CGPath(roundedRect: rect, cornerWidth: min(H * 0.28, fontSize * 0.6),
+                               cornerHeight: min(H * 0.28, fontSize * 0.6), transform: nil))
+            ctx.setFillColor(box.cgColor)
+            ctx.fillPath()
+        }
 
+        for (row, line) in ctLines.enumerated() {
+            let lineW = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            let baselineY = H - padY - ascent - CGFloat(row) * lineHeight
+            ctx.textPosition = CGPoint(x: (W - lineW) / 2, y: baselineY)
+            CTLineDraw(line, ctx)
+        }
         guard let cg = ctx.makeImage() else { return nil }
-        return CIImage(cgImage: cg)
+        return (cg, CGSize(width: W, height: H))
+    }
+
+    /// An attributed line with per-word color (active / past / future) and optional outline.
+    private func makeLine(_ words: [CaptionWord], style: CaptionStyle, font: CTFont, t: Double) -> CTLine {
+        let fg = NSAttributedString.Key(kCTForegroundColorAttributeName as String)
+        let fnt = NSAttributedString.Key(kCTFontAttributeName as String)
+        let strokeC = NSAttributedString.Key(kCTStrokeColorAttributeName as String)
+        let strokeW = NSAttributedString.Key(kCTStrokeWidthAttributeName as String)
+
+        let s = NSMutableAttributedString()
+        for (i, w) in words.enumerated() {
+            let text = (style.uppercase ? w.text.uppercased() : w.text) + (i < words.count - 1 ? " " : "")
+            let color = wordColor(w, style: style, t: t)
+            var attrs: [NSAttributedString.Key: Any] = [fnt: font, fg: color.cgColor]
+            if style.outline { attrs[strokeC] = style.outlineColor.cgColor; attrs[strokeW] = -8.0 }
+            s.append(NSAttributedString(string: text, attributes: attrs))
+        }
+        return CTLineCreateWithAttributedString(s)
+    }
+
+    private func wordColor(_ w: CaptionWord, style: CaptionStyle, t: Double) -> NSColor {
+        guard style.animated else { return style.baseColor }
+        if w.start <= t && t < w.end { return style.activeColor }   // active
+        if w.end <= t { return style.baseColor }                    // already spoken
+        return style.futureColor                                    // upcoming
     }
 }

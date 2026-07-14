@@ -14,6 +14,14 @@ final class CaptionsActionController: ActionPreviewController {
     private var subtitlesDocStack: NSStackView!
     private var cueFields: [NSTextField] = []
 
+    // Selected caption look (persisted). Cards in the Design tab set this.
+    private static let styleDefaultsKey = "captionStyleID"
+    private var selectedStyle: CaptionStyle = {
+        let id = UserDefaults.standard.string(forKey: CaptionsActionController.styleDefaultsKey) ?? "pop"
+        return CaptionStyle.byID(id)
+    }()
+    private var styleCards: [CaptionStyleCard] = []
+
     // (label, ISO-639-1 hint). Empty = auto-detect.
     private let languages: [(String, String)] = [
         ("Auto-detect", ""), ("English", "en"), ("Spanish", "es"), ("French", "fr"),
@@ -40,8 +48,65 @@ final class CaptionsActionController: ActionPreviewController {
         tabView.heightAnchor.constraint(equalToConstant: 240).isActive = true
 
         tabView.addTabViewItem(makeSubtitlesTab())
+        tabView.addTabViewItem(makeDesignTab())
         tabView.addTabViewItem(makeLanguageTab())
         return tabView
+    }
+
+    // MARK: - Design tab (style preview cards)
+
+    private func makeDesignTab() -> NSTabViewItem {
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+
+        let grid = NSStackView()
+        grid.orientation = .vertical
+        grid.alignment = .leading
+        grid.spacing = 10
+        grid.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        grid.translatesAutoresizingMaskIntoConstraints = false
+
+        styleCards.removeAll()
+        let perRow = 4
+        var row: NSStackView? = nil
+        for (i, style) in CaptionStyle.all.enumerated() {
+            if i % perRow == 0 {
+                let r = NSStackView()
+                r.orientation = .horizontal
+                r.spacing = 10
+                r.alignment = .top
+                grid.addArrangedSubview(r)
+                row = r
+            }
+            let card = CaptionStyleCard(style: style) { [weak self] chosen in
+                self?.selectStyle(chosen)
+            }
+            card.isSelected = (style.id == selectedStyle.id)
+            styleCards.append(card)
+            row?.addArrangedSubview(card)
+        }
+
+        scroll.documentView = grid
+        NSLayoutConstraint.activate([
+            grid.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            grid.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor)
+        ])
+
+        let tab = NSTabViewItem(identifier: "design")
+        tab.label = "Design"
+        tab.view = scroll
+        return tab
+    }
+
+    private func selectStyle(_ style: CaptionStyle) {
+        selectedStyle = style
+        UserDefaults.standard.set(style.id, forKey: CaptionsActionController.styleDefaultsKey)
+        for card in styleCards { card.isSelected = (card.styleID == style.id) }
+        setStatus("Style: \(style.name)\(style.animated ? " (animated)" : ""). Generate preview to apply.",
+                  isError: false)
     }
 
     private func makeLanguageTab() -> NSTabViewItem {
@@ -225,7 +290,7 @@ final class CaptionsActionController: ActionPreviewController {
         guard !cues.isEmpty else { return nil }
         Captions.saveTranscript(cues, for: source)
         let out = SourcePaths(source: source).output(suffix: "captioned")
-        try CaptionBurner().burn(video: source, cues: cues, to: out)
+        try CaptionBurner().burn(video: source, cues: cues, style: selectedStyle, to: out)
         return out
     }
 
@@ -233,4 +298,80 @@ final class CaptionsActionController: ActionPreviewController {
         let s = Int(seconds.rounded())
         return String(format: "%d:%02d", s / 60, s % 60)
     }
+}
+
+/// A clickable preview card for one `CaptionStyle`: the static alpha preview rendered on a dark
+/// tile, with the style name and an "Animated" badge. Selection shows an accent border.
+@available(macOS 12.3, *)
+final class CaptionStyleCard: NSView {
+
+    let styleID: String
+    var isSelected: Bool = false { didSet { needsDisplay = true } }
+    private let onSelect: (CaptionStyle) -> Void
+    private let style: CaptionStyle
+
+    private let tileSize = CGSize(width: 150, height: 78)
+
+    init(style: CaptionStyle, onSelect: @escaping (CaptionStyle) -> Void) {
+        self.style = style
+        self.styleID = style.id
+        self.onSelect = onSelect
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+
+        let imageView = NSImageView()
+        imageView.image = style.previewImage(size: tileSize)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.wantsLayer = true
+        imageView.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        imageView.layer?.cornerRadius = 8
+        imageView.layer?.masksToBounds = true
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = NSTextField(labelWithString: style.name)
+        title.font = .systemFont(ofSize: 11, weight: .medium)
+        title.alignment = .center
+
+        let badge = NSTextField(labelWithString: style.animated ? "Animated" : "Static")
+        badge.font = .systemFont(ofSize: 9, weight: .semibold)
+        badge.textColor = style.animated ? .systemOrange : .secondaryLabelColor
+        badge.alignment = .center
+
+        let stack = NSStackView(views: [imageView, title, badge])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 3
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: tileSize.width),
+            imageView.heightAnchor.constraint(equalToConstant: tileSize.height),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let inset = bounds.insetBy(dx: 1.5, dy: 1.5)
+        let path = NSBezierPath(roundedRect: inset, xRadius: 10, yRadius: 10)
+        if isSelected {
+            NSColor.controlAccentColor.withAlphaComponent(0.14).setFill()
+            path.fill()
+            NSColor.controlAccentColor.setStroke()
+            path.lineWidth = 2.5
+        } else {
+            NSColor.separatorColor.setStroke()
+            path.lineWidth = 1
+        }
+        path.stroke()
+    }
+
+    override func mouseDown(with event: NSEvent) { onSelect(style) }
 }

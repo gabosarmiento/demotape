@@ -205,8 +205,10 @@ if let i = args.firstIndex(of: "--burn"), args.count > i + 1 {
         exit(1)
     }
     let out = video.deletingPathExtension().deletingPathExtension().appendingPathExtension("captioned.mp4")
+    let styleID = args.count > i + 2 ? args[i + 2] : "clean"
+    let style = CaptionStyle.byID(styleID)
     do {
-        try CaptionBurner().burn(video: video, cues: cues, to: out)
+        try CaptionBurner().burn(video: video, cues: cues, style: style, to: out)
         print("burned: \(out.path)")
         exit(0)
     } catch {
