@@ -1,10 +1,10 @@
 import Foundation
 
 /// Minimal file logger for diagnosing capture issues. Writes to
-/// ~/Movies/DemoTape/demotape.log so we can inspect runs launched via `open`.
+/// ~/Movies/DemoTape/.demotape/demotape.log so it stays out of the recordings view.
 enum Log {
     private static let queue = DispatchQueue(label: "pro.demotape.log")
-    private static let url = Paths.outputDirectory.appendingPathComponent("demotape.log")
+    private static let url = Paths.supportDirectory.appendingPathComponent("demotape.log")
 
     static func write(_ message: String) {
         let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"

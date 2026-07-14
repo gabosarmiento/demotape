@@ -67,9 +67,10 @@ final class Captions {
         defer { try? FileManager.default.removeItem(at: audio) }
         let cues = try transcribe(audio: audio, config: config)
 
-        let base = video.deletingPathExtension()
-        let srt = base.appendingPathExtension("srt")
-        let vtt = base.appendingPathExtension("vtt")
+        let paths = SourcePaths(source: video)
+        paths.ensureSourceDir()
+        let srt = paths.srtURL
+        let vtt = paths.vttURL
         try Captions.writeSRT(cues, to: srt)
         try Captions.writeVTT(cues, to: vtt)
         Captions.saveTranscript(cues, for: video)   // cache so we don't re-transcribe
@@ -79,24 +80,30 @@ final class Captions {
 
     // MARK: - Transcript cache (idempotency)
 
-    /// Path of the cached transcript sidecar for a video (`…transcript.json`).
-    static func transcriptURL(for video: URL) -> URL {
+    /// Path of the cached transcript sidecar for a video (`.source/<base>.transcript.json`).
+    static func transcriptURL(for video: URL) -> URL { SourcePaths(source: video).transcriptURL }
+
+    /// Legacy sibling path (pre-folder layout), checked as a fallback so a not-yet-migrated
+    /// recording never gets re-transcribed (and re-charged).
+    private static func legacyTranscriptURL(for video: URL) -> URL {
         video.deletingPathExtension().appendingPathExtension("transcript.json")
     }
 
     /// Loads the cached transcript if present, so captions/voiceover reuse it instead of
-    /// paying for another transcription. Falls back to an existing `.srt` sidecar (e.g. from
-    /// a recording made before the cache existed).
+    /// paying for another transcription. Falls back to a legacy sibling or a `.srt` sidecar.
     static func loadTranscript(for video: URL) -> [CaptionCue]? {
-        let url = transcriptURL(for: video)
-        if let data = try? Data(contentsOf: url),
-           let cues = try? JSONDecoder().decode([CaptionCue].self, from: data) {
-            return cues
+        for url in [transcriptURL(for: video), legacyTranscriptURL(for: video)] {
+            if let data = try? Data(contentsOf: url),
+               let cues = try? JSONDecoder().decode([CaptionCue].self, from: data) {
+                return cues
+            }
         }
-        let srt = video.deletingPathExtension().appendingPathExtension("srt")
-        if let text = try? String(contentsOf: srt, encoding: .utf8) {
-            let cues = parseSRT(text)
-            return cues.isEmpty ? nil : cues
+        let paths = SourcePaths(source: video)
+        for srt in [paths.srtURL, video.deletingPathExtension().appendingPathExtension("srt")] {
+            if let text = try? String(contentsOf: srt, encoding: .utf8) {
+                let cues = parseSRT(text)
+                if !cues.isEmpty { return cues }
+            }
         }
         return nil
     }
@@ -130,6 +137,7 @@ final class Captions {
     /// Saves/updates the cached transcript.
     static func saveTranscript(_ cues: [CaptionCue], for video: URL) {
         guard let data = try? JSONEncoder().encode(cues) else { return }
+        SourcePaths(source: video).ensureSourceDir()
         try? data.write(to: transcriptURL(for: video), options: .atomic)
     }
 

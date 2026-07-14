@@ -277,8 +277,10 @@ final class CaptionsActionController: ActionPreviewController {
     @objc private func updateSubtitles() {
         applyEdits()
         Captions.saveTranscript(cues, for: source)
-        try? Captions.writeSRT(cues, to: source.deletingPathExtension().appendingPathExtension("srt"))
-        try? Captions.writeVTT(cues, to: source.deletingPathExtension().appendingPathExtension("vtt"))
+        let paths = SourcePaths(source: source)
+        paths.ensureSourceDir()
+        try? Captions.writeSRT(cues, to: paths.srtURL)
+        try? Captions.writeVTT(cues, to: paths.vttURL)
         rebuildSubtitleRows()
         setStatus("Subtitles updated. Generate preview to burn them in.", isError: false)
     }

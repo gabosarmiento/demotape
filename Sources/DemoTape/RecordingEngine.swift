@@ -209,8 +209,15 @@ final class RecordingEngine {
     private static func makeOutputURL() -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let name = "DemoTape \(formatter.string(from: Date())).mov"
-        return Paths.outputDirectory.appendingPathComponent(name)
+        let base = "DemoTape \(formatter.string(from: Date()))"
+        // Raw capture goes in the recording folder's hidden .source/ subfolder; the styled export
+        // and web bundle are written at the folder root later. cam.mov + events.json land here too
+        // (they derive as siblings of this URL).
+        let sourceDir = Paths.outputDirectory
+            .appendingPathComponent(base, isDirectory: true)
+            .appendingPathComponent(".source", isDirectory: true)
+        try? FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        return sourceDir.appendingPathComponent("\(base).mov")
     }
 }
 
