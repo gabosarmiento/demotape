@@ -49,25 +49,70 @@ enum AutoDirector {
         // No webcam → nothing to cut to; let the styled master's auto-zoom carry the whole clip.
         guard hasWebcam else { return tl }
 
+        let segments = calmGapSegments(metadata: metadata, duration: duration, params: params)
+        return timeline(webcamSegments: segments, duration: duration, params: params)
+    }
+
+    /// Presenter (webcam) shots derived from calm gaps — the local, no-network heuristic.
+    static func calmGapSegments(metadata: RecordingMetadata, duration: Double,
+                                params: Params = Params()) -> [(start: Double, end: Double)] {
+        var out = [(start: Double, end: Double)]()
         var lastBack = 0.0
         for gap in calmGaps(metadata: metadata, duration: duration, minGap: params.minCalmGap) {
-            let camStart = gap.start + 0.4                     // let the last action settle
+            let camStart = gap.start + 0.4
             let camEnd = min(gap.end - 0.2, camStart + params.maxWebcamShot)
             guard camStart >= params.minScreenRun,
                   camStart - lastBack >= params.minScreenRun,
                   camEnd - camStart >= params.minWebcamShot else { continue }
-            let dur = camEnd - camStart
-            tl.add(camStart, 0.01, .switchAngle(.webcam))
-            tl.add(camEnd, 0.01, .switchAngle(.screen))
-            // Gentle Ken Burns on the presenter: slow push-in + subtle left→right pan.
-            tl.add(camStart, dur, .zoomIn(params.webcamZoom), .easeInOut)
-            tl.add(camStart, dur, .pan(params.webcamPan, 0), .easeInOut)
-            // Reset zoom to 1× exactly at the cut back to screen (the cut hides the snap), so the
-            // screen is never left zoomed and never double-zooms against the baked-in auto-zoom.
-            tl.add(camEnd, 0.01, .zoomIn(1.0))
+            out.append((camStart, camEnd))
             lastBack = camEnd
         }
+        return out
+    }
+
+    /// Builds the full edit timeline from a set of presenter (webcam) shots — shared by the
+    /// local director and the AI director. Each shot cuts to the webcam with a gentle Ken Burns
+    /// (slow push-in + subtle left→right pan) and resets zoom to 1× on the cut back so the screen
+    /// never double-zooms against the baked-in auto-zoom.
+    static func timeline(webcamSegments segments: [(start: Double, end: Double)],
+                         duration: Double, params: Params = Params()) -> Timeline {
+        let duration = max(0.5, duration)
+        var tl = Timeline(events: [])
+        tl.add(0, min(0.6, duration * 0.3), .fadeIn, .easeOut)
+        tl.add(max(0, duration - 0.9), min(0.9, duration * 0.3), .fadeToBlack, .easeIn)
+
+        for seg in segments {
+            let start = max(0, seg.start)
+            let end = min(duration, seg.end)
+            let dur = end - start
+            guard dur >= params.minWebcamShot else { continue }
+            tl.add(start, 0.01, .switchAngle(.webcam))
+            tl.add(end, 0.01, .switchAngle(.screen))
+            tl.add(start, dur, .zoomIn(params.webcamZoom), .easeInOut)
+            tl.add(start, dur, .pan(params.webcamPan, 0), .easeInOut)   // positive = left→right
+            tl.add(end, 0.01, .zoomIn(1.0))
+        }
         return tl
+    }
+
+    /// Cleans an unordered/overlapping set of presenter shots (e.g. from the AI) into a
+    /// well-spaced, rhythmically valid sequence.
+    static func sanitize(_ segments: [(start: Double, end: Double)], duration: Double,
+                         params: Params = Params()) -> [(start: Double, end: Double)] {
+        let sorted = segments
+            .map { (start: max(0, min($0.start, $0.end)), end: min(duration, max($0.start, $0.end))) }
+            .sorted { $0.start < $1.start }
+        var out = [(start: Double, end: Double)]()
+        var lastBack = 0.0
+        for var seg in sorted {
+            seg.end = min(seg.end, seg.start + params.maxWebcamShot)
+            guard seg.start >= params.minScreenRun,
+                  seg.start - lastBack >= params.minScreenRun,
+                  seg.end - seg.start >= params.minWebcamShot else { continue }
+            out.append(seg)
+            lastBack = seg.end
+        }
+        return out
     }
 
     /// Stretches of `duration` with no click/keystroke/scroll for at least `minGap` seconds.

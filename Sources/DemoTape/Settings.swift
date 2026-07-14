@@ -252,6 +252,12 @@ enum Settings {
         get { defaults.string(forKey: "aiProvider") ?? "OpenAI" }
         set { defaults.set(newValue, forKey: "aiProvider") }
     }
+    /// Chat model used by the AI Director to reason over the transcript + activity. Uses the same
+    /// endpoint/key as captions. Default suits OpenAI; change for other providers.
+    static var aiDirectorModel: String {
+        get { defaults.string(forKey: "aiDirectorModel") ?? "gpt-4o-mini" }
+        set { defaults.set(newValue, forKey: "aiDirectorModel") }
+    }
 
     // MARK: - Voiceover (ElevenLabs, bring-your-own-key)
 

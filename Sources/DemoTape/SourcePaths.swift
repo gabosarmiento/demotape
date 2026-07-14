@@ -46,4 +46,11 @@ struct SourcePaths {
         let e = directory.appendingPathComponent("\(base).events.json")
         return FileManager.default.fileExists(atPath: e.path) ? e : nil
     }
+
+    /// The original raw screen recording (`<base>.mov`) if it exists — the director composes
+    /// from this (a clean screen with no baked-in webcam) rather than the styled master.
+    var rawRecording: URL? {
+        let r = directory.appendingPathComponent("\(base).mov")
+        return FileManager.default.fileExists(atPath: r.path) ? r : nil
+    }
 }

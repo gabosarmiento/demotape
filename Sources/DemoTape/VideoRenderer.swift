@@ -28,6 +28,10 @@ final class VideoRenderer {
         var stiffness: CGFloat = 130
         var damping: CGFloat = 23
 
+        /// Composite the webcam bubble (PiP). Off for the AI/auto director, which composes the
+        /// presenter itself from the raw feed (so split-screen doesn't show a redundant bubble).
+        var webcamOverlay = true
+
         var drawCursor = true
         var cursorScale: CGFloat = 1.7
         var cursorSmoothing: CGFloat = 0.7   // EMA for cursor position (higher = less lag)
@@ -346,8 +350,9 @@ final class VideoRenderer {
                 }
             }
 
-            // Webcam PiP — fixed position/size (does not zoom).
-            if let camOutput = camOutput {
+            // Webcam PiP — fixed position/size (does not zoom). Skipped for the director's
+            // clean screen program (it composes the presenter itself from the raw feed).
+            if style.webcamOverlay, let camOutput = camOutput {
                 let camTarget = t - (metadata.cameraStartOffset ?? 0)
                 while true {
                     if let pending = camPending {
