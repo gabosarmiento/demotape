@@ -1,11 +1,20 @@
 import Foundation
 import AVFoundation
 
-/// A single subtitle cue.
+/// A single spoken word with its own timing — powers word-by-word animated captions.
+struct CaptionWord: Codable, Equatable {
+    var text: String
+    var start: Double
+    var end: Double
+}
+
+/// A single subtitle cue. `words` (optional) carries per-word timing when the transcription
+/// provided it, enabling karaoke/pop animation; older cached transcripts simply omit it.
 struct CaptionCue: Codable, Equatable {
     var start: Double   // seconds
     var end: Double     // seconds
     var text: String
+    var words: [CaptionWord]?
 }
 
 /// Generates captions for a recording using an OpenAI-compatible speech-to-text API
@@ -153,8 +162,10 @@ final class Captions {
 
     private struct VerboseResponse: Decodable {
         struct Segment: Decodable { let start: Double; let end: Double; let text: String }
+        struct Word: Decodable { let word: String; let start: Double; let end: Double }
         let text: String
         let segments: [Segment]?
+        let words: [Word]?
     }
 
     /// Builds the `/audio/transcriptions` endpoint from a base URL, tolerating a trailing
@@ -172,14 +183,26 @@ final class Captions {
     static func parseCues(fromVerboseJSON data: Data) throws -> [CaptionCue] {
         do {
             let decoded = try JSONDecoder().decode(VerboseResponse.self, from: data)
+            let allWords = (decoded.words ?? []).map {
+                CaptionWord(text: $0.word.trimmingCharacters(in: .whitespaces), start: $0.start, end: $0.end)
+            }.filter { !$0.text.isEmpty }
+
+            func words(in start: Double, _ end: Double) -> [CaptionWord]? {
+                guard !allWords.isEmpty else { return nil }
+                // A word belongs to the cue whose time range contains its midpoint.
+                let inRange = allWords.filter { let m = ($0.start + $0.end) / 2; return m >= start && m < end }
+                return inRange.isEmpty ? nil : inRange
+            }
+
             if let segments = decoded.segments, !segments.isEmpty {
                 return segments.map {
                     CaptionCue(start: $0.start, end: $0.end,
-                               text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                               text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                               words: words(in: $0.start, $0.end))
                 }.filter { !$0.text.isEmpty }
             }
             let whole = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return whole.isEmpty ? [] : [CaptionCue(start: 0, end: 0, text: whole)]
+            return whole.isEmpty ? [] : [CaptionCue(start: 0, end: 0, text: whole, words: allWords.isEmpty ? nil : allWords)]
         } catch {
             throw CaptionsError.decode(error.localizedDescription)
         }
@@ -213,6 +236,10 @@ final class Captions {
         // Fields.
         appendField("model", config.model)
         appendField("response_format", "verbose_json")
+        // Ask for word-level timing (for animated captions) plus segments. Providers that don't
+        // support this simply ignore it and return segments only.
+        appendField("timestamp_granularities[]", "segment")
+        appendField("timestamp_granularities[]", "word")
         if !config.language.isEmpty { appendField("language", config.language) }
         body.append("--\(boundary)--\r\n")
         req.httpBody = body
