@@ -28,6 +28,7 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] private bool _noiseSuppression;
     [ObservableProperty] private bool _enhanceVoice;
     [ObservableProperty] private bool _autoZoom;
+    [ObservableProperty] private bool _enableBranding;
 
     public bool IsIdle => State == RecordingState.Idle;
     public bool IsRecording => State == RecordingState.Recording;
@@ -61,6 +62,7 @@ public sealed partial class ShellViewModel : ObservableObject
         _noiseSuppression = _settings.NoiseSuppression;
         _enhanceVoice = _settings.EnhanceVoice;
         _autoZoom = _settings.AutoZoom;
+        _enableBranding = _settings.BrandingEnabled;
         _state = _recording.State;
 
         _recording.StateChanged += s =>
@@ -93,6 +95,7 @@ public sealed partial class ShellViewModel : ObservableObject
         NoiseSuppression = _settings.NoiseSuppression;
         EnhanceVoice = _settings.EnhanceVoice;
         AutoZoom = _settings.AutoZoom;
+        EnableBranding = _settings.BrandingEnabled;
     }
 
     partial void OnUseRegionChanged(bool value) => Update(s => s.UseRegion = value);
@@ -101,6 +104,7 @@ public sealed partial class ShellViewModel : ObservableObject
     partial void OnNoiseSuppressionChanged(bool value) => Update(s => s.NoiseSuppression = value);
     partial void OnEnhanceVoiceChanged(bool value) => Update(s => s.EnhanceVoice = value);
     partial void OnAutoZoomChanged(bool value) => Update(s => s.AutoZoom = value);
+    partial void OnEnableBrandingChanged(bool value) => Update(s => s.BrandingEnabled = value);
 
     private void Update(Action<AppSettings> mutate)
     {
@@ -147,6 +151,12 @@ public sealed partial class ShellViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenAbout() => _navigation.OpenAbout();
+
+    [RelayCommand]
+    private void OpenBrandingSettings() => _navigation.OpenBrandingSettings();
+
+    [RelayCommand]
+    private void ChangeOutputDirectory() => _navigation.ChangeOutputDirectory();
 
     [RelayCommand]
     private void OpenRecordingsFolder() => _interaction.RevealInExplorer(_paths.OutputDirectory);

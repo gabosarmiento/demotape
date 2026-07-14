@@ -69,6 +69,15 @@ public partial class App : Application
 
         CreateTrayIcon(_shell);
         RegisterHotKey(_shell);
+
+        // Wire background interactions: file/folder pickers use the host window handle; render-ready
+        // events surface as a tray balloon.
+        var interaction = _services.GetRequiredService<Infrastructure.WindowsUserInteraction>();
+        interaction.WindowHandle = hostHwnd;
+        interaction.TrayNotifier = (title, message) =>
+        {
+            try { _trayIcon?.ShowNotification(title, message); } catch { /* balloon is cosmetic */ }
+        };
     }
 
     private Window? _hostWindow;
@@ -139,6 +148,7 @@ public partial class App : Application
         var enhanceToggle = MakeToggleItem("Enhance Voice", () => shell.EnhanceVoice, v => shell.EnhanceVoice = v);
         capture.Items.Add(noiseToggle);
         capture.Items.Add(enhanceToggle);
+        var brandingToggle = MakeToggleItem("Enable Branding", () => shell.EnableBranding, v => shell.EnableBranding = v);
 
         // Keep the whole menu's checkable state in sync with the persisted settings whenever it
         // opens (the region selector, for instance, flips UseRegion in settings directly).
@@ -151,12 +161,19 @@ public partial class App : Application
             camToggle.IsChecked = shell.CaptureWebcam;
             noiseToggle.IsChecked = shell.NoiseSuppression;
             enhanceToggle.IsChecked = shell.EnhanceVoice;
+            brandingToggle.IsChecked = shell.EnableBranding;
         };
 
         capture.Items.Add(new MenuFlyoutSeparator());
         capture.Items.Add(new MenuFlyoutItem { Text = "Webcam Settings…", Command = shell.OpenWebcamSettingsCommand });
         capture.Items.Add(new MenuFlyoutItem { Text = "Background…", Command = shell.OpenBackgroundPickerCommand });
         menu.Items.Add(capture);
+
+        // Branding submenu — a watermark baked into the styled output.
+        var branding = new MenuFlyoutSubItem { Text = "Branding" };
+        branding.Items.Add(brandingToggle);
+        branding.Items.Add(new MenuFlyoutItem { Text = "Branding Settings…", Command = shell.OpenBrandingSettingsCommand });
+        menu.Items.Add(branding);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // After Recording — post-processing actions (each opens a focused two-pane window).
@@ -171,7 +188,11 @@ public partial class App : Application
         menu.Items.Add(aiFeatures);
 
         menu.Items.Add(new MenuFlyoutItem { Text = "Web Publish Latest…", Command = shell.OpenWebPublishCommand });
-        menu.Items.Add(new MenuFlyoutItem { Text = "Open Recordings Folder", Command = shell.OpenRecordingsFolderCommand });
+
+        var recordingFolder = new MenuFlyoutSubItem { Text = "Recording Folder" };
+        recordingFolder.Items.Add(new MenuFlyoutItem { Text = "Open Recordings Folder", Command = shell.OpenRecordingsFolderCommand });
+        recordingFolder.Items.Add(new MenuFlyoutItem { Text = "Change Output Directory…", Command = shell.ChangeOutputDirectoryCommand });
+        menu.Items.Add(recordingFolder);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // System Preferences submenu (checkable toggles, like the macOS app).

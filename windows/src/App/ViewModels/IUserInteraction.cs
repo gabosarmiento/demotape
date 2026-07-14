@@ -12,4 +12,7 @@ public interface IUserInteraction
 
     /// <summary>Shows a transient message (dialog or tray notification).</summary>
     Task ShowMessageAsync(string title, string message);
+
+    /// <summary>Shows a non-blocking tray notification (balloon), for background events.</summary>
+    void Notify(string title, string message);
 }

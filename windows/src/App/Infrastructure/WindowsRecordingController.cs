@@ -297,9 +297,9 @@ public sealed class WindowsRecordingController : IRecordingController
             SetState(RecordingState.Idle);
             var final = styled ?? _rawPath;
             _interaction.RevealInExplorer(final);
-            await _interaction.ShowMessageAsync(
-                styled is not null ? "Recording styled & saved" : "Recording saved (unstyled)",
-                final);
+            _interaction.Notify(
+                styled is not null ? "Recording ready" : "Recording saved (unstyled)",
+                Path.GetFileName(final));
         }
         catch (Exception ex)
         {

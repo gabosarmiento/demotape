@@ -52,4 +52,10 @@ public interface INavigationService
 
     /// <summary>Opens the About panel (version, permissions, update check).</summary>
     void OpenAbout();
+
+    /// <summary>Opens the branding/watermark settings.</summary>
+    void OpenBrandingSettings();
+
+    /// <summary>Prompts for a new recordings output directory.</summary>
+    void ChangeOutputDirectory();
 }

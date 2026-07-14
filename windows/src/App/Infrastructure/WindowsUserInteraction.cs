@@ -15,6 +15,18 @@ public sealed class WindowsUserInteraction : IUserInteraction
     /// <summary>Set by whichever window is currently presenting, so dialogs have a XamlRoot.</summary>
     public XamlRoot? XamlRoot { get; set; }
 
+    /// <summary>A persistent window handle (the hidden host window) for file/folder pickers.</summary>
+    public IntPtr WindowHandle { get; set; }
+
+    /// <summary>Wired by the app to the tray icon's balloon notification.</summary>
+    public Action<string, string>? TrayNotifier { get; set; }
+
+    public void Notify(string title, string message)
+    {
+        try { TrayNotifier?.Invoke(title, message); }
+        catch { /* notifications are cosmetic */ }
+    }
+
     public void RevealInExplorer(string path)
     {
         // Selecting the folder itself: open it. Selecting a file: open its parent and select it.

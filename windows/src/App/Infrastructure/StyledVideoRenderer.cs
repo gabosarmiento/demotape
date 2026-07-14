@@ -83,6 +83,8 @@ public sealed class StyledVideoRenderer
             using var flipRT = new CanvasRenderTarget(device, outW, outH, 96);
             using var cursorImg = MakeCursor(device);
             using var background = framed ? LoadBackground(device, settings.BackgroundFile, outW, outH) : null;
+            using var branding = settings.BrandingEnabled && File.Exists(settings.BrandingImagePath)
+                ? TryLoadBitmap(device, settings.BrandingImagePath) : null;
             using var contentClip = framed
                 ? CanvasGeometry.CreateRoundedRectangle(device, pad, pad, contentW, contentH, 20, 20)
                 : null;
@@ -178,6 +180,8 @@ public sealed class StyledVideoRenderer
                         // Webcam PiP — fixed position/size (does not zoom).
                         if (useCam && camHasFrame && camSurface is not null)
                             DrawWebcam(ds, camSurface, settings, outW, outH);
+                        // Branding watermark baked on top.
+                        if (branding is not null) DrawBranding(ds, branding, settings, outW, outH);
                     }
 
                     using (var ds = flipRT.CreateDrawingSession())
@@ -403,6 +407,25 @@ public sealed class StyledVideoRenderer
             ds.Transform = Matrix3x2.Identity;
         }
         ds.DrawCircle(center, r, Color.FromArgb(230, 255, 255, 255), 3f);
+    }
+
+    private static CanvasBitmap? TryLoadBitmap(CanvasDevice device, string path)
+    {
+        try { return CanvasBitmap.LoadAsync(device, path).AsTask().GetAwaiter().GetResult(); }
+        catch { return null; }
+    }
+
+    private static void DrawBranding(CanvasDrawingSession ds, CanvasBitmap logo, AppSettings s, int outW, int outH)
+    {
+        double w = Math.Clamp(s.BrandingScale, 0.03, 0.5) * outW;
+        double h = w * logo.Size.Height / Math.Max(1, logo.Size.Width);
+        double margin = outW * 0.03;
+        bool right = s.BrandingPosition.Contains("Right", StringComparison.OrdinalIgnoreCase);
+        bool bottom = s.BrandingPosition.Contains("Bottom", StringComparison.OrdinalIgnoreCase);
+        double x = right ? outW - w - margin : margin;
+        double y = bottom ? outH - h - margin : margin;
+        ds.DrawImage(logo, new Rect(x, y, w, h), new Rect(0, 0, logo.Size.Width, logo.Size.Height),
+            (float)Math.Clamp(s.BrandingOpacity, 0, 1));
     }
 
     private static CanvasRenderTarget LoadBackground(CanvasDevice device, string bgFile, int outW, int outH)

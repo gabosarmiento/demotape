@@ -66,6 +66,28 @@ public sealed class WindowNavigationService : INavigationService
         _about.Activate();
     }
 
+    private BrandingSettingsWindow? _branding;
+    public void OpenBrandingSettings()
+    {
+        if (_branding is not null) { _branding.Activate(); return; }
+        _branding = new BrandingSettingsWindow(_settingsStore);
+        _branding.Closed += (_, _) => _branding = null;
+        _branding.Activate();
+    }
+
+    public async void ChangeOutputDirectory()
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, _interaction.WindowHandle);
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is null) return;
+        var s = _settingsStore.Load();
+        s.OutputDirectoryOverride = folder.Path;
+        _settingsStore.Save(s);
+        _interaction.Notify("Output folder changed", folder.Path);
+    }
+
     public void OpenAiSettings()
     {
         if (_aiSettings is not null) { _aiSettings.Activate(); return; }

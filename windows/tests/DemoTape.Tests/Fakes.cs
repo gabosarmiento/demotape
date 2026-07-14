@@ -52,6 +52,7 @@ internal sealed class RecordingInteraction : IUserInteraction
     public List<(string title, string message)> Messages { get; } = new();
     public void RevealInExplorer(string path) => Revealed.Add(path);
     public Task ShowMessageAsync(string title, string message) { Messages.Add((title, message)); return Task.CompletedTask; }
+    public void Notify(string title, string message) { Messages.Add((title, message)); }
 }
 
 internal sealed class FakePathService : IPathService
@@ -96,6 +97,8 @@ internal sealed class FakeNavigation : INavigationService
     public void GenerateVoiceover() => Voiceover++;
     public void GenerateAvatar() => Avatar++;
     public void AutoCut() => AutoCutCount++;
-    public int About;
+    public int About, Branding, OutputDir;
     public void OpenAbout() => About++;
+    public void OpenBrandingSettings() => Branding++;
+    public void ChangeOutputDirectory() => OutputDir++;
 }

@@ -72,5 +72,25 @@ public sealed class AppSettings
     /// <summary>Auto-zoom the styled render toward activity (clicks/typing). On by default.</summary>
     public bool AutoZoom { get; set; } = true;
 
+    /// <summary>Custom recordings output directory (empty = default %USERPROFILE%\Videos\DemoTape).</summary>
+    public string OutputDirectoryOverride { get; set; } = "";
+
+    // ---- Branding / watermark ----
+
+    /// <summary>Bake a logo watermark into the styled output.</summary>
+    public bool BrandingEnabled { get; set; }
+
+    /// <summary>Absolute path to the branding logo (PNG with transparency recommended).</summary>
+    public string BrandingImagePath { get; set; } = "";
+
+    /// <summary>Watermark corner: TopLeft, TopRight, BottomLeft, BottomRight.</summary>
+    public string BrandingPosition { get; set; } = "BottomRight";
+
+    /// <summary>Watermark opacity 0..1.</summary>
+    public double BrandingOpacity { get; set; } = 0.9;
+
+    /// <summary>Watermark width as a fraction of the output width.</summary>
+    public double BrandingScale { get; set; } = 0.16;
+
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 }
