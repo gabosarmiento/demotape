@@ -38,7 +38,7 @@ public static class HeadlessCli
                 .Select(s => int.TryParse(s, out var v) ? v : 0)
                 .Where(v => v > 0)
                 .ToArray();
-            var svc = new WebPublishService(transcoder);
+            var svc = new WebPublishService(transcoder, new GifEncoder());
             var result = await svc.PublishAsync(source, tiers);
             Console.WriteLine($"published: {result.OutputFolder}");
             return true;

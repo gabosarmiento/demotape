@@ -51,3 +51,10 @@ public interface IVideoTranscoder
 
 /// <summary>Result of a web-publish run.</summary>
 public sealed record WebPublishResult(string OutputFolder, IReadOnlyList<string> Files);
+
+/// <summary>Encodes a video into a looping animated GIF (for README/social embeds).</summary>
+public interface IGifEncoder
+{
+    Task EncodeAsync(string videoPath, string outPath, int maxWidth = 480, double fps = 10,
+        double maxDuration = 15, CancellationToken ct = default);
+}

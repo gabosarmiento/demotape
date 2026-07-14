@@ -16,11 +16,13 @@ namespace DemoTape.Services;
 public sealed class WebPublishService
 {
     private readonly IVideoTranscoder _transcoder;
+    private readonly IGifEncoder? _gif;
     private readonly ILogger<WebPublishService> _logger;
 
-    public WebPublishService(IVideoTranscoder transcoder, ILogger<WebPublishService>? logger = null)
+    public WebPublishService(IVideoTranscoder transcoder, IGifEncoder? gif = null, ILogger<WebPublishService>? logger = null)
     {
         _transcoder = transcoder ?? throw new ArgumentNullException(nameof(transcoder));
+        _gif = gif;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<WebPublishService>.Instance;
     }
 
@@ -81,6 +83,19 @@ public sealed class WebPublishService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Poster generation failed; continuing without a poster.");
+        }
+
+        // Animated GIF (best-effort) from the smallest tier — handy for READMEs. Capped in length.
+        if (_gif is not null && files.Count > 0)
+        {
+            try
+            {
+                var gifPath = Path.Combine(folder, "demo.gif");
+                await _gif.EncodeAsync(files[0], gifPath, ct: ct).ConfigureAwait(false);
+                if (File.Exists(gifPath)) files.Add(gifPath);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { _logger.LogWarning(ex, "GIF export failed; continuing."); }
         }
 
         // Responsive embed + README (best-effort; the MP4s are what matters).

@@ -21,6 +21,7 @@ public static class ServiceRegistration
         services.AddSingleton<IKeyStore, CredentialManagerKeyStore>();
         services.AddSingleton<KeyTester>();
         services.AddSingleton<IVideoTranscoder, MediaFoundationTranscoder>();
+        services.AddSingleton<IGifEncoder, GifEncoder>();
         services.AddSingleton<IRecordingStore, FileRecordingStore>();
         services.AddSingleton<WindowsUserInteraction>();
         services.AddSingleton<IUserInteraction>(sp => sp.GetRequiredService<WindowsUserInteraction>());
