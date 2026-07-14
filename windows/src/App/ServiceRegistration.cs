@@ -39,6 +39,8 @@ public static class ServiceRegistration
         services.AddSingleton<ITranscriptionProvider, OpenAiTranscriptionProvider>();
         services.AddSingleton<IVoiceProvider, ElevenLabsVoiceProvider>();
         services.AddTransient<CaptionBurner>();
+        services.AddSingleton<AudioEnhancementService>();
+        services.AddSingleton<AutoCutService>();
 
         // Shell wiring
         services.AddSingleton<IRecordingController, WindowsRecordingController>();

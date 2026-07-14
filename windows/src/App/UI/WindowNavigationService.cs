@@ -109,6 +109,21 @@ public sealed class WindowNavigationService : INavigationService
             "Avatar presenter arrives in an upcoming update — HeyGen integration is next."));
     }
 
+    public void AutoCut()
+    {
+        var latest = LatestOrPrompt();
+        if (latest is null || !ShowSingleAction()) return;
+        var service = new Infrastructure.AutoCutService();
+
+        ActionPreviewWindow.RenderDelegate render = async (src, progress, ct) =>
+        {
+            var outPath = Domain.Ai.VoiceoverPlanner.CaptionedPath(src).Replace(".captioned.mp4", ".tight.mp4");
+            return await service.AutoCutAsync(src, outPath, new Infrastructure.AutoCutService.Options(), progress, ct);
+        };
+        Present(new ActionPreviewWindow("Auto-Cut & Speed Up", latest, controls: null, render, _interaction,
+            "Nothing to trim — no long silent gaps were found."));
+    }
+
     private string? LatestOrPrompt()
     {
         var latest = _services.GetRequiredService<IRecordingStore>().LatestStyled();

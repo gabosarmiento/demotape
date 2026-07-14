@@ -63,5 +63,11 @@ public sealed class AppSettings
     /// <summary>Optional ISO language hint for transcription (empty = auto-detect).</summary>
     public string SttLanguage { get; set; } = "";
 
+    /// <summary>On-device Smart Noise Suppression applied to the mic before muxing (off by default).</summary>
+    public bool NoiseSuppression { get; set; }
+
+    /// <summary>On-device Enhance Voice (studio EQ + compressor) applied to the mic (off by default).</summary>
+    public bool EnhanceVoice { get; set; }
+
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 }

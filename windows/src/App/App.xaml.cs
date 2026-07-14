@@ -133,6 +133,12 @@ public partial class App : Application
         var camToggle = MakeToggleItem("Record Webcam", () => shell.CaptureWebcam, v => shell.CaptureWebcam = v);
         capture.Items.Add(micToggle);
         capture.Items.Add(camToggle);
+        capture.Items.Add(new MenuFlyoutSeparator());
+        // On-device audio cleanup (applied to the mic before muxing).
+        var noiseToggle = MakeToggleItem("Smart Noise Suppression", () => shell.NoiseSuppression, v => shell.NoiseSuppression = v);
+        var enhanceToggle = MakeToggleItem("Enhance Voice", () => shell.EnhanceVoice, v => shell.EnhanceVoice = v);
+        capture.Items.Add(noiseToggle);
+        capture.Items.Add(enhanceToggle);
 
         // Keep the whole menu's checkable state in sync with the persisted settings whenever it
         // opens (the region selector, for instance, flips UseRegion in settings directly).
@@ -143,6 +149,8 @@ public partial class App : Application
             selectArea.IsChecked = shell.UseRegion;
             micToggle.IsChecked = shell.CaptureMicrophone;
             camToggle.IsChecked = shell.CaptureWebcam;
+            noiseToggle.IsChecked = shell.NoiseSuppression;
+            enhanceToggle.IsChecked = shell.EnhanceVoice;
         };
 
         capture.Items.Add(new MenuFlyoutSeparator());
@@ -152,6 +160,8 @@ public partial class App : Application
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // After Recording — post-processing actions (each opens a focused two-pane window).
+        menu.Items.Add(new MenuFlyoutItem { Text = "Auto-Cut & Speed Up Latest…", Command = shell.AutoCutCommand });
+
         var aiFeatures = new MenuFlyoutSubItem { Text = "AI Features" };
         aiFeatures.Items.Add(new MenuFlyoutItem { Text = "AI Settings…", Command = shell.OpenAiSettingsCommand });
         aiFeatures.Items.Add(new MenuFlyoutSeparator());

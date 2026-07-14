@@ -111,6 +111,20 @@ public static class HeadlessCli
             return true;
         }
 
+        int au = Array.IndexOf(args, "--audio-test");
+        if (au >= 0 && args.Length > au + 2)
+        {
+            var inFile = args[au + 1];
+            var outFile = args[au + 2];
+            var (samples, rate) = await WavAudioIo.ExtractMonoAsync(inFile, 48000);
+            Console.WriteLine($"audio-test: extracted {samples.Length} samples @ {rate}Hz ({samples.Length / (double)rate:0.0}s)");
+            samples = DemoTape.Domain.Audio.AudioDsp.NoiseGate(samples, rate, 0.7);
+            samples = DemoTape.Domain.Audio.AudioDsp.Enhance(new[] { samples }, rate)[0];
+            await WavAudioIo.EncodeMonoToM4aAsync(samples, rate, outFile);
+            Console.WriteLine($"audio-test: wrote {outFile} ({new FileInfo(outFile).Length / 1024} KB)");
+            return true;
+        }
+
         int st = Array.IndexOf(args, "--selector-test");
         if (st >= 0)
         {

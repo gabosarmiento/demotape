@@ -48,4 +48,5 @@ public interface INavigationService
     void GenerateCaptions();
     void GenerateVoiceover();
     void GenerateAvatar();
+    void AutoCut();
 }

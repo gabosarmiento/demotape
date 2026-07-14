@@ -275,6 +275,16 @@ public sealed class WindowsRecordingController : IRecordingController
             }
 
             var settings = _settingsStore.Load();
+
+            // On-device audio cleanup (denoise → enhance) applied to the mic in place BEFORE muxing,
+            // so there's no extra video pass. Best-effort; matches the macOS "in place" behavior.
+            if (micPath is not null && (settings.NoiseSuppression || settings.EnhanceVoice))
+            {
+                _logger.LogInformation("Cleaning up audio…");
+                await _services.GetRequiredService<AudioEnhancementService>()
+                    .ProcessInPlaceAsync(micPath, settings.NoiseSuppression, settings.EnhanceVoice);
+            }
+
             var styledPath = _rawPath[..^".mp4".Length] + ".styled.mp4";
             var renderer = _services.GetRequiredService<StyledVideoRenderer>();
             _logger.LogInformation("Rendering styled output…");

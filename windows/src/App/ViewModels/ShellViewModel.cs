@@ -25,6 +25,8 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] private bool _useRegion;
     [ObservableProperty] private bool _captureMicrophone;
     [ObservableProperty] private bool _captureWebcam;
+    [ObservableProperty] private bool _noiseSuppression;
+    [ObservableProperty] private bool _enhanceVoice;
 
     public bool IsIdle => State == RecordingState.Idle;
     public bool IsRecording => State == RecordingState.Recording;
@@ -55,6 +57,8 @@ public sealed partial class ShellViewModel : ObservableObject
         _useRegion = _settings.UseRegion;
         _captureMicrophone = _settings.CaptureMicrophone;
         _captureWebcam = _settings.CaptureWebcam;
+        _noiseSuppression = _settings.NoiseSuppression;
+        _enhanceVoice = _settings.EnhanceVoice;
         _state = _recording.State;
 
         _recording.StateChanged += s =>
@@ -84,11 +88,15 @@ public sealed partial class ShellViewModel : ObservableObject
         UseRegion = _settings.UseRegion;
         CaptureMicrophone = _settings.CaptureMicrophone;
         CaptureWebcam = _settings.CaptureWebcam;
+        NoiseSuppression = _settings.NoiseSuppression;
+        EnhanceVoice = _settings.EnhanceVoice;
     }
 
     partial void OnUseRegionChanged(bool value) => Update(s => s.UseRegion = value);
     partial void OnCaptureMicrophoneChanged(bool value) => Update(s => s.CaptureMicrophone = value);
     partial void OnCaptureWebcamChanged(bool value) => Update(s => s.CaptureWebcam = value);
+    partial void OnNoiseSuppressionChanged(bool value) => Update(s => s.NoiseSuppression = value);
+    partial void OnEnhanceVoiceChanged(bool value) => Update(s => s.EnhanceVoice = value);
 
     private void Update(Action<AppSettings> mutate)
     {
@@ -129,6 +137,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     [RelayCommand]
     private void GenerateAvatar() => _navigation.GenerateAvatar();
+
+    [RelayCommand]
+    private void AutoCut() => _navigation.AutoCut();
 
     [RelayCommand]
     private void OpenRecordingsFolder() => _interaction.RevealInExplorer(_paths.OutputDirectory);
