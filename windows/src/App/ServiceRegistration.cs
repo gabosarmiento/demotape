@@ -1,0 +1,58 @@
+using DemoTape.App.Infrastructure;
+using DemoTape.App.UI;
+using DemoTape.Domain.Abstractions;
+using DemoTape.Services;
+using DemoTape.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DemoTape.App;
+
+/// <summary>
+/// Composition root: wires domain abstractions to their Windows implementations. Keeping this
+/// in one place makes the dependency graph obvious and the layers cleanly swappable.
+/// </summary>
+public static class ServiceRegistration
+{
+    public static IServiceCollection AddDemoTape(this IServiceCollection services)
+    {
+        // Infrastructure (platform implementations of Domain abstractions)
+        services.AddSingleton<IPathService, PathService>();
+        services.AddSingleton<ISettingsStore, JsonSettingsStore>();
+        services.AddSingleton<IKeyStore, CredentialManagerKeyStore>();
+        services.AddSingleton<KeyTester>();
+        services.AddSingleton<IVideoTranscoder, MediaFoundationTranscoder>();
+        services.AddSingleton<IGifEncoder, GifEncoder>();
+        services.AddSingleton<IRecordingStore, FileRecordingStore>();
+        services.AddSingleton<WindowsUserInteraction>();
+        services.AddSingleton<IUserInteraction>(sp => sp.GetRequiredService<WindowsUserInteraction>());
+
+        // Application services (portable orchestration)
+        services.AddSingleton<WebPublishService>();
+
+        // Capture + render pipeline (transient — one instance per recording)
+        services.AddTransient<ScreenCaptureRecorder>();
+        services.AddTransient<EventRecorder>();
+        services.AddTransient<WebcamRecorder>();
+        services.AddTransient<MicRecorder>();
+        services.AddTransient<StyledVideoRenderer>();
+
+        // AI providers + post-recording actions (opt-in, bring-your-own-key)
+        services.AddSingleton<ITranscriptionProvider, OpenAiTranscriptionProvider>();
+        services.AddSingleton<IVoiceProvider, ElevenLabsVoiceProvider>();
+        services.AddTransient<CaptionBurner>();
+        services.AddSingleton<AudioEnhancementService>();
+        services.AddSingleton<AutoCutService>();
+        services.AddSingleton<IAvatarProvider, HeyGenAvatarProvider>();
+        services.AddTransient<AvatarCompositor>();
+
+        // Shell wiring
+        services.AddSingleton<IRecordingController, WindowsRecordingController>();
+        services.AddSingleton<INavigationService, WindowNavigationService>();
+
+        // ViewModels
+        services.AddSingleton<ShellViewModel>();
+        services.AddTransient<WebPublishViewModel>();
+
+        return services;
+    }
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.TeleprompterWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="#E6101012">
+        <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Hidden"
+                      VerticalScrollMode="Disabled" Padding="24,16">
+            <TextBlock x:Name="ScriptText" Foreground="White" TextWrapping="Wrap"
+                       LineHeight="34" />
+        </ScrollViewer>
+    </Grid>
+</Window>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.AboutWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <StackPanel Padding="28" Spacing="10" MaxWidth="520">
+            <!-- Header -->
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <Image x:Name="LogoImage" Width="64" Height="64" VerticalAlignment="Top" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="DemoTape" FontSize="24" FontWeight="Bold" />
+                    <TextBlock x:Name="VersionText" Opacity="0.7" FontSize="12" />
+                    <TextBlock Text="Local-first screen recorder for Windows" Opacity="0.7" FontSize="11" />
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock x:Name="MetaText" Opacity="0.6" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0" />
+
+            <!-- Permissions -->
+            <TextBlock Text="Permissions" FontSize="14" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <Grid ColumnSpacing="10" RowSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Grid.Column="0">
+                    <TextBlock Text="Microphone" FontWeight="Medium" />
+                    <TextBlock Text="Optional — record narration." Opacity="0.6" FontSize="10" />
+                </StackPanel>
+                <TextBlock x:Name="MicStatus" Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" FontSize="12" />
+                <Button Grid.Row="0" Grid.Column="2" Content="Settings" Click="OnOpenMicSettings" />
+
+                <StackPanel Grid.Row="1" Grid.Column="0">
+                    <TextBlock Text="Camera" FontWeight="Medium" />
+                    <TextBlock Text="Optional — webcam overlay." Opacity="0.6" FontSize="10" />
+                </StackPanel>
+                <TextBlock x:Name="CamStatus" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" FontSize="12" />
+                <Button Grid.Row="1" Grid.Column="2" Content="Settings" Click="OnOpenCamSettings" />
+            </Grid>
+
+            <!-- Updates -->
+            <Rectangle Height="1" Fill="#33FFFFFF" Margin="0,10,0,4" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button x:Name="UpdateButton" Content="Check for Updates" Click="OnCheckUpdates" />
+                <Button x:Name="ReleaseButton" Content="View Release" Click="OnViewRelease" Visibility="Collapsed" />
+                <Button Content="Report an Issue" Click="OnReportIssue" />
+            </StackPanel>
+            <TextBlock x:Name="UpdateStatus" Opacity="0.8" FontSize="11" TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>

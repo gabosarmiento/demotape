@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.BackgroundPickerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:DemoTape.App.UI">
+
+    <Grid x:Name="Root" Padding="16" RowSpacing="12"
+          Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Choose Background (used in region mode)"
+                   Style="{ThemeResource TitleTextBlockStyle}" />
+
+        <GridView Grid.Row="1" x:Name="Gallery" SelectionMode="Single" IsItemClickEnabled="True"
+                  ItemClick="OnItemClick">
+            <GridView.ItemTemplate>
+                <DataTemplate x:DataType="local:BackgroundItem">
+                    <Border CornerRadius="8" Margin="4" Width="184" Height="112"
+                            Background="#14FFFFFF">
+                        <Grid>
+                            <Image Stretch="UniformToFill" Source="{x:Bind Image}" />
+                            <StackPanel Visibility="{x:Bind AddOverlayVisibility}"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+                                <FontIcon Glyph="&#xE710;" FontSize="26" />
+                                <TextBlock Text="Custom Image…" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </GridView.ItemTemplate>
+        </GridView>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Cancel" Click="OnCancel" />
+            <Button Content="Confirm" Style="{ThemeResource AccentButtonStyle}" Click="OnConfirm" />
+        </StackPanel>
+    </Grid>
+</Window>
