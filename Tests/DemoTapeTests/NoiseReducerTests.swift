@@ -49,6 +49,18 @@ final class NoiseReducerTests: XCTestCase {
         XCTAssertGreaterThan(rms(cleaned[half...]), 0.12, "the speech-like burst should be preserved")
     }
 
+    func testReducesLowFrequencyRumble() {
+        // A steady 60 Hz tone (laptop-fan / AC rumble proxy) present the whole clip should be
+        // strongly cut by the 85 Hz high-pass + steady-noise suppression.
+        let n = Int(1.0 * sampleRate)
+        var x = [Float](repeating: 0, count: n)
+        let w = 2.0 * Double.pi * 60.0 / sampleRate
+        for i in 0..<n { x[i] = 0.25 * Float(sin(w * Double(i))) }
+        let cleaned = NoiseReducer.denoiseMono(x, strength: 0.9, sampleRate: sampleRate)
+        XCTAssertLessThan(rms(cleaned[0..<n]), rms(x[0..<n]) * 0.4,
+                          "sub-85 Hz rumble should be strongly attenuated")
+    }
+
     func testStrengthZeroIsPassthrough() {
         let (mix, _) = noiseThenTone(seconds: 0.5, toneAmp: 0.3, noiseAmp: 0.1)
         XCTAssertEqual(NoiseReducer.denoiseMono(mix, strength: 0.0), mix, "strength 0 must not alter the signal")

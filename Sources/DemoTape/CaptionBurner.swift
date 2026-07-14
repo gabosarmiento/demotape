@@ -164,29 +164,60 @@ final class CaptionBurner {
         }
         let cue = cues[idx]
         let words = wordsForCue(cue)
-        guard !words.isEmpty else { return nil }
+        guard !words.isEmpty else { cacheKey = ""; return nil }
 
-        // Which words are visible, and the active index (for the cache key + coloring).
+        // Never dump a whole cue over the frame. Split the cue into small windows that hold at
+        // most `maxLines` lines and step through them as the words are spoken. On a regular
+        // (wide) video that's ~2 short lines; on mobile it's 1–2 words per line.
+        let aspect = size.height > 0 ? size.width / size.height : 1.78
+        let maxLines = 2
+        let windowSize = max(1, maxWords * maxLines)
+        let (windowIdx, windowWords) = Self.window(for: t, in: words, size: windowSize)
+        guard !windowWords.isEmpty else { cacheKey = ""; return nil }
+
+        // Within the window: animated pop-in styles reveal words as spoken; everything else
+        // shows the whole window and colors the active word.
         let visible: [CaptionWord] = (style.animated && !style.revealFuture)
-            ? words.filter { $0.start <= t } : words
+            ? windowWords.filter { $0.start <= t } : windowWords
         guard !visible.isEmpty else { cacheKey = ""; return nil }
-        let activeIdx = words.firstIndex { $0.start <= t && t < $0.end } ?? -1
+        let activeIdx = windowWords.firstIndex { $0.start <= t && t < $0.end } ?? -1
 
-        let key = style.animated ? "\(idx)|\(visible.count)|\(activeIdx)" : "\(idx)"
+        let key = style.animated ? "\(idx)|\(windowIdx)|\(visible.count)|\(activeIdx)"
+                                  : "\(idx)|\(windowIdx)"
         if key == cacheKey, let img = cacheImage { return (img, cacheOrigin) }
 
-        guard let (cg, blockSize) = drawBlock(words: visible, allWords: words, style: style, t: t,
+        guard let (cg, blockSize) = drawBlock(words: visible, style: style, t: t,
                                               videoSize: size, maxWords: maxWords) else { return nil }
         let x = (size.width - blockSize.width) / 2
+        // Position by aspect, not just by style: regular videos always sit at the bottom-center;
+        // tall/mobile videos may use the style's higher placement.
+        let position: CaptionPosition = aspect > 1.05 ? .bottom : style.position
         let y: CGFloat
-        switch style.position {
+        switch position {
         case .center:     y = (size.height - blockSize.height) / 2
         case .lowerThird: y = size.height * 0.16
-        case .bottom:     y = size.height * 0.06
+        case .bottom:     y = size.height * 0.07
         }
         let img = CIImage(cgImage: cg)
         cacheKey = key; cacheImage = img; cacheOrigin = CGPoint(x: x.rounded(), y: y.rounded())
         return (img, cacheOrigin)
+    }
+
+    /// Splits a cue's words into consecutive fixed-size windows and returns the one that should be
+    /// on screen at time `t` (the first window whose last word hasn't finished, else the last).
+    static func window(for t: Double, in words: [CaptionWord], size: Int) -> (Int, [CaptionWord]) {
+        let n = words.count
+        guard n > size else { return (0, words) }
+        var c = 0
+        var lo = 0
+        while lo < n {
+            let hi = min(lo + size, n)
+            let slice = Array(words[lo..<hi])
+            if let last = slice.last, t < last.end { return (c, slice) }
+            lo = hi; c += 1
+        }
+        let start = (c - 1) * size
+        return (c - 1, Array(words[start..<n]))
     }
 
     /// Per-cue words with timing — real word timestamps when present, otherwise synthesized
@@ -204,7 +235,7 @@ final class CaptionBurner {
 
     // MARK: - Drawing
 
-    private func drawBlock(words visible: [CaptionWord], allWords: [CaptionWord], style: CaptionStyle,
+    private func drawBlock(words visible: [CaptionWord], style: CaptionStyle,
                            t: Double, videoSize: CGSize, maxWords: Int) -> (CGImage, CGSize)? {
         let fontSize = max(20, videoSize.height * (style.animated ? 0.062 : 0.05))
         let font = CTFontCreateWithName(style.fontName as CFString, fontSize, nil)

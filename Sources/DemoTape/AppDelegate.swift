@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var recorderBar: RecorderBarController?
     private var regionOverlay: RegionOverlay?
+    private var webcamPreview: WebcamPreviewOverlay?
+    /// Optional neural denoiser: active only if a Core ML model is bundled; otherwise the boosted
+    /// on-device DSP reducer handles Smart Noise Suppression.
+    private let speechEnhancer = CoreMLSpeechEnhancer()
     private var whileIdleItems: [NSMenuItem] = []
     private let aboutController = AboutController()
     private var welcomeController: WelcomeController?
@@ -435,15 +439,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// in only on success, so a failure never damages the recording.
     private func applyNoiseSuppression(to url: URL) {
         let temp = url.deletingPathExtension().appendingPathExtension("nr.mp4")
+        // Use a bundled Core ML model if present, otherwise the boosted DSP reducer. Simple on/off.
+        var stage = "DSP"
         do {
-            // Fixed strong suppression — it's a simple on/off; no user-facing strength dial.
-            try NoiseReducer().reduce(video: url, strength: 0.9, to: temp)
+            if speechEnhancer.isAvailable {
+                stage = "Core ML"
+                try speechEnhancer.reduce(video: url, to: temp)
+            } else {
+                try NoiseReducer().reduce(video: url, strength: 0.9, to: temp)
+            }
+        } catch {
+            Log.write("NoiseSuppression: \(stage) failed (\(error.localizedDescription)); using DSP")
+            try? FileManager.default.removeItem(at: temp)
+            stage = "DSP"
+            do { try NoiseReducer().reduce(video: url, strength: 0.9, to: temp) }
+            catch {
+                try? FileManager.default.removeItem(at: temp)
+                Log.write("NoiseReducer skipped: \(error.localizedDescription)")
+                return
+            }
+        }
+        // Swap the cleaned track in only on success.
+        do {
             try? FileManager.default.removeItem(at: url)
             try FileManager.default.moveItem(at: temp, to: url)
-            Log.write("NoiseReducer: cleaned \(url.lastPathComponent)")
+            Log.write("NoiseSuppression: \(stage) cleaned \(url.lastPathComponent)")
         } catch {
             try? FileManager.default.removeItem(at: temp)
-            Log.write("NoiseReducer skipped: \(error.localizedDescription)")
+            Log.write("NoiseSuppression swap failed: \(error.localizedDescription)")
         }
     }
 
@@ -777,6 +800,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Settings.captureWebcam.toggle()
         webcamItem.state = Settings.captureWebcam ? .on : .off
         recorderBar?.updateWebcam(Settings.captureWebcam)
+        refreshWebcamPreview()
     }
 
     private var webcamSettingsController: WebcamSettingsController?
@@ -880,6 +904,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 overlay.onChange = { [weak self] screenRect in
                     self?.saveRegion(fromScreenRect: screenRect)
                     self?.recorderBar?.reposition(anchorRegion: screenRect)
+                    self?.webcamPreview?.show(in: screenRect)   // keep the bubble anchored in-region
                 }
                 regionOverlay = overlay
             }
@@ -890,6 +915,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         recorderBar?.show(anchorRegion: region,
                           micOn: Settings.captureMicrophone, webcamOn: Settings.captureWebcam)
+        refreshWebcamPreview()
+    }
+
+    /// Shows/hides the live camera bubble anchored in the recording area while preparing. Hidden
+    /// during recording so it's never captured (the webcam is composited in afterward).
+    private func refreshWebcamPreview() {
+        guard state == .idle, recorderBar != nil, Settings.captureWebcam else {
+            webcamPreview?.hide(); return
+        }
+        if webcamPreview == nil { webcamPreview = WebcamPreviewOverlay() }
+        webcamPreview?.show(in: regionScreenRect())
     }
 
     /// Persist a region edited on screen (bottom-left) back to normalized settings (top-left).
@@ -910,6 +946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func dismissRecorderBar() {
         recorderBar?.hide()
         regionOverlay?.hide()
+        webcamPreview?.hide()
     }
 
     /// Keep the floating bar/border in sync with the recording state. For full-screen
@@ -921,6 +958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .countdown:
             // Lock the region (click-through border only) once we're about to record.
             regionOverlay?.setEditable(false)
+            webcamPreview?.hide()   // never let the live bubble land in the capture
             if !Settings.useRegion { recorderBar?.setHiddenDuringCapture(true) }
         case .recording:
             recorderBar?.setRecording(true)
