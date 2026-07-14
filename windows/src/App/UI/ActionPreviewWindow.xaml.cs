@@ -36,19 +36,33 @@ public sealed partial class ActionPreviewWindow : Window
     private string? _lastResult;
 
     public ActionPreviewWindow(string title, string source, FrameworkElement? controls,
-        RenderDelegate render, IUserInteraction interaction, string nothingMessage = "Nothing to generate.")
+        RenderDelegate render, IUserInteraction interaction, string nothingMessage = "Nothing to generate.",
+        Func<ActionPreviewWindow, Task>? onLoaded = null)
     {
         _source = source;
         _render = render;
         _interaction = interaction;
         _nothingMessage = nothingMessage;
         InitializeComponent();
+        WindowIcon.Apply(this);
 
         Title = title;
         if (controls is not null) ControlsHost.Child = controls;
         Closed += (_, _) => { _cts.Cancel(); StopPlayers(); };
         ReloadSource();
+
+        if (onLoaded is not null)
+            _dispatcher.TryEnqueue(async () => { try { await onLoaded(this); } catch (Exception ex) { Note(ex.Message); } });
     }
+
+    /// <summary>The source clip currently being worked on.</summary>
+    public string SourcePath => _source;
+
+    /// <summary>Shows a message under the Generate button (used by actions during prep).</summary>
+    public void Note(string text) => _dispatcher.TryEnqueue(() => Message.Text = text);
+
+    /// <summary>Enables/disables the Generate button (e.g. while prep is still running).</summary>
+    public void SetGenerateEnabled(bool enabled) => _dispatcher.TryEnqueue(() => GenerateButton.IsEnabled = enabled);
 
     private void ReloadSource()
     {

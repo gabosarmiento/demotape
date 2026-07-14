@@ -1,5 +1,6 @@
 using DemoTape.App.Infrastructure;
 using DemoTape.Domain.Abstractions;
+using DemoTape.Domain.Ai;
 using DemoTape.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -66,28 +67,74 @@ public sealed class WindowNavigationService : INavigationService
         _aiSettings.Activate();
     }
 
-    // The post-recording action pipelines (transcription, TTS, avatar) arrive in later phases; the
-    // two-pane window + menu wiring are in place now. Each opens against the latest styled recording.
-    public void GenerateCaptions() => OpenAction("Captions",
-        "Captions arrive in an upcoming update — transcription and burn-in are next.");
-    public void GenerateVoiceover() => OpenAction("Voiceover",
-        "Voiceover arrives in an upcoming update — ElevenLabs narration is next.");
-    public void GenerateAvatar() => OpenAction("Avatar Presenter",
-        "Avatar presenter arrives in an upcoming update — HeyGen integration is next.");
-
-    private void OpenAction(string title, string comingSoon)
+    public void GenerateCaptions()
     {
-        var latest = _services.GetRequiredService<IRecordingStore>().LatestStyled();
-        if (latest is null)
+        var s = _settingsStore.Load();
+        var keys = _services.GetRequiredService<IKeyStore>();
+        if (!s.CaptionsEnabled || !keys.Exists(KeyAccounts.Stt))
         {
-            _ = _interaction.ShowMessageAsync("No recording yet",
-                "Record something first — post-recording actions run on your latest styled recording.");
+            PromptEnable("Captions", "Enable captions and add a transcription API key in AI Settings first.");
             return;
         }
-        if (_actionPreview is not null) { _actionPreview.Activate(); return; }
+        var latest = LatestOrPrompt();
+        if (latest is null || !ShowSingleAction()) return;
+        var action = new CaptionsAction(_settingsStore, keys,
+            _services.GetRequiredService<ITranscriptionProvider>(),
+            _services.GetRequiredService<CaptionBurner>(), _interaction);
+        Present(action.Create(latest));
+    }
+
+    public void GenerateVoiceover()
+    {
+        var s = _settingsStore.Load();
+        var keys = _services.GetRequiredService<IKeyStore>();
+        if (!s.VoiceoverEnabled || !keys.Exists(KeyAccounts.ElevenLabs))
+        {
+            PromptEnable("Voiceover", "Enable voiceover and add an ElevenLabs API key in AI Settings first.");
+            return;
+        }
+        var latest = LatestOrPrompt();
+        if (latest is null || !ShowSingleAction()) return;
+        var action = new VoiceoverAction(_settingsStore, keys,
+            _services.GetRequiredService<IVoiceProvider>(), _interaction);
+        Present(action.Create(latest));
+    }
+
+    public void GenerateAvatar()
+    {
+        var latest = LatestOrPrompt();
+        if (latest is null || !ShowSingleAction()) return;
         ActionPreviewWindow.RenderDelegate stub = (_, _, _) => Task.FromResult<string?>(null);
-        _actionPreview = new ActionPreviewWindow(title, latest.StyledPath, controls: null, stub, _interaction, comingSoon);
+        Present(new ActionPreviewWindow("Avatar Presenter", latest, controls: null, stub, _interaction,
+            "Avatar presenter arrives in an upcoming update — HeyGen integration is next."));
+    }
+
+    private string? LatestOrPrompt()
+    {
+        var latest = _services.GetRequiredService<IRecordingStore>().LatestStyled();
+        if (latest is not null) return latest.StyledPath;
+        _ = _interaction.ShowMessageAsync("No recording yet",
+            "Record something first — post-recording actions run on your latest styled recording.");
+        return null;
+    }
+
+    private bool ShowSingleAction()
+    {
+        if (_actionPreview is null) return true;
+        _actionPreview.Activate();
+        return false;
+    }
+
+    private void Present(ActionPreviewWindow window)
+    {
+        _actionPreview = window;
         _actionPreview.Closed += (_, _) => _actionPreview = null;
         _actionPreview.Activate();
+    }
+
+    private void PromptEnable(string feature, string message)
+    {
+        _ = _interaction.ShowMessageAsync($"{feature} needs a key", message);
+        OpenAiSettings();
     }
 }

@@ -35,6 +35,11 @@ public static class ServiceRegistration
         services.AddTransient<MicRecorder>();
         services.AddTransient<StyledVideoRenderer>();
 
+        // AI providers + post-recording actions (opt-in, bring-your-own-key)
+        services.AddSingleton<ITranscriptionProvider, OpenAiTranscriptionProvider>();
+        services.AddSingleton<IVoiceProvider, ElevenLabsVoiceProvider>();
+        services.AddTransient<CaptionBurner>();
+
         // Shell wiring
         services.AddSingleton<IRecordingController, WindowsRecordingController>();
         services.AddSingleton<INavigationService, WindowNavigationService>();

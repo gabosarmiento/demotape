@@ -25,6 +25,7 @@ public sealed partial class AISettingsWindow : Window
         _keys = keys;
         _tester = tester;
         InitializeComponent();
+        WindowIcon.Apply(this);
 
         Title = "AI Features";
         var s = _settingsStore.Load();
