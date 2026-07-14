@@ -98,12 +98,15 @@ public sealed class WindowsRecordingController : IRecordingController
     /// <summary>Shows the session UI and warms the camera/mic. Idempotent-ish: re-arming re-shows.</summary>
     private Task ArmAsync(bool useRegion)
     {
-        // Warm the WEBCAM FIRST (longest cold-start), then the mic — both concurrent with the UI.
-        _webcamPrepare = PrepareWebcamAsync();
-        _micPrepare = PrepareMicAsync();
-
         return RunOnUiAsync(() =>
         {
+            // Warm up ON THE UI THREAD. MediaCapture has thread affinity: arming can be triggered
+            // from the region selector's own background thread, and that thread exits when the
+            // selector closes — so a mic/webcam initialized there would be dead by the time capture
+            // begins (silent audio). Kicking the prepares off here keeps them on the durable UI thread.
+            _webcamPrepare = PrepareWebcamAsync();
+            _micPrepare = PrepareMicAsync();
+
             // Show the control bar. (For region mode the interactive selector already shows the
             // area and stays editable until Start; the click-through bounds overlay is created when
             // recording actually begins.)

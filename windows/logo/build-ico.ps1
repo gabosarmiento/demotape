@@ -1,6 +1,7 @@
 # Builds a multi-resolution .ico (PNG-compressed frames) from a source PNG.
 param(
-    [string]$Source = "C:\Users\coras\demotape\demotape\windows\logo\demotape_windows_tray_icon_pngs\demotape_tray_icon_512.png",
+    # Current logo source (extracted from Resources/AppIcon.icns via extract-icns.ps1).
+    [string]$Source = "C:\Users\coras\demotape\demotape\windows\logo\demotape_logo_source.png",
     [string]$Out = "C:\Users\coras\demotape\demotape\windows\src\App\Assets\demotape.ico"
 )
 Add-Type -AssemblyName System.Drawing
