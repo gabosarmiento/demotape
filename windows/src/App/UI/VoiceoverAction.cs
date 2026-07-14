@@ -93,6 +93,9 @@ public sealed class VoiceoverAction
 
             progress.Report(0.1);
             var mp3 = await _voices.SynthesizeAsync(script, voice.Id, "eleven_multilingual_v2", key, ct);
+            // Keep a durable narration copy so the Avatar step can reuse the exact voice.
+            var narration = VoiceoverPlanner.NarrationPath(src);
+            try { File.Copy(mp3, narration, overwrite: true); } catch { }
             try
             {
                 progress.Report(0.5);

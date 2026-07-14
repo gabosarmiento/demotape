@@ -52,11 +52,14 @@ public static class VoiceoverPlanner
     /// <summary><c>…voiceover.mp4</c> beside the source (strips a <c>.styled</c> marker).</summary>
     public static string OutputPath(string video) => Beside(video, ".voiceover.mp4");
 
-    /// <summary>Durable narration audio path (<c>…voiceover.narration.m4a</c>) beside the source.</summary>
-    public static string NarrationPath(string video) => Beside(video, ".voiceover.narration.m4a");
+    /// <summary>Durable narration audio (<c>…voiceover.narration.mp3</c>) — kept for avatar reuse.</summary>
+    public static string NarrationPath(string video) => Beside(video, ".voiceover.narration.mp3");
 
     /// <summary><c>…captioned.mp4</c> beside the source.</summary>
     public static string CaptionedPath(string video) => Beside(video, ".captioned.mp4");
+
+    /// <summary><c>…avatar.mp4</c> beside the source.</summary>
+    public static string AvatarPath(string video) => Beside(video, ".avatar.mp4");
 
     /// <summary>Cached transcript path (<c>…transcript.json</c>) beside the source.</summary>
     public static string TranscriptPath(string video)

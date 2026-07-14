@@ -17,3 +17,13 @@ public interface IVoiceProvider
     /// <summary>Synthesizes <paramref name="text"/> and returns a temp audio file path (MP3).</summary>
     Task<string> SynthesizeAsync(string text, string voiceId, string model, string apiKey, CancellationToken ct = default);
 }
+
+/// <summary>Avatar-video backend (HeyGen); BYO key. Provider-agnostic so a second vendor can slot in.</summary>
+public interface IAvatarProvider
+{
+    Task<IReadOnlyList<AvatarDescriptor>> ListAvatarsAsync(string apiKey, CancellationToken ct = default);
+    Task<string> UploadAssetAsync(string filePath, string apiKey, CancellationToken ct = default);
+    Task<AvatarJob> CreateVideoAsync(AvatarGenerationRequest request, string idempotencyKey, string apiKey, CancellationToken ct = default);
+    Task<AvatarJobStatus> JobStatusAsync(string jobId, string apiKey, CancellationToken ct = default);
+    Task DownloadAsync(string resultUrl, string destinationPath, CancellationToken ct = default);
+}

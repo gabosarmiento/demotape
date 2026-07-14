@@ -72,4 +72,38 @@ public class AiTests
         var cues = new[] { new CaptionCue(0, 1, "Hello"), new CaptionCue(1, 2, "  "), new CaptionCue(2, 3, "there") };
         Assert.Equal("Hello there", VoiceoverPlanner.ScriptFromCues(cues));
     }
+
+    [Fact]
+    public void HeyGen_EncodeCreateBody_LibraryAvatar()
+    {
+        var req = new AvatarGenerationRequest(new AvatarSource.Library("av1"), "aud1", Engine: "avatar_iii");
+        var json = HeyGenApi.EncodeCreateBody(req);
+        Assert.Contains("\"type\":\"avatar\"", json);
+        Assert.Contains("\"avatar_id\":\"av1\"", json);
+        Assert.Contains("\"audio_asset_id\":\"aud1\"", json);
+        Assert.Contains("avatar_iii", json);
+    }
+
+    [Fact]
+    public void HeyGen_EncodeCreateBody_Photo()
+    {
+        var req = new AvatarGenerationRequest(new AvatarSource.Photo("img1"), "aud1", MotionPrompt: "wave");
+        var json = HeyGenApi.EncodeCreateBody(req);
+        Assert.Contains("\"type\":\"image\"", json);
+        Assert.Contains("\"asset_id\":\"img1\"", json);
+        Assert.Contains("wave", json);
+    }
+
+    [Fact]
+    public void HeyGen_ParseAvatars_And_Status()
+    {
+        var avatars = HeyGenApi.ParseAvatars("""{ "data": { "avatars": [ { "avatar_id":"a1","avatar_name":"Rae","premium":false } ] } }""");
+        Assert.Single(avatars);
+        Assert.Equal("Rae", avatars[0].Name);
+
+        Assert.IsType<AvatarJobStatus.Completed>(HeyGenApi.ParseStatus("""{ "data": { "status":"completed", "video_url":"https://x/v.mp4" } }"""));
+        Assert.IsType<AvatarJobStatus.Pending>(HeyGenApi.ParseStatus("""{ "data": { "status":"pending" } }"""));
+        Assert.IsType<AvatarJobStatus.Failed>(HeyGenApi.ParseStatus("""{ "data": { "status":"failed", "error": { "message":"nope" } } }"""));
+        Assert.Equal("v99", HeyGenApi.ParseVideoId("""{ "data": { "video_id":"v99" } }"""));
+    }
 }

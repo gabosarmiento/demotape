@@ -41,6 +41,8 @@ public static class ServiceRegistration
         services.AddTransient<CaptionBurner>();
         services.AddSingleton<AudioEnhancementService>();
         services.AddSingleton<AutoCutService>();
+        services.AddSingleton<IAvatarProvider, HeyGenAvatarProvider>();
+        services.AddTransient<AvatarCompositor>();
 
         // Shell wiring
         services.AddSingleton<IRecordingController, WindowsRecordingController>();

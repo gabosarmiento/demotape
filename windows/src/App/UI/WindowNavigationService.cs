@@ -111,11 +111,18 @@ public sealed class WindowNavigationService : INavigationService
 
     public void GenerateAvatar()
     {
+        var keys = _services.GetRequiredService<IKeyStore>();
+        if (!keys.Exists(KeyAccounts.HeyGen))
+        {
+            PromptEnable("Avatar Presenter", "Add a HeyGen API key in AI Settings to generate an avatar presenter.");
+            return;
+        }
         var latest = LatestOrPrompt();
         if (latest is null || !ShowSingleAction()) return;
-        ActionPreviewWindow.RenderDelegate stub = (_, _, _) => Task.FromResult<string?>(null);
-        Present(new ActionPreviewWindow("Avatar Presenter", latest, controls: null, stub, _interaction,
-            "Avatar presenter arrives in an upcoming update — HeyGen integration is next."));
+        var action = new AvatarAction(_settingsStore, keys,
+            _services.GetRequiredService<IAvatarProvider>(),
+            _services.GetRequiredService<AvatarCompositor>(), _interaction);
+        Present(action.Create(latest));
     }
 
     public void AutoCut()
