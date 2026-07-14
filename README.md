@@ -8,7 +8,8 @@ Record your screen and DemoTape turns it into a polished product demo — automa
 your clicks, a smooth cursor, a webcam bubble, captions, voiceover, even an AI presenter.
 It lives in your menu bar, runs fully on your Mac, and needs no account.
 
-Works on **macOS 12.3+**, Intel or Apple Silicon. Free and open source.
+Works on **macOS 12.3+** (Intel or Apple Silicon). A native **Windows 11** port is in the
+[`windows/`](windows/) folder — see [DemoTape on Windows](#demotape-on-windows). Free and open source.
 
 ---
 
@@ -139,6 +140,30 @@ Contributors and AI agents: see [`AGENTS.md`](AGENTS.md) for build/verify steps 
 > `swift build` fails with `no such module 'PackageDescription'`? Your Command Line Tools are
 > corrupted (common after a macOS upgrade). Reinstall with `xcode-select --install`, or install
 > full Xcode and run `sudo xcode-select -s /Applications/Xcode.app`.
+
+---
+
+## DemoTape on Windows
+
+There's a native **Windows 11** port in [`windows/`](windows/), built with **C# · .NET 8 ·
+WinUI 3 · Windows App SDK** — same idea (record → auto-styled demo → lightweight web MP4s),
+local-first, no accounts.
+
+It mirrors the macOS features: capture + auto-styled render, region/background framing, webcam
+PiP, captions, voiceover, avatar presenter, noise suppression, enhance voice, auto-cut, web
+publish, teleprompter, and branding. The business logic (Domain / Services / ViewModels) is
+pure `.NET` and unit-tested; only the app shell needs the Windows toolchain.
+
+```powershell
+cd windows
+dotnet test tests/DemoTape.Tests/DemoTape.Tests.csproj -c Release   # logic (only the .NET 8 SDK)
+dotnet run --project src/App/DemoTape.App.csproj -c Release         # full app (Windows App SDK)
+```
+
+Details and docs: [`windows/README.md`](windows/README.md) · [feature parity](windows/docs/FEATURE-PARITY.md)
+· [build](windows/docs/BUILD.md) · [user guide](windows/docs/USER-GUIDE.md).
+
+> The Windows port is catching up to the macOS app; the newest AI‑director work lands there next.
 
 ---
 
