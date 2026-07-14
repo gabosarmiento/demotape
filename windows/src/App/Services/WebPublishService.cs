@@ -67,19 +67,38 @@ public sealed class WebPublishService
             progress?.Report((double)done / sorted.Count);
         }
 
-        // Poster from a representative frame.
+        // Poster from a representative frame — best-effort. Use the smallest transcoded tier as the
+        // source (small + fast) rather than the multi-GB styled original, and never let a poster
+        // failure fail the whole publish (the tier MP4s are the essential output).
         var posterPath = Path.Combine(folder, "poster.jpg");
-        await _transcoder.SavePosterAsync(sourcePath, posterPath, sorted.Max(), ct).ConfigureAwait(false);
-        files.Add(posterPath);
+        var posterSource = files.Count > 0 ? files[0] : sourcePath;
+        try
+        {
+            await _transcoder.SavePosterAsync(posterSource, posterPath, sorted.Min(), ct).ConfigureAwait(false);
+            if (File.Exists(posterPath)) files.Add(posterPath);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Poster generation failed; continuing without a poster.");
+        }
 
-        // Responsive embed + README.
-        var embedPath = Path.Combine(folder, "embed.html");
-        await File.WriteAllTextAsync(embedPath, WebPublishPlanner.BuildEmbedHtml(sorted), ct).ConfigureAwait(false);
-        files.Add(embedPath);
+        // Responsive embed + README (best-effort; the MP4s are what matters).
+        try
+        {
+            var embedPath = Path.Combine(folder, "embed.html");
+            await File.WriteAllTextAsync(embedPath, WebPublishPlanner.BuildEmbedHtml(sorted), ct).ConfigureAwait(false);
+            files.Add(embedPath);
 
-        var readmePath = Path.Combine(folder, "README.txt");
-        await File.WriteAllTextAsync(readmePath, WebPublishPlanner.BuildReadme(sorted), ct).ConfigureAwait(false);
-        files.Add(readmePath);
+            var readmePath = Path.Combine(folder, "README.txt");
+            await File.WriteAllTextAsync(readmePath, WebPublishPlanner.BuildReadme(sorted), ct).ConfigureAwait(false);
+            files.Add(readmePath);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Embed/README generation failed; continuing.");
+        }
 
         _logger.LogInformation("Web publish complete: {Folder} ({Count} files)", folder, files.Count);
         return new WebPublishResult(folder, files);
