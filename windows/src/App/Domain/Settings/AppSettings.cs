@@ -69,5 +69,8 @@ public sealed class AppSettings
     /// <summary>On-device Enhance Voice (studio EQ + compressor) applied to the mic (off by default).</summary>
     public bool EnhanceVoice { get; set; }
 
+    /// <summary>Auto-zoom the styled render toward activity (clicks/typing). On by default.</summary>
+    public bool AutoZoom { get; set; } = true;
+
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 }

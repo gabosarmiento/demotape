@@ -60,7 +60,7 @@ public sealed class StyledVideoRenderer
             if (W <= 0 || H <= 0) { _logger.LogError("Styled render: unknown source size"); return null; }
             double durationSec = vp.Duration.TotalSeconds > 0 ? vp.Duration.TotalSeconds : meta.Duration;
 
-            var focus = new FocusTimeline(meta, maxZoom: 2.0);
+            var focus = new FocusTimeline(meta, maxZoom: settings.AutoZoom ? 2.0 : 1.0);
             var camera = new SpringCamera();
             double eventOffset = meta.EventTimeOffset ?? 0;
 

@@ -20,6 +20,7 @@ public sealed class WindowNavigationService : INavigationService
     private WebcamSettingsWindow? _webcamSettings;
     private AISettingsWindow? _aiSettings;
     private ActionPreviewWindow? _actionPreview;
+    private AboutWindow? _about;
 
     public WindowNavigationService(IServiceProvider services, WindowsUserInteraction interaction, ISettingsStore settingsStore)
     {
@@ -55,6 +56,14 @@ public sealed class WindowNavigationService : INavigationService
         _webcamSettings = new WebcamSettingsWindow(_settingsStore);
         _webcamSettings.Closed += (_, _) => _webcamSettings = null;
         _webcamSettings.Activate();
+    }
+
+    public void OpenAbout()
+    {
+        if (_about is not null) { _about.Activate(); return; }
+        _about = new AboutWindow();
+        _about.Closed += (_, _) => _about = null;
+        _about.Activate();
     }
 
     public void OpenAiSettings()

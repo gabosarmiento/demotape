@@ -174,6 +174,24 @@ public partial class App : Application
         menu.Items.Add(new MenuFlyoutItem { Text = "Open Recordings Folder", Command = shell.OpenRecordingsFolderCommand });
         menu.Items.Add(new MenuFlyoutSeparator());
 
+        // System Preferences submenu (checkable toggles, like the macOS app).
+        var sysPrefs = new MenuFlyoutSubItem { Text = "System Preferences" };
+        var loginToggle = MakeToggleItem("Open at Login",
+            () => Infrastructure.StartupRegistration.IsEnabled,
+            v => Infrastructure.StartupRegistration.SetEnabled(v));
+        var autoZoomToggle = MakeToggleItem("Auto-Zoom", () => shell.AutoZoom, v => shell.AutoZoom = v);
+        sysPrefs.Items.Add(loginToggle);
+        sysPrefs.Items.Add(autoZoomToggle);
+        menu.Items.Add(sysPrefs);
+        menu.Opening += (_, _) =>
+        {
+            loginToggle.IsChecked = Infrastructure.StartupRegistration.IsEnabled;
+            autoZoomToggle.IsChecked = shell.AutoZoom;
+        };
+
+        menu.Items.Add(new MenuFlyoutItem { Text = "About DemoTape", Command = shell.OpenAboutCommand });
+        menu.Items.Add(new MenuFlyoutSeparator());
+
         // Use Command, not Click: Click events don't fire inside the H.NotifyIcon tray flyout.
         var quit = new MenuFlyoutItem { Text = "Quit DemoTape", Command = new RelayCommand(Quit) };
         menu.Items.Add(quit);

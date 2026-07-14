@@ -49,4 +49,7 @@ public interface INavigationService
     void GenerateVoiceover();
     void GenerateAvatar();
     void AutoCut();
+
+    /// <summary>Opens the About panel (version, permissions, update check).</summary>
+    void OpenAbout();
 }

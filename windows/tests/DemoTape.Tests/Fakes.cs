@@ -96,4 +96,6 @@ internal sealed class FakeNavigation : INavigationService
     public void GenerateVoiceover() => Voiceover++;
     public void GenerateAvatar() => Avatar++;
     public void AutoCut() => AutoCutCount++;
+    public int About;
+    public void OpenAbout() => About++;
 }
