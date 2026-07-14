@@ -176,6 +176,9 @@ private final class CircleControl: NSView {
     let maxDiameter: CGFloat
     var clampBounds: CGRect = .zero
     var zoom: CGFloat { CGFloat(slider.doubleValue) }
+    /// Called after the circle is moved, resized, or zoomed (used by the live prepare preview to
+    /// persist WYSIWYG position/size immediately).
+    var onChange: (() -> Void)?
 
     private var dragStart: NSPoint = .zero
     private var startOrigin: NSPoint = .zero
@@ -249,6 +252,7 @@ private final class CircleControl: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         applyPreviewTransform()
         CATransaction.commit()
+        onChange?()
     }
 
     private func resize(by delta: CGFloat) {
@@ -256,6 +260,7 @@ private final class CircleControl: NSView {
         let d = min(max(frame.width + delta, minDiameter), maxDiameter)
         frame = NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
         layoutContents()
+        onChange?()
     }
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
@@ -275,6 +280,8 @@ private final class CircleControl: NSView {
         }
         setFrameOrigin(origin)
     }
+
+    override func mouseUp(with event: NSEvent) { onChange?() }
 }
 
 /// Resize knob showing the diagonal double-arrow icon.
@@ -382,5 +389,122 @@ private final class HoverButton: NSButton {
     override func mouseExited(with event: NSEvent) {
         setBackground(base: true)
         NSCursor.arrow.set()
+    }
+}
+
+// MARK: - Live camera preview during "prepare to record"
+
+/// A live camera bubble anchored inside the recording area (or the full screen) shown while you
+/// set up a recording, so you can frame yourself exactly where the webcam PiP will be baked in.
+/// Drag to move, corner handle to resize, slider to zoom — changes persist immediately and match
+/// the render 1:1. It's hidden the moment recording starts so it never lands in the capture.
+@available(macOS 12.3, *)
+final class WebcamPreviewOverlay {
+    private var panel: NSPanel?
+    private var session: AVCaptureSession?
+    private var circle: CircleControl?
+    private var anchorLocal: CGRect = .zero      // recording area in panel-content coords
+
+    var isVisible: Bool { panel != nil }
+
+    /// Show the bubble anchored inside `regionScreenRect` (screen coords, bottom-left origin).
+    /// Pass nil for full-screen capture (anchors to the whole main screen). No-op without camera
+    /// permission — recording will surface the permission prompt itself.
+    func show(in regionScreenRect: CGRect?) {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        guard let screen = NSScreen.main else { return }
+        if panel != nil { reanchor(to: regionScreenRect); return }
+        guard let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device) else { return }
+
+        let session = AVCaptureSession()
+        session.sessionPreset = .high
+        if session.canAddInput(input) { session.addInput(input) }
+        let preview = AVCaptureVideoPreviewLayer(session: session)
+        preview.videoGravity = .resizeAspectFill
+        session.startRunning()
+
+        let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.level = .floating
+        panel.hasShadow = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+
+        let content = PassthroughView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        content.wantsLayer = true
+
+        let local = localRect(for: regionScreenRect, screen: screen.frame)
+        anchorLocal = local
+
+        let d = CGFloat(Settings.webcamSize) * local.width
+        let circle = CircleControl(preview: preview, diameter: d,
+                                   minDiameter: max(60, 0.10 * local.width),
+                                   maxDiameter: 0.5 * local.width,
+                                   zoom: CGFloat(Settings.webcamZoom))
+        placeCircle(circle, diameter: d, in: local)
+        circle.clampBounds = local
+        circle.layoutContents()
+        circle.onChange = { [weak self] in self?.persist() }
+        content.interactive = circle
+        content.addSubview(circle)
+
+        panel.contentView = content
+        self.panel = panel
+        self.session = session
+        self.circle = circle
+        panel.orderFrontRegardless()
+    }
+
+    /// Re-anchor the bubble when the region is moved/resized while preparing.
+    private func reanchor(to regionScreenRect: CGRect?) {
+        guard let screen = NSScreen.main, let circle = circle else { return }
+        let local = localRect(for: regionScreenRect, screen: screen.frame)
+        anchorLocal = local
+        let d = CGFloat(Settings.webcamSize) * local.width
+        placeCircle(circle, diameter: d, in: local)
+        circle.clampBounds = local
+        circle.layoutContents()
+    }
+
+    func hide() {
+        session?.stopRunning(); session = nil
+        panel?.orderOut(nil); panel = nil
+        circle = nil
+    }
+
+    // MARK: Geometry (WYSIWYG with VideoRenderer.compositeWebcam)
+
+    private func localRect(for regionScreenRect: CGRect?, screen: CGRect) -> CGRect {
+        let r = regionScreenRect ?? screen
+        return CGRect(x: r.minX - screen.minX, y: r.minY - screen.minY, width: r.width, height: r.height)
+    }
+
+    private func placeCircle(_ circle: CircleControl, diameter d: CGFloat, in local: CGRect) {
+        let cx = local.minX + CGFloat(Settings.webcamPositionX) * local.width
+        let cy = local.maxY - CGFloat(Settings.webcamPositionY) * local.height   // Y is from the top
+        circle.frame = NSRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
+    }
+
+    private func persist() {
+        guard let circle = circle, anchorLocal.width > 0 else { return }
+        let posX = (circle.frame.midX - anchorLocal.minX) / anchorLocal.width
+        let posYFromTop = (anchorLocal.maxY - circle.frame.midY) / anchorLocal.height
+        Settings.webcamPositionX = Double(min(max(posX, 0), 1))
+        Settings.webcamPositionY = Double(min(max(posYFromTop, 0), 1))
+        Settings.webcamSize = Double(circle.frame.width / anchorLocal.width)
+        Settings.webcamZoom = Double(circle.zoom)
+    }
+}
+
+/// Content view that only claims clicks on the camera bubble, letting everything else fall through
+/// to the region overlay / desktop beneath it.
+@available(macOS 12.3, *)
+private final class PassthroughView: NSView {
+    weak var interactive: NSView?
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let c = interactive, c.frame.insetBy(dx: -8, dy: -8).contains(point) else { return nil }
+        return super.hitTest(point)
     }
 }

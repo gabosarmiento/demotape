@@ -16,12 +16,15 @@ enum AudioTrackIO {
         }
     }
 
-    /// Reads the first audio track into deinterleaved Float channels + sample rate.
-    static func readChannels(from asset: AVAsset) throws -> (channels: [[Float]], sampleRate: Double) {
+    /// Reads the first audio track into deinterleaved Float channels + sample rate. Pass
+    /// `forceSampleRate` to have the reader resample to a fixed rate (e.g. for models that
+    /// require a specific rate).
+    static func readChannels(from asset: AVAsset,
+                             forceSampleRate: Double? = nil) throws -> (channels: [[Float]], sampleRate: Double) {
         guard let track = asset.tracks(withMediaType: .audio).first else { throw IOError.noAudio }
         let desc = (track.formatDescriptions.first as! CMAudioFormatDescription)
         let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)!.pointee
-        let sampleRate = asbd.mSampleRate > 0 ? asbd.mSampleRate : 48000
+        let sampleRate = forceSampleRate ?? (asbd.mSampleRate > 0 ? asbd.mSampleRate : 48000)
         let channelCount = max(1, Int(asbd.mChannelsPerFrame))
 
         let reader = try AVAssetReader(asset: asset)
