@@ -75,6 +75,15 @@ public sealed class WindowNavigationService : INavigationService
         _branding.Activate();
     }
 
+    private TeleprompterSettingsWindow? _teleprompterSettings;
+    public void OpenTeleprompterSettings()
+    {
+        if (_teleprompterSettings is not null) { _teleprompterSettings.Activate(); return; }
+        _teleprompterSettings = new TeleprompterSettingsWindow(_settingsStore);
+        _teleprompterSettings.Closed += (_, _) => _teleprompterSettings = null;
+        _teleprompterSettings.Activate();
+    }
+
     public async void ChangeOutputDirectory()
     {
         var picker = new Windows.Storage.Pickers.FolderPicker();

@@ -42,6 +42,7 @@ public sealed class WindowsRecordingController : IRecordingController
     private RecordingBoundsOverlay? _bounds;
     private FullScreenBorderOverlay? _fullBorder;
     private RegionSelectorOverlay? _selector;
+    private TeleprompterWindow? _teleprompter;
 
     public RecordingState State { get; private set; } = RecordingState.Idle;
     public event Action<RecordingState>? StateChanged;
@@ -237,6 +238,13 @@ public sealed class WindowsRecordingController : IRecordingController
                     _bounds = new RecordingBoundsOverlay(settings.RegionX, settings.RegionY, settings.RegionW, settings.RegionH);
                 else
                     _fullBorder = new FullScreenBorderOverlay();
+
+                // Teleprompter (excluded from capture) — scrolls the script while recording.
+                if (settings.TeleprompterEnabled && !string.IsNullOrWhiteSpace(settings.TeleprompterScript))
+                {
+                    _teleprompter = new TeleprompterWindow(settings);
+                    _teleprompter.Activate();
+                }
                 return Task.CompletedTask;
             });
 
@@ -352,8 +360,9 @@ public sealed class WindowsRecordingController : IRecordingController
             try { _selector?.Dispose(); } catch { }
             try { _bounds?.Dispose(); } catch { }
             try { _fullBorder?.Dispose(); } catch { }
+            try { _teleprompter?.Close(); } catch { }
             try { _bar?.Close(); } catch { }
-            _selector = null; _bounds = null; _fullBorder = null; _bar = null;
+            _selector = null; _bounds = null; _fullBorder = null; _teleprompter = null; _bar = null;
         });
     }
 

@@ -149,6 +149,7 @@ public partial class App : Application
         capture.Items.Add(noiseToggle);
         capture.Items.Add(enhanceToggle);
         var brandingToggle = MakeToggleItem("Enable Branding", () => shell.EnableBranding, v => shell.EnableBranding = v);
+        var teleToggle = MakeToggleItem("Enable Teleprompter", () => shell.EnableTeleprompter, v => shell.EnableTeleprompter = v);
 
         // Keep the whole menu's checkable state in sync with the persisted settings whenever it
         // opens (the region selector, for instance, flips UseRegion in settings directly).
@@ -162,6 +163,7 @@ public partial class App : Application
             noiseToggle.IsChecked = shell.NoiseSuppression;
             enhanceToggle.IsChecked = shell.EnhanceVoice;
             brandingToggle.IsChecked = shell.EnableBranding;
+            teleToggle.IsChecked = shell.EnableTeleprompter;
         };
 
         capture.Items.Add(new MenuFlyoutSeparator());
@@ -174,6 +176,12 @@ public partial class App : Application
         branding.Items.Add(brandingToggle);
         branding.Items.Add(new MenuFlyoutItem { Text = "Branding Settings…", Command = shell.OpenBrandingSettingsCommand });
         menu.Items.Add(branding);
+
+        // Teleprompter submenu — a scrolling script while recording (never in the video).
+        var teleprompter = new MenuFlyoutSubItem { Text = "Teleprompter" };
+        teleprompter.Items.Add(teleToggle);
+        teleprompter.Items.Add(new MenuFlyoutItem { Text = "Teleprompter Settings…", Command = shell.OpenTeleprompterSettingsCommand });
+        menu.Items.Add(teleprompter);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // After Recording — post-processing actions (each opens a focused two-pane window).

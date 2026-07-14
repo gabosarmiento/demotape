@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.TeleprompterSettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="28" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" />
+            <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Teleprompter" FontSize="22" FontWeight="SemiBold" />
+        <CheckBox Grid.Row="1" x:Name="EnableBox" Content="Enable teleprompter while recording" />
+        <TextBox Grid.Row="2" x:Name="ScriptBox" AcceptsReturn="True" TextWrapping="Wrap"
+                 PlaceholderText="Paste or write your script…" MinHeight="180" />
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="20">
+            <StackPanel Width="200"><TextBlock Text="Scroll speed" /><Slider x:Name="SpeedSlider" Minimum="10" Maximum="120" /></StackPanel>
+            <StackPanel Width="200"><TextBlock Text="Font size" /><Slider x:Name="SizeSlider" Minimum="14" Maximum="48" /></StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+            <Button Content="Cancel" Click="OnCancel" />
+            <Button Content="Save" Style="{StaticResource AccentButtonStyle}" Click="OnSave" />
+        </StackPanel>
+    </Grid>
+</Window>

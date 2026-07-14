@@ -58,4 +58,7 @@ public interface INavigationService
 
     /// <summary>Prompts for a new recordings output directory.</summary>
     void ChangeOutputDirectory();
+
+    /// <summary>Opens the teleprompter settings (script + speed/size).</summary>
+    void OpenTeleprompterSettings();
 }

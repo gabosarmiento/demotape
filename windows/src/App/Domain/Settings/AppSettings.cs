@@ -75,6 +75,13 @@ public sealed class AppSettings
     /// <summary>Custom recordings output directory (empty = default %USERPROFILE%\Videos\DemoTape).</summary>
     public string OutputDirectoryOverride { get; set; } = "";
 
+    // ---- Teleprompter (on-screen scrolling script during recording; excluded from capture) ----
+    public bool TeleprompterEnabled { get; set; }
+    public string TeleprompterScript { get; set; } = "";
+    /// <summary>Scroll speed in pixels/second.</summary>
+    public double TeleprompterSpeed { get; set; } = 40;
+    public double TeleprompterFontSize { get; set; } = 26;
+
     // ---- Branding / watermark ----
 
     /// <summary>Bake a logo watermark into the styled output.</summary>

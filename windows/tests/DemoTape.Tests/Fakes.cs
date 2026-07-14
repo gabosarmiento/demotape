@@ -97,8 +97,9 @@ internal sealed class FakeNavigation : INavigationService
     public void GenerateVoiceover() => Voiceover++;
     public void GenerateAvatar() => Avatar++;
     public void AutoCut() => AutoCutCount++;
-    public int About, Branding, OutputDir;
+    public int About, Branding, OutputDir, Teleprompter;
     public void OpenAbout() => About++;
     public void OpenBrandingSettings() => Branding++;
     public void ChangeOutputDirectory() => OutputDir++;
+    public void OpenTeleprompterSettings() => Teleprompter++;
 }
