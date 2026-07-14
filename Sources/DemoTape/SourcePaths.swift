@@ -1,14 +1,30 @@
 import Foundation
 
-/// Derives sibling output locations for a working source file, independent of any Project model.
-/// This lets the Studio operate on **any** file the user picks (even one outside the DemoTape
-/// folder) — outputs are always written next to the source, keyed off a clean base name.
+/// Derives the output locations for a working source file. This is the single authority for the
+/// per-recording folder layout: **finished** outputs (styled/captioned/voiceover/avatar/template
+/// and the `-web` bundle) go at the recording-folder root; the **raw capture + support sidecars**
+/// (mov, cam.mov, events/transcript/srt/vtt) live in a hidden `.source/` subfolder.
+///
+/// It works whether the passed `source` is a final at the root or the raw file inside `.source/`
+/// (both resolve to the same recording root), and it degrades gracefully for arbitrary files the
+/// user picks from outside the DemoTape folder.
 struct SourcePaths {
     let source: URL
 
     private static let derivativeMarkers = [".styled", ".tight", ".voiceover", ".captioned", ".avatar"]
 
-    var directory: URL { source.deletingLastPathComponent() }
+    /// The recording folder (finals live here). If `source` sits inside a `.source/` subfolder,
+    /// the root is that subfolder's parent; otherwise it's the source's own directory.
+    var recordingRoot: URL {
+        let dir = source.deletingLastPathComponent()
+        return dir.lastPathComponent == ".source" ? dir.deletingLastPathComponent() : dir
+    }
+
+    /// Hidden subfolder holding the raw capture and support sidecars.
+    var sourceDir: URL { recordingRoot.appendingPathComponent(".source", isDirectory: true) }
+
+    /// Directory where finished outputs are written (the recording root).
+    var directory: URL { recordingRoot }
 
     /// The source file name without its extension or any known derivative marker, e.g.
     /// `DemoTape … 01.57.51` from `DemoTape … 01.57.51.styled.tight.mp4`.
@@ -25,7 +41,16 @@ struct SourcePaths {
         return b
     }
 
-    /// An output beside the source, e.g. `output(suffix: "tight")` → `<base>.tight.mp4`.
+    /// Ensures the hidden `.source/` subfolder exists (call before writing support files).
+    @discardableResult
+    func ensureSourceDir() -> URL {
+        try? FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        return sourceDir
+    }
+
+    // MARK: - Finished outputs (recording root)
+
+    /// An output at the recording root, e.g. `output(suffix: "tight")` → `<base>.tight.mp4`.
     func output(suffix: String, ext: String = "mp4") -> URL {
         directory.appendingPathComponent("\(base).\(suffix).\(ext)")
     }
@@ -35,22 +60,29 @@ struct SourcePaths {
         directory.appendingPathComponent("\(base)-\(id).mp4")
     }
 
-    /// The recording's webcam sidecar (`<base>.cam.mov`) if it exists.
-    var camera: URL? {
-        let c = directory.appendingPathComponent("\(base).cam.mov")
-        return FileManager.default.fileExists(atPath: c.path) ? c : nil
+    // MARK: - Support sidecars (.source/)
+
+    /// Location (may not exist yet) of a support sidecar in `.source/`.
+    func supportURL(_ suffix: String) -> URL { sourceDir.appendingPathComponent("\(base).\(suffix)") }
+
+    var rawURL: URL { supportURL("mov") }
+    var cameraURL: URL { supportURL("cam.mov") }
+    var eventsURL: URL { supportURL("events.json") }
+    var transcriptURL: URL { supportURL("transcript.json") }
+    var srtURL: URL { supportURL("srt") }
+    var vttURL: URL { supportURL("vtt") }
+
+    private func existing(_ url: URL) -> URL? {
+        FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// The recording's event-timeline sidecar (`<base>.events.json`) if it exists.
-    var events: URL? {
-        let e = directory.appendingPathComponent("\(base).events.json")
-        return FileManager.default.fileExists(atPath: e.path) ? e : nil
-    }
+    /// The recording's webcam sidecar (`.source/<base>.cam.mov`) if it exists.
+    var camera: URL? { existing(cameraURL) }
 
-    /// The original raw screen recording (`<base>.mov`) if it exists — the director composes
-    /// from this (a clean screen with no baked-in webcam) rather than the styled master.
-    var rawRecording: URL? {
-        let r = directory.appendingPathComponent("\(base).mov")
-        return FileManager.default.fileExists(atPath: r.path) ? r : nil
-    }
+    /// The recording's event-timeline sidecar (`.source/<base>.events.json`) if it exists.
+    var events: URL? { existing(eventsURL) }
+
+    /// The original raw screen recording (`.source/<base>.mov`) if it exists — the director
+    /// composes from this (a clean screen with no baked-in webcam) rather than the styled master.
+    var rawRecording: URL? { existing(rawURL) }
 }

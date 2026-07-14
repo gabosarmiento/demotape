@@ -241,15 +241,7 @@ final class WebPublishController: NSObject, NSWindowDelegate {
     }
 
     static func latestStyled() -> URL? {
-        let dir = Paths.outputDirectory
-        guard let items = try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return nil }
-        return items.filter { $0.lastPathComponent.hasSuffix(".styled.mp4") }
-            .sorted {
-                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                return a > b
-            }.first
+        RecordingLayout.latestFinal(suffix: ".styled.mp4")
     }
 
     func windowWillClose(_ notification: Notification) { window = nil }

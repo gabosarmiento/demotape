@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+        RecordingLayout.migrateFlatRecordings()   // group any older flat recordings into folders
         LaunchLocationGuard.check()   // warn if we're translocated / outside /Applications
         Notifier.shared.setup()   // ask for notification permission on first launch
         // Brand the app icon (used by Finder and by NSAlert dialogs).
@@ -207,6 +208,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let openFolder = NSMenuItem(title: "Open", action: #selector(openRecordingsFolder), keyEquivalent: "o")
         openFolder.target = self
         folderMenu.addItem(openFolder)
+        let revealLatest = NSMenuItem(title: "Reveal Latest Export",
+                                      action: #selector(revealLatestExport), keyEquivalent: "")
+        revealLatest.target = self
+        folderMenu.addItem(revealLatest)
         let changeDir = NSMenuItem(title: "Change Output Directory…",
                                    action: #selector(changeOutputDirectory), keyEquivalent: "")
         changeDir.target = self
@@ -487,13 +492,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Renders the styled output next to the raw recording. Returns the styled URL,
     /// or nil if the sidecar/render failed (caller falls back to the raw file).
     private func renderStyled(from raw: URL, camera: URL?, style: VideoRenderer.Style) -> URL? {
-        let sidecar = raw.deletingPathExtension().appendingPathExtension("events.json")
+        let paths = SourcePaths(source: raw)
+        let sidecar = paths.eventsURL                       // .source/<base>.events.json
         do {
             let data = try Data(contentsOf: sidecar)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let metadata = try decoder.decode(RecordingMetadata.self, from: data)
-            let styled = raw.deletingPathExtension().appendingPathExtension("styled.mp4")
+            let styled = paths.output(suffix: "styled")     // recording-folder root
             try VideoRenderer().render(videoURL: raw, metadata: metadata, cameraURL: camera, to: styled, style: style)
             return styled
         } catch {
@@ -504,6 +510,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openRecordingsFolder() {
         NSWorkspace.shared.open(Paths.outputDirectory)
+    }
+
+    /// Reveals the newest shareable output in Finder — the Web Publish bundle if one exists for the
+    /// latest recording, otherwise the styled export (falling back to opening the folder).
+    @objc private func revealLatestExport() {
+        guard let latest = latestRecording() else {
+            NSWorkspace.shared.open(Paths.outputDirectory); return
+        }
+        let root = SourcePaths(source: latest).recordingRoot
+        let base = SourcePaths(source: latest).base
+        let web = root.appendingPathComponent("\(base)-web", isDirectory: true)
+        if FileManager.default.fileExists(atPath: web.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([web])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([latest])
+        }
     }
 
     @objc private func openAbout() {
@@ -566,19 +588,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && latestVoiceover() != nil
     }
 
-    /// Newest `…voiceover.mp4` whose narration sidecar still exists.
+    /// Newest `…voiceover.mp4` whose narration sidecar still exists, across per-recording folders.
     private func latestVoiceover() -> URL? {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(
-            at: Paths.outputDirectory, includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]) else { return nil }
-        func modified(_ u: URL) -> Date {
-            (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        RecordingLayout.latestFinal(suffix: ".voiceover.mp4") { url in
+            FileManager.default.fileExists(
+                atPath: url.deletingPathExtension().appendingPathExtension("narration.m4a").path)
         }
-        return items
-            .filter { $0.lastPathComponent.hasSuffix(".voiceover.mp4") }
-            .filter { fm.fileExists(atPath: $0.deletingPathExtension().appendingPathExtension("narration.m4a").path) }
-            .max { modified($0) < modified($1) }
     }
 
     @objc private func generateAvatarPresenter() {
@@ -695,22 +710,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Captions (AI, bring-your-own-key)
 
-    /// Newest playable recording in the output folder (prefers the styled export).
-    private func latestRecording() -> URL? {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(
-            at: Paths.outputDirectory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]) else { return nil }
-        let videos = items.filter { ["mp4", "mov"].contains($0.pathExtension.lowercased())
-            && !$0.lastPathComponent.hasSuffix(".cam.mov") }
-        func modified(_ u: URL) -> Date {
-            (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-        }
-        // Prefer a styled export if one exists among the newest files.
-        let styled = videos.filter { $0.lastPathComponent.hasSuffix(".styled.mp4") }
-        return (styled.isEmpty ? videos : styled).max { modified($0) < modified($1) }
-    }
+    /// Newest playable recording (prefers the styled export), across per-recording folders.
+    private func latestRecording() -> URL? { RecordingLayout.latestRecording() }
 
     private var voiceoverActionController: VoiceoverActionController?
     @objc private func generateVoiceover() {

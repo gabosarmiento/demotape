@@ -184,8 +184,11 @@ final class VoiceoverActionController: ActionPreviewController {
     /// Pre-fills the script from an existing `.srt` sidecar (stripping timings), so a transcribed
     /// narration can be cleaned up and re-voiced. Empty if none exists.
     static func prefillScript(for video: URL) -> String {
-        let srt = video.deletingPathExtension().appendingPathExtension("srt")
-        guard let raw = try? String(contentsOf: srt, encoding: .utf8) else { return "" }
+        let candidates = [SourcePaths(source: video).srtURL,
+                          video.deletingPathExtension().appendingPathExtension("srt")]   // legacy fallback
+        guard let raw = candidates.lazy.compactMap({ try? String(contentsOf: $0, encoding: .utf8) }).first else {
+            return ""
+        }
         let lines = raw.components(separatedBy: .newlines).filter { line in
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.isEmpty { return false }
