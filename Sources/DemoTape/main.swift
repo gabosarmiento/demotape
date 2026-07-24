@@ -402,32 +402,7 @@ if let i = args.firstIndex(of: "--gif"), args.count > i + 4 {
     }
 }
 
-// Issuer: generate the license signing keypair (one-time).  DemoTape --license-keygen [--force]
-// Saves the private key on THIS machine and prints the public key to paste into License.swift.
-if args.contains("--license-keygen") {
-    do {
-        let pub = try LicenseSigner.generateKeypair(force: args.contains("--force"))
-        print("Paste this into License.publicKeyBase64 in Sources/DemoTape/License.swift, then rebuild:\n")
-        print(pub)
-        print("\nPrivate signing key stored at:\n\(LicenseSigner.privateKeyURL.path)")
-        print("Keep it safe and never commit it. Issue licenses with:  DemoTape --gen-license \"Friend Name\"")
-        exit(0)
-    } catch {
-        FileHandle.standardError.write("license-keygen error: \(error.localizedDescription)\n".data(using: .utf8)!)
-        exit(1)
-    }
-}
 
-// Issuer: mint a signed license for someone.  DemoTape --gen-license "Friend Name"
-if let i = args.firstIndex(of: "--gen-license"), args.count > i + 1 {
-    do {
-        print(try LicenseSigner.issue(name: args[i + 1]))
-        exit(0)
-    } catch {
-        FileHandle.standardError.write("gen-license error: \(error.localizedDescription)\n".data(using: .utf8)!)
-        exit(1)
-    }
-}
 
 // Headless transcode test:  DemoTape --transcode <input> <height> <output.mp4>
 if let i = args.firstIndex(of: "--transcode"), args.count > i + 3 {
