@@ -97,7 +97,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inputItem = NSMenuItem(title: "Input", action: nil, keyEquivalent: "")
         let inputMenu = NSMenu(); inputMenu.autoenablesItems = false
         inputMenu.addItem(micItem)
+        // System audio: native (SCK) capture, shown ONLY where the OS supports it (macOS 13+).
+        // On older systems it's intentionally absent — system audio there goes through a loopback
+        // device chosen in Audio Source, so we never show a toggle that can't be real.
+        if SystemAudio.isSupported {
+            let sysAudio = NSMenuItem(title: "Record System Audio",
+                                      action: #selector(toggleSystemAudio), keyEquivalent: "")
+            sysAudio.target = self
+            sysAudio.state = Settings.captureSystemAudio ? .on : .off
+            self.systemAudioItem = sysAudio
+            inputMenu.addItem(sysAudio)
+        }
         inputMenu.addItem(webcamItem)
+
+        // Audio Source: pick which audio INPUT device the mic toggle records — a real mic, or a
+        // loopback driver (BlackHole/Loopback) to capture system audio. Rebuilt on open.
+        let audioSourceItem = NSMenuItem(title: "Audio Source", action: nil, keyEquivalent: "")
+        let audioSourceMenu = NSMenu(); audioSourceMenu.autoenablesItems = false
+        audioSourceMenu.delegate = self
+        audioSourceItem.submenu = audioSourceMenu
+        self.audioSourceMenu = audioSourceMenu
+        inputMenu.addItem(audioSourceItem)
         inputMenu.addItem(.separator())
         // Smart noise suppression: a toggle that reveals a 0–100% strength slider.
         let noiseItem = NSMenuItem(title: "Smart Noise Suppression",
@@ -1051,6 +1071,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Smart noise suppression (menu control)
 
     private var inputMenu: NSMenu?
+    private var audioSourceMenu: NSMenu?
+    private weak var systemAudioItem: NSMenuItem?
     private var noiseToggleItem: NSMenuItem?
     private var enhanceToggleItem: NSMenuItem?
 
@@ -1298,8 +1320,61 @@ extension AppDelegate: NSMenuDelegate {
         if menu === inputMenu {
             noiseToggleItem?.state = Settings.noiseSuppressionEnabled ? .on : .off
             enhanceToggleItem?.state = Settings.enhanceVoiceEnabled ? .on : .off
+            systemAudioItem?.state = Settings.captureSystemAudio ? .on : .off
+            return
+        }
+        if menu === audioSourceMenu {
+            rebuildAudioSourceMenu(menu)
             return
         }
         refreshAIMenuItems()
     }
+
+    /// Rebuilds the Audio Source list each time it opens: "System Default" plus every connected
+    /// audio input device, with a checkmark on the current choice. Loopback drivers are labelled
+    /// so users recording system audio can spot them; if none is installed, a hint links to setup.
+    private func rebuildAudioSourceMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let selectedID = Settings.audioInputDeviceID
+
+        let defaultItem = NSMenuItem(title: "System Default", action: #selector(selectAudioSource(_:)), keyEquivalent: "")
+        defaultItem.target = self
+        defaultItem.representedObject = ""
+        defaultItem.state = selectedID.isEmpty ? .on : .off
+        menu.addItem(defaultItem)
+        menu.addItem(.separator())
+
+        let devices = AudioDevices.inputs()
+        if devices.isEmpty {
+            let none = NSMenuItem(title: "No audio inputs found", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        }
+        for device in devices {
+            let label = AudioDevices.looksLikeLoopback(device)
+                ? "\(device.localizedName)  (system audio)" : device.localizedName
+            let item = NSMenuItem(title: label, action: #selector(selectAudioSource(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = device.uniqueID
+            item.state = (device.uniqueID == selectedID) ? .on : .off
+            menu.addItem(item)
+        }
+
+    }
+
+    @objc private func toggleSystemAudio() {
+        Settings.captureSystemAudio.toggle()
+        systemAudioItem?.state = Settings.captureSystemAudio ? .on : .off
+    }
+
+    @objc private func selectAudioSource(_ sender: NSMenuItem) {
+        Settings.audioInputDeviceID = (sender.representedObject as? String) ?? ""
+        // Recording the loopback device requires the mic path to be on.
+        if !Settings.audioInputDeviceID.isEmpty, !Settings.captureMicrophone {
+            Settings.captureMicrophone = true
+            micItem.state = .on
+            recorderBar?.updateMic(true)
+        }
+    }
+
 }
