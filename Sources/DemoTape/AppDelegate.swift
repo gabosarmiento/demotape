@@ -180,67 +180,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(teleprompterItem)
         menu.addItem(.separator())
 
-        // --- After recording (tighten → AI → publish) ---
+        // --- Create with AI (generative — makes a new demo, not post-processing a take) ---
+        let composeItem = NSMenuItem(title: "Create Demo with AI…",
+                                     action: #selector(openDemoComposer), keyEquivalent: "")
+        composeItem.target = self
+        menu.addItem(composeItem)
+        menu.addItem(.separator())
+
+        // --- After recording (flat, in-order; AI steps are opt-in, enabled from AI Settings) ---
         menu.addItem(sectionHeader("After Recording"))
 
-        let tightenItem = NSMenuItem(title: "Auto-Cut & Speed Up Latest…",
+        let tightenItem = NSMenuItem(title: "Auto-Cut…",
                                      action: #selector(openTighten), keyEquivalent: "")
         tightenItem.target = self
         menu.addItem(tightenItem)
 
-        // AI Features submenu (opt-in, bring-your-own-key).
-        let aiItem = NSMenuItem(title: "AI Features", action: nil, keyEquivalent: "")
-        let aiMenu = NSMenu()
-        aiMenu.autoenablesItems = false
-        let aiSettings = NSMenuItem(title: "AI Settings…",
-                                    action: #selector(openAISettings), keyEquivalent: "")
-        aiSettings.target = self
-        aiMenu.addItem(aiSettings)
-        aiMenu.addItem(.separator())
-        let captionsItem = NSMenuItem(title: "Generate Captions for Latest…",
+        let captionsItem = NSMenuItem(title: "Add Captions…",
                                       action: #selector(generateCaptions), keyEquivalent: "")
         captionsItem.target = self
-        aiMenu.addItem(captionsItem)
-        let voiceoverItem = NSMenuItem(title: "Generate Voiceover for Latest…",
+        menu.addItem(captionsItem)
+
+        let voiceoverItem = NSMenuItem(title: "Add Voiceover…",
                                        action: #selector(generateVoiceover), keyEquivalent: "")
         voiceoverItem.target = self
-        aiMenu.addItem(voiceoverItem)
+        menu.addItem(voiceoverItem)
 
-        let avatarItem = NSMenuItem(title: "Generate Avatar Presenter for Latest…",
+        let avatarItem = NSMenuItem(title: "Generate Avatar…",
                                     action: #selector(generateAvatarPresenter), keyEquivalent: "")
         avatarItem.target = self
-        aiMenu.addItem(avatarItem)
+        menu.addItem(avatarItem)
         self.avatarMenuItem = avatarItem
 
-        aiMenu.addItem(.separator())
-        let briefItem = NSMenuItem(title: "Explain Latest to AI…",
+        let briefItem = NSMenuItem(title: "Share Recording for AI…",
                                    action: #selector(explainToAI), keyEquivalent: "")
         briefItem.target = self
-        aiMenu.addItem(briefItem)
+        menu.addItem(briefItem)
         self.briefMenuItem = briefItem
 
-        let composeItem = NSMenuItem(title: "Create Demo with AI…",
-                                     action: #selector(openDemoComposer), keyEquivalent: "")
-        composeItem.target = self
-        aiMenu.addItem(composeItem)
-
-        aiItem.submenu = aiMenu
-        // Enable each action only when its feature is turned on with a key ready. The delegate
-        // refreshes this every time the submenu opens.
-        self.captionsMenuItem = captionsItem
-        self.voiceoverMenuItem = voiceoverItem
-        aiMenu.delegate = self
-        menu.addItem(aiItem)
-
-        let autoEditItem = NSMenuItem(title: "Auto-Edit Latest…",
+        let autoEditItem = NSMenuItem(title: "Auto-Edit…",
                                       action: #selector(openAutoEdit), keyEquivalent: "")
         autoEditItem.target = self
         menu.addItem(autoEditItem)
 
-        let publishItem = NSMenuItem(title: "Web Publish Latest…",
+        menu.addItem(.separator())
+
+        let publishItem = NSMenuItem(title: "Web Publish…",
                                      action: #selector(openWebPublish), keyEquivalent: "")
         publishItem.target = self
         menu.addItem(publishItem)
+
+        // The AI actions (captions/voiceover/avatar/brief) enable only when configured in AI
+        // Settings; the main menu's delegate re-gates them each time it opens.
+        self.captionsMenuItem = captionsItem
+        self.voiceoverMenuItem = voiceoverItem
+        menu.delegate = self
+
         menu.addItem(.separator())
 
         // --- Utility ---
@@ -265,6 +259,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // --- System Preferences (submenu of checkable toggles, like Input) ---
         let sysItem = NSMenuItem(title: "System Preferences", action: nil, keyEquivalent: "")
         let sysMenu = NSMenu(); sysMenu.autoenablesItems = false
+
+        // AI Settings lives here — it's where captions / voiceover / avatar get their keys and are
+        // enabled; the "After Recording" items above stay greyed until that's done.
+        let aiSettings = NSMenuItem(title: "AI Settings…",
+                                    action: #selector(openAISettings), keyEquivalent: "")
+        aiSettings.target = self
+        sysMenu.addItem(aiSettings)
+        sysMenu.addItem(.separator())
 
         let loginToggle = NSMenuItem(title: "Launch DemoTape at Login",
                                      action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
@@ -310,7 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Items disabled while a recording is in progress (disabling a submenu's parent
         // greys the whole submenu).
         whileIdleItems = [fullScreenItem, selectAreaItem, inputItem, backgroundItem,
-                          teleprompterItem, brandingItem, tightenItem, aiItem, autoEditItem,
+                          teleprompterItem, brandingItem, composeItem, tightenItem,
+                          captionsItem, voiceoverItem, avatarItem, briefItem, autoEditItem,
                           publishItem, changeDir]
 
         statusItem.menu = menu
