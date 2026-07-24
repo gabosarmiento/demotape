@@ -27,6 +27,11 @@ final class RecordingEngine {
     /// Populated after stop() if a webcam was recorded.
     private(set) var lastCameraURL: URL?
 
+    /// System-audio capture (macOS 13+). Populated after stop() when a sidecar was written.
+    private(set) var lastSystemAudioURL: URL?
+    private var systemAudioRecorder: SystemAudioRecorder?
+    private var pendingSystemAudioURL: URL?
+
     private func requestPermission(_ type: AVMediaType) async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: type) {
         case .authorized: return true
@@ -101,10 +106,10 @@ final class RecordingEngine {
             webcamPrepared = cameraRecorder.prepare(withMicrophone: wantMic)
             micInCamera = webcamPrepared && wantMic
         }
-        if wantMic, !micInCamera, let mic = AVCaptureDevice.default(for: .audio),
+        if wantMic, !micInCamera, let mic = AudioDevices.selected(),
            let micInput = try? AVCaptureDeviceInput(device: mic), session.canAddInput(micInput) {
             session.addInput(micInput)
-            Log.write("prepare(): microphone in screen session")
+            Log.write("prepare(): audio input '\(mic.localizedName)' in screen session")
         }
 
         let output = AVCaptureMovieFileOutput()
@@ -139,6 +144,21 @@ final class RecordingEngine {
         eventStartDate = Date()
         eventRecorder.start(displayID: displayID, region: regionRect)
 
+        // System audio (macOS 13+ only): capture to a sidecar alongside the recording. Entirely
+        // optional and quarantined — any failure here must never break the screen recording.
+        lastSystemAudioURL = nil
+        if Settings.captureSystemAudio, let recorder = SystemAudio.makeRecorder() {
+            let sidecar = SystemAudio.sidecarURL(for: url)
+            do {
+                try recorder.start(to: sidecar)
+                systemAudioRecorder = recorder
+                pendingSystemAudioURL = sidecar
+            } catch {
+                Log.write("beginRecording(): system audio unavailable (\(error.localizedDescription))")
+                systemAudioRecorder = nil
+            }
+        }
+
         self.outputURL = url
         self.isRecording = true
         isPrepared = false
@@ -159,6 +179,20 @@ final class RecordingEngine {
         }
         recordingDelegate.onFinish = nil
         session.stopRunning()
+
+        // Finalize the system-audio sidecar (if capturing), then expose it for the render mix.
+        if let recorder = systemAudioRecorder {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                recorder.stop { continuation.resume() }
+            }
+            systemAudioRecorder = nil
+            if let sidecar = pendingSystemAudioURL,
+               FileManager.default.fileExists(atPath: sidecar.path) {
+                lastSystemAudioURL = sidecar
+                Log.write("stop(): system audio sidecar → \(sidecar.lastPathComponent)")
+            }
+            pendingSystemAudioURL = nil
+        }
 
         // Stop the webcam recording (if any) and keep its URL for the renderer.
         let camStart = cameraRecorder.startDate

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Hardened-runtime entitlements for a NON-sandboxed, Developer ID–distributed menu-bar app.
+      DemoTape is deliberately not App-Sandboxed (it captures the whole screen and drives the
+      cursor), so there is no com.apple.security.app-sandbox key here.
+
+      Screen Recording and Accessibility have NO entitlement — they are granted at runtime via
+      the TCC privacy prompts. Only the capabilities below need to be declared so the hardened
+      runtime does not silently deny them; the matching NS*UsageDescription strings live in
+      Info.plist.
+    -->
+
+    <!-- Webcam bubble (AVCaptureDevice video). -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
+    <!-- Microphone capture. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- The login-item fallback drives System Events via Apple Events (see LoginItem.swift). -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

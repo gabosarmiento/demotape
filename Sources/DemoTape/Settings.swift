@@ -54,6 +54,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "captureMicrophone") }
     }
 
+    /// Capture system (output) audio natively. Only meaningful on macOS 13+ (SCK); the UI hides the
+    /// toggle on older systems, where system audio is captured via a loopback device instead.
+    static var captureSystemAudio: Bool {
+        get { defaults.object(forKey: "captureSystemAudio") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "captureSystemAudio") }
+    }
+
     /// Smart noise suppression: clean steady background noise from the mic during the styled
     /// render. Simple on/off; applied at a fixed strong level. On-device (Accelerate), no network.
     static var noiseSuppressionEnabled: Bool {
@@ -224,6 +231,12 @@ enum Settings {
     static var sttModel: String {
         get { defaults.string(forKey: "sttModel") ?? "whisper-1" }
         set { defaults.set(newValue, forKey: "sttModel") }
+    }
+    /// Chosen audio **input** device `uniqueID` for recording ("" = system default). Set this to a
+    /// loopback driver (BlackHole/Loopback) to capture system audio on older macOS.
+    static var audioInputDeviceID: String {
+        get { defaults.string(forKey: "audioInputDeviceID") ?? "" }
+        set { defaults.set(newValue, forKey: "audioInputDeviceID") }
     }
     /// Optional ISO-639-1 language hint for transcription ("" = auto-detect).
     static var sttLanguage: String {

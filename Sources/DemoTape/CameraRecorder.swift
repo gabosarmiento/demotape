@@ -31,10 +31,10 @@ final class CameraRecorder {
             // ~12fps in low light, which makes the overlay look laggy/choppy.
             configureFor30fps(device)
 
-            if withMicrophone, let mic = AVCaptureDevice.default(for: .audio),
+            if withMicrophone, let mic = AudioDevices.selected(),
                let micInput = try? AVCaptureDeviceInput(device: mic), session.canAddInput(micInput) {
                 session.addInput(micInput)
-                Log.write("CameraRecorder: microphone added (shared clock)")
+                Log.write("CameraRecorder: audio input '\(mic.localizedName)' added (shared clock)")
             }
 
             let output = AVCaptureMovieFileOutput()
