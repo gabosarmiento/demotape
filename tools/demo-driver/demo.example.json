@@ -1,0 +1,30 @@
+{
+  "//": "Scene-synced, self-verifying demo. Each scene: `say` (spoken while it plays), `steps` (Playwright actions), and `expect` (the post-condition that proves the action worked — asserted at record time). After rendering, a vision model also checks each frame matches its line. On any failure the driver retries.",
+  "url": "https://playwright.dev/",
+  "viewport": { "x": 120, "y": 90, "width": 1280, "height": 800 },
+  "stepPauseMs": 900,
+  "voiceId": "",
+  "showCursor": true,
+  "osClick": false,
+  "maxAttempts": 2,
+  "verify": true,
+  "scenes": [
+    {
+      "say": "Okay, let me show you around real quick. This is the Playwright site.",
+      "steps": [ { "action": "wait", "ms": 1500 } ]
+    },
+    {
+      "say": "First thing I'll do is jump into the docs, so I'll click Get started up here.",
+      "steps": [ { "action": "click", "selector": "text=Get started" } ],
+      "expect": { "urlContains": "/docs", "visible": "text=Installation" }
+    },
+    {
+      "say": "And now let me scroll down a bit, so you can see how the guide is laid out. Pretty clean, right?",
+      "steps": [ { "action": "scroll", "y": 700 }, { "action": "wait", "ms": 600 }, { "action": "scroll", "y": 500 } ]
+    },
+    {
+      "say": "And that's the quick tour. You point, you click, you read — and you're up and running.",
+      "steps": [ { "action": "wait", "ms": 800 } ]
+    }
+  ]
+}

@@ -9,9 +9,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKey = GlobalHotKey()
 
     private enum State { case idle, countdown, recording, rendering }
-    private var state: State = .idle { didSet { refreshUI(); updateRecorderBarForState() } }
+    private var state: State = .idle { didSet { refreshUI(); updateRecorderBarForState(); writeControlStatus() } }
+    /// Absolute path of the most recent finished video, surfaced in the control status file.
+    private var lastOutputPath: String?
+    /// True while a recording was initiated by the external control surface — suppresses all
+    /// DemoTape on-screen chrome (recorder bar, region border, teleprompter) for a clean capture.
+    private var controlDriven = false
 
     private var recorderBar: RecorderBarController?
+    private let renderHUD = RenderHUD()
     private var regionOverlay: RegionOverlay?
     private var webcamPreview: WebcamPreviewOverlay?
     /// Optional neural denoiser: active only if a Core ML model is bundled; otherwise the boosted
@@ -23,10 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var captionsMenuItem: NSMenuItem?
     private weak var voiceoverMenuItem: NSMenuItem?
     private weak var avatarMenuItem: NSMenuItem?
+    private weak var briefMenuItem: NSMenuItem?
+    private var aiBriefController: AIBriefActionController?
+    private weak var selfRecordMenuItem: NSMenuItem?
+    private var demoComposerController: DemoComposerController?
     private var avatarActionController: AvatarActionController?
 
     private lazy var startItem = NSMenuItem(
-        title: "Start Recording  (⇧⌘S)", action: #selector(startRecording), keyEquivalent: "")
+        title: "Start Recording  (⇧⌘S)", action: #selector(startRecording as () -> Void), keyEquivalent: "")
     private lazy var stopItem = NSMenuItem(
         title: "Stop Recording  (⇧⌘S)", action: #selector(stopRecording), keyEquivalent: "")
     private lazy var fullScreenItem = NSMenuItem(
@@ -182,6 +192,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aiMenu.addItem(avatarItem)
         self.avatarMenuItem = avatarItem
 
+        aiMenu.addItem(.separator())
+        let briefItem = NSMenuItem(title: "Explain Latest to AI…",
+                                   action: #selector(explainToAI), keyEquivalent: "")
+        briefItem.target = self
+        aiMenu.addItem(briefItem)
+        self.briefMenuItem = briefItem
+
+        let composeItem = NSMenuItem(title: "Create Demo with AI…",
+                                     action: #selector(openDemoComposer), keyEquivalent: "")
+        composeItem.target = self
+        aiMenu.addItem(composeItem)
+
         aiItem.submenu = aiMenu
         // Enable each action only when its feature is turned on with a key ready. The delegate
         // refreshes this every time the submenu opens.
@@ -245,6 +267,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         autoZoomToggle.toolTip = "Spring-physics zoom that follows your clicks and typing."
         sysMenu.addItem(autoZoomToggle)
 
+        let selfRecordToggle = NSMenuItem(title: "Allow Recording DemoTape Itself",
+                                          action: #selector(toggleAllowSelfRecording), keyEquivalent: "")
+        selfRecordToggle.target = self
+        selfRecordToggle.state = Settings.allowSelfRecording ? .on : .off
+        selfRecordToggle.toolTip = "Keep DemoTape's menus and actions clickable while recording, so you "
+            + "can record a walkthrough of DemoTape's own features. Off by default."
+        sysMenu.addItem(selfRecordToggle)
+        self.selfRecordMenuItem = selfRecordToggle
+
         sysItem.submenu = sysMenu
         menu.addItem(sysItem)
 
@@ -271,6 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey.register(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | shiftKey))
 
         refreshUI()
+        writeControlStatus()   // publish "idle" so the control surface is pollable from launch
 
         // Reflect the saved Dock preference (menu-bar-only by default).
         applyDockPreference(Settings.showInDock)
@@ -298,6 +330,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        let about = appMenu.addItem(withTitle: "About DemoTape", action: #selector(openAbout), keyEquivalent: "")
+        about.target = self
+        appMenu.addItem(.separator())
+        let aiSettings = appMenu.addItem(withTitle: "AI Settings…", action: #selector(openAISettings), keyEquivalent: ",")
+        aiSettings.target = self
+        appMenu.addItem(.separator())
+        let openFolder = appMenu.addItem(withTitle: "Open Recording Folder",
+                                         action: #selector(openRecordingsFolder), keyEquivalent: "")
+        openFolder.target = self
+        let revealLatest = appMenu.addItem(withTitle: "Reveal Latest Export",
+                                           action: #selector(revealLatestExport), keyEquivalent: "")
+        revealLatest.target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide DemoTape", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others",
+                                         action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit DemoTape",
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
@@ -352,9 +403,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startItem.isEnabled = (state == .idle)
         stopItem.isEnabled = (state == .recording)
         startItem.title = (state == .rendering) ? "Rendering…" : "Start Recording"
-        // Grey out configuration/action items unless idle.
-        let idle = (state == .idle)
-        whileIdleItems.forEach { $0.isEnabled = idle }
+        // Grey out configuration/action items unless idle — except in "demo mode", where they stay
+        // clickable during recording so you can film a walkthrough of DemoTape itself.
+        let keepActive = (state == .idle) || (state == .recording && Settings.allowSelfRecording)
+        whileIdleItems.forEach { $0.isEnabled = keepActive }
 
         guard let button = statusItem.button else { return }
         // Branded logo at rest; state symbols while working so status stays clear.
@@ -381,7 +433,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Actions
 
-    @objc private func startRecording() {
+    @objc private func startRecording() { startRecording(countdownFrom: 3) }
+
+    /// Shared start path. `count == 0` begins immediately (used by the external control surface for
+    /// hands-off automation); otherwise it runs the usual 3-2-1 countdown.
+    private func startRecording(countdownFrom count: Int) {
         guard state == .idle else { return }
         state = .countdown
 
@@ -389,7 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // begins instantly at zero (no camera warm-up delay after "1").
         let prepareTask = Task { try await self.engine.prepare() }
 
-        countdown.run(from: 3) { [weak self] in
+        let begin: () -> Void = { [weak self] in
             guard let self = self else { return }
             Task {
                 do {
@@ -405,6 +461,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+
+        if count > 0 { countdown.run(from: count) { begin() } }
+        else { begin() }
+    }
+
+    // MARK: - External control surface (demotape:// URLs)
+
+    /// Handles `demotape://record/{start,stop}` URLs so an external agent can drive a demo.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let command = DemoControl.parse(url) else { continue }
+            Log.write("control: \(url.absoluteString)")
+            DispatchQueue.main.async { [weak self] in self?.execute(command) }
+        }
+    }
+
+    private func execute(_ command: DemoControl.Command) {
+        switch command {
+        case .cursor(let x, let y, let click):
+            performControlCursor(x: x, y: y, click: click)
+        case .stop:
+            if state == .recording { stopRecording() }
+        case .start(let opts):
+            guard state == .idle else { Log.write("control: start ignored (busy)"); return }
+            controlDriven = true
+            dismissRecorderBar()   // no DemoTape chrome in an automated capture
+            if let mic = opts.microphone {
+                Settings.captureMicrophone = mic
+                micItem.state = mic ? .on : .off
+                recorderBar?.updateMic(mic)
+            }
+            if let cam = opts.webcam {
+                Settings.captureWebcam = cam
+                webcamItem.state = cam ? .on : .off
+                recorderBar?.updateWebcam(cam)
+            }
+            applyControlRegion(opts.region)
+            startRecording(countdownFrom: opts.countdown)
+        }
+    }
+
+    /// Moves (and optionally clicks) the cursor from inside the running app. Because DemoTape
+    /// holds the Accessibility grant and is the process doing the recording, the synthetic click
+    /// is both delivered to the target app AND observed by our own global event monitor — so it
+    /// lands in `events.json` and drives the auto-zoom. Coordinates are global screen pixels with
+    /// a top-left origin (matching CoreGraphics display space), which is what the driver sends.
+    private func performControlCursor(x: Double, y: Double, click: Bool) {
+        let pt = CGPoint(x: x, y: y)
+        CGWarpMouseCursorPosition(pt)
+        CGAssociateMouseAndMouseCursorPosition(1)   // re-sync HW cursor after the warp
+        guard click else { return }
+        // Small settle so the move is visible before the click, mirroring a human motion.
+        let src = CGEventSource(stateID: .hidSystemState)
+        if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown,
+                              mouseCursorPosition: pt, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp,
+                            mouseCursorPosition: pt, mouseButton: .left) {
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Applies a control-surface region to the capture settings.
+    private func applyControlRegion(_ region: DemoControl.Region) {
+        switch region {
+        case .fullScreen:
+            Settings.useRegion = false
+        case .normalized(let r):
+            setRegionNormalized(r)
+        case .pixels(let r):
+            let b = CGDisplayBounds(CGMainDisplayID())
+            if b.width > 0, b.height > 0 {
+                setRegionNormalized(CGRect(x: r.minX / b.width, y: r.minY / b.height,
+                                           width: r.width / b.width, height: r.height / b.height))
+            } else {
+                Settings.useRegion = false
+            }
+        }
+        updateCaptureModeChecks()
+        regionOverlay?.hide()   // automated capture shows no border
+    }
+
+    private func setRegionNormalized(_ r: CGRect) {
+        let x = min(max(r.minX, 0), 0.95)
+        let y = min(max(r.minY, 0), 0.95)
+        Settings.regionX = Double(x)
+        Settings.regionY = Double(y)
+        Settings.regionW = Double(min(max(r.width, 0.05), 1 - x))
+        Settings.regionH = Double(min(max(r.height, 0.05), 1 - y))
+        Settings.regionPreset = "Freeform"   // freeform crop, no aspect lock or forced export size
+        Settings.useRegion = true
+    }
+
+    /// Publishes the current state to `control.json` so an orchestrator can poll for progress.
+    private func writeControlStatus() {
+        let s: String
+        switch state {
+        case .idle: s = "idle"
+        case .countdown: s = "countdown"
+        case .recording: s = "recording"
+        case .rendering: s = "rendering"
+        }
+        DemoControl.writeStatus(state: s, lastOutput: lastOutputPath)
     }
 
     @objc private func stopRecording() {
@@ -413,10 +573,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         teleprompter.stop()
         dismissRecorderBar()   // close the bar + border; rendering starts
         Notifier.shared.renderStarted()   // "cooking your DemoTape…"
+        renderHUD.show(stage: "Rendering your DemoTape…")   // visible progress for the auto-render
         Task {
             let raw = await engine.stop()
             guard let raw = raw else {
                 await MainActor.run {
+                    self.renderHUD.hide()
                     self.state = .idle
                     self.presentPermissionHelp(
                         title: "No video was captured",
@@ -424,18 +586,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return
             }
-            // Auto-produce the styled video (hands-off).
+            // Auto-produce the styled video (hands-off), reporting progress to the HUD.
             let camera = self.engine.lastCameraURL
             let style = await MainActor.run { self.makeStyle() }
-            let styled = self.renderStyled(from: raw, camera: camera, style: style)
-            // On-device audio cleanup: denoise, then enhance (studio voice). Both in place.
+            let styled = self.renderStyled(from: raw, camera: camera, style: style) { frac in
+                DispatchQueue.main.async { self.renderHUD.setProgress(frac) }
+            }
+            // On-device audio cleanup: denoise, then enhance (studio voice). Both in place. These
+            // stages don't report progress, so show a labeled spinner instead of a bar.
             if let styled = styled, Settings.captureMicrophone {
-                if Settings.noiseSuppressionEnabled { self.applyNoiseSuppression(to: styled) }
-                if Settings.enhanceVoiceEnabled { self.applyVoiceEnhancement(to: styled) }
+                if Settings.noiseSuppressionEnabled {
+                    await MainActor.run { self.renderHUD.setIndeterminate(stage: "Cleaning up audio…") }
+                    self.applyNoiseSuppression(to: styled)
+                }
+                if Settings.enhanceVoiceEnabled {
+                    await MainActor.run { self.renderHUD.setIndeterminate(stage: "Enhancing voice…") }
+                    self.applyVoiceEnhancement(to: styled)
+                }
             }
             await MainActor.run {
+                self.renderHUD.hide()
+                self.lastOutputPath = (styled ?? raw).path   // published in control.json for agents
+                let wasControlDriven = self.controlDriven
+                self.controlDriven = false
                 self.state = .idle
                 self.notifySaved(at: styled ?? raw)
+                if wasControlDriven { self.presentRecorderBar() }   // restore chrome for manual use
             }
         }
     }
@@ -491,7 +667,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Renders the styled output next to the raw recording. Returns the styled URL,
     /// or nil if the sidecar/render failed (caller falls back to the raw file).
-    private func renderStyled(from raw: URL, camera: URL?, style: VideoRenderer.Style) -> URL? {
+    private func renderStyled(from raw: URL, camera: URL?, style: VideoRenderer.Style,
+                              progress: ((Double) -> Void)? = nil) -> URL? {
         let paths = SourcePaths(source: raw)
         let sidecar = paths.eventsURL                       // .source/<base>.events.json
         do {
@@ -500,7 +677,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             decoder.dateDecodingStrategy = .iso8601
             let metadata = try decoder.decode(RecordingMetadata.self, from: data)
             let styled = paths.output(suffix: "styled")     // recording-folder root
-            try VideoRenderer().render(videoURL: raw, metadata: metadata, cameraURL: camera, to: styled, style: style)
+            try VideoRenderer().render(videoURL: raw, metadata: metadata, cameraURL: camera,
+                                       to: styled, style: style, progress: progress)
             return styled
         } catch {
             Log.write("renderStyled failed: \(error.localizedDescription)")
@@ -541,8 +719,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sender.state = LoginItem.isEnabled ? .on : .off
             let alert = NSAlert()
             alert.messageText = "Couldn't update the login item"
-            alert.informativeText = "macOS may need permission to manage login items. Try again, "
-                + "or add DemoTape manually in System Settings → General → Login Items."
+            let loginItemsPath: String
+            if #available(macOS 13.0, *) {
+                loginItemsPath = "System Settings → General → Login Items"
+            } else {
+                loginItemsPath = "System Preferences → Users & Groups → Login Items"
+            }
+            alert.informativeText = "macOS needs permission to manage login items. If a prompt to "
+                + "control \u{201C}System Events\u{201D} appeared, click OK/Allow and try again — or add "
+                + "DemoTape manually in \(loginItemsPath)."
             alert.runModal()
         }
     }
@@ -558,6 +743,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let want = sender.state != .on
         sender.state = want ? .on : .off
         Settings.autoZoomEnabled = want
+    }
+
+    @objc private func toggleAllowSelfRecording(_ sender: NSMenuItem) {
+        let want = sender.state != .on
+        sender.state = want ? .on : .off
+        Settings.allowSelfRecording = want
+        refreshUI()   // apply immediately if a recording is already in progress
     }
 
     /// Menu-bar-only apps use `.accessory`; `.regular` shows a Dock icon and app menu.
@@ -579,13 +771,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Enable the Generate actions only when their feature is on and a key is stored, so a
     /// user can have captions without voiceover (or vice versa).
     private func refreshAIMenuItems() {
+        // A local STT server needs no key; hosted providers do.
         captionsMenuItem?.isEnabled = Settings.captionsEnabled
-            && Keychain.exists(account: Keychain.sttAPIKeyAccount)
+            && (Keychain.exists(account: Keychain.sttAPIKeyAccount) || Settings.sttKeyOptional)
+        // ElevenLabs requires its key; local/custom TTS providers can run keyless.
+        let ttsIsEleven = (Voiceover.TTSProvider(name: Settings.ttsProvider) == .elevenLabs)
         voiceoverMenuItem?.isEnabled = Settings.voiceoverEnabled
-            && Keychain.exists(account: Keychain.elevenAPIKeyAccount)
+            && (!ttsIsEleven || Keychain.exists(account: Keychain.elevenAPIKeyAccount))
         // Avatar needs a HeyGen key and a latest voiceover (with its narration sidecar).
         avatarMenuItem?.isEnabled = Keychain.exists(account: Keychain.heygenAPIKeyAccount)
             && latestVoiceover() != nil
+        // The AI brief uses the OpenAI-compatible key (same one captions use) for both the
+        // transcription and the chat model.
+        briefMenuItem?.isEnabled = Keychain.exists(account: Keychain.sttAPIKeyAccount)
     }
 
     /// Newest `…voiceover.mp4` whose narration sidecar still exists, across per-recording folders.
@@ -715,14 +913,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var voiceoverActionController: VoiceoverActionController?
     @objc private func generateVoiceover() {
+        // ElevenLabs needs a stored key; local/custom providers may run keyless, so only require
+        // the feature to be enabled there.
+        let isEleven = (Voiceover.TTSProvider(name: Settings.ttsProvider) == .elevenLabs)
         let key = Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? ""
-        guard Settings.voiceoverEnabled, !key.isEmpty else {
+        let ready = Settings.voiceoverEnabled && (!isEleven || !key.isEmpty)
+        guard ready else {
             let alert = NSAlert()
             alert.messageText = "Enable voiceover first"
-            alert.informativeText = (Keychain.exists(account: Keychain.elevenAPIKeyAccount))
-                ? "Turn on Voiceover in AI Settings to generate narration."
-                : "Voiceover uses ElevenLabs text-to-speech. Add and test your ElevenLabs key in "
-                    + "AI Settings, enable Voiceover, then try again."
+            alert.informativeText = isEleven
+                ? (Keychain.exists(account: Keychain.elevenAPIKeyAccount)
+                    ? "Turn on Voiceover in AI Settings to generate narration."
+                    : "Voiceover uses ElevenLabs text-to-speech. Add and test your ElevenLabs key in "
+                        + "AI Settings, enable Voiceover, then try again.")
+                : "Turn on Voiceover in AI Settings and set your local TTS server's Base URL, then try again."
             alert.addButton(withTitle: "Open AI Settings…")
             alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
@@ -768,14 +972,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let cached = Captions.loadTranscript(for: video)
         let key = Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
 
-        // Need either a cached transcript, or the feature enabled with a key to transcribe.
-        if (cached?.isEmpty ?? true) && !(Settings.captionsEnabled && !key.isEmpty) {
+        // Need either a cached transcript, or the feature enabled with a usable endpoint. A local
+        // (localhost) STT server is usable without a key; hosted providers require one.
+        let endpointReady = !key.isEmpty || Settings.sttKeyOptional
+        if (cached?.isEmpty ?? true) && !(Settings.captionsEnabled && endpointReady) {
             let alert = NSAlert()
             alert.messageText = "Enable captions first"
-            alert.informativeText = (Keychain.exists(account: Keychain.sttAPIKeyAccount))
+            alert.informativeText = (Keychain.exists(account: Keychain.sttAPIKeyAccount) || Settings.sttKeyOptional)
                 ? "Turn on Captions in AI Settings to transcribe this recording."
                 : "Captions use an OpenAI-compatible speech-to-text API. Add and test your key in "
-                    + "AI Settings, enable Captions, then try again."
+                    + "AI Settings (or point at a local server), enable Captions, then try again."
             alert.addButton(withTitle: "Open AI Settings…")
             alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
@@ -787,6 +993,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = CaptionsActionController(source: video, cachedCues: cached, config: config)
         captionsActionController = controller
         controller.show(onClose: { [weak self] in self?.captionsActionController = nil })
+    }
+
+    @objc private func openDemoComposer() {
+        let controller = DemoComposerController()
+        demoComposerController = controller
+        controller.show(onClose: { [weak self] in self?.demoComposerController = nil })
+    }
+
+    @objc private func explainToAI() {
+        guard let video = latestRecording() else {
+            presentPermissionHelp(title: "No recording found",
+                                  message: "Record a short walkthrough first — the AI brief runs on your latest recording.")
+            return
+        }
+        let key = Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
+        guard !key.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Add your AI key first"
+            alert.informativeText = "The AI brief uses an OpenAI-compatible key (the same one captions use) to "
+                + "transcribe and analyze your recording. Add and test your key in AI Settings, then try again."
+            alert.addButton(withTitle: "Open AI Settings…")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
+            return
+        }
+        let stt = Captions.Config(baseURL: Settings.sttBaseURL, model: Settings.sttModel,
+                                  apiKey: key, language: Settings.sttLanguage)
+        let chat = AIBrief.Config(baseURL: Settings.sttBaseURL, model: Settings.aiDirectorModel, apiKey: key)
+        let controller = AIBriefActionController(source: video, stt: stt, chat: chat)
+        aiBriefController = controller
+        controller.show(onClose: { [weak self] in self?.aiBriefController = nil })
     }
 
 
@@ -954,6 +1191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// capture the bar is hidden during recording (it would otherwise be in the video);
     /// for region capture it stays put, outside the recorded area.
     private func updateRecorderBarForState() {
+        if controlDriven {   // keep the screen clean for automated captures
+            dismissRecorderBar()
+            teleprompter.stop()
+            return
+        }
         guard recorderBar != nil else { return }
         switch state {
         case .countdown:

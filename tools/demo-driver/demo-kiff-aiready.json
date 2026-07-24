@@ -1,0 +1,63 @@
+{
+  "//": "How KIFF is AI-ready. Fast-paced: reveal-early nav/scroll, short lines, and NATURAL attention gestures — the cursor traces what the line is describing (point) and emphasizes key spots (click → DemoTape auto-zooms). On plain-text pages (llms.txt, the skill .md) gestures use normalized nx/ny coords to trace reading lines; on the agent page they point at real headings/links. osClick+Accessibility make the emphasis clicks register the zoom.",
+  "url": "http://localhost:8081/agent",
+  "viewport": { "x": 120, "y": 80, "width": 1280, "height": 860 },
+  "stepPauseMs": 700,
+  "voiceId": "XrExE9yKIg1WjnnlVkGX",
+  "showCursor": true,
+  "osClick": true,
+  "maxAttempts": 2,
+  "verify": true,
+  "scenes": [
+    {
+      "say": "KIFF is built AI-first. This is the page agents land on.",
+      "steps": [ { "action": "click", "selector": "h1.ag-h1" } ],
+      "gestures": [
+        { "selector": "h1.ag-h1" },
+        { "selector": "p.ag-lede", "click": true }
+      ],
+      "expect": { "visible": "text=KIFF for agents" }
+    },
+    {
+      "say": "It spells out the real decision call: one request that comes back allowed, approval-required, blocked, or invalid — before anything runs.",
+      "steps": [ { "action": "scroll", "y": 700 } ],
+      "gestures": [
+        { "selector": "h2.ag-h2:has-text('Interface')", "click": true },
+        { "nx": 0.3, "ny": 0.45 },
+        { "nx": 0.3, "ny": 0.58 },
+        { "nx": 0.3, "ny": 0.7 }
+      ],
+      "expect": { "visible": "text=Interface" }
+    },
+    {
+      "say": "We publish an llms dot txt — the whole product, machine-readable, for any model to read at a glance.",
+      "steps": [ { "action": "goto", "url": "http://localhost:8081/llms.txt" } ],
+      "gestures": [
+        { "nx": 0.12, "ny": 0.18 },
+        { "nx": 0.12, "ny": 0.3 },
+        { "nx": 0.12, "ny": 0.42, "click": true }
+      ],
+      "expect": { "urlContains": "/llms.txt" }
+    },
+    {
+      "say": "And a skill, kiff dash domains, so your coding agent authors a domain right in your repo, from one instruction.",
+      "steps": [ { "action": "goto", "url": "http://localhost:8081/skills/kiff-domains.md" } ],
+      "gestures": [
+        { "nx": 0.12, "ny": 0.16 },
+        { "nx": 0.12, "ny": 0.3 },
+        { "nx": 0.12, "ny": 0.46, "click": true }
+      ],
+      "expect": { "urlContains": "kiff-domains" }
+    },
+    {
+      "say": "Machine page, llms map, agent skill — KIFF is made for an assistant to discover, integrate, and extend.",
+      "steps": [ { "action": "goto", "url": "http://localhost:8081/agent" }, { "action": "scroll", "y": 1500 } ],
+      "gestures": [
+        { "selector": "h2.ag-h2:has-text('Machine surfaces')" },
+        { "selector": "a.ag-link:has-text('/llms.txt')" },
+        { "selector": "a.ag-link:has-text('kiff-domains')", "click": true }
+      ],
+      "expect": { "visible": "text=Machine surfaces" }
+    }
+  ]
+}

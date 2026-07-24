@@ -1,0 +1,17 @@
+# Free, local TTS for DemoTape via Kokoro-FastAPI (OpenAI-compatible /v1/audio/speech).
+#   docker compose up
+# Then in DemoTape → AI Settings → Voiceover:
+#   Provider = OpenAI-compatible · Base URL = http://localhost:8880/v1
+#   Model = kokoro · Voice = af_bella · (no API key)
+services:
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest   # CPU build; runs on Apple Silicon + Intel
+    ports:
+      - "8880:8880"
+    restart: unless-stopped
+    # For NVIDIA GPUs, swap the image for ghcr.io/remsky/kokoro-fastapi-gpu:latest and add:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - { driver: nvidia, count: all, capabilities: [gpu] }

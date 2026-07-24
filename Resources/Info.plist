@@ -15,9 +15,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>5.7.0</string>
+    <string>6.0.0</string>
     <key>CFBundleVersion</key>
-    <string>570</string>
+    <string>600</string>
     <key>LSMinimumSystemVersion</key>
     <string>12.3</string>
     <key>LSUIElement</key>
@@ -28,5 +28,18 @@
     <string>DemoTape records your microphone when you enable audio narration.</string>
     <key>NSCameraUsageDescription</key>
     <string>DemoTape records your webcam when you enable the camera overlay.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>DemoTape uses System Events to add or remove itself from your Login Items when you turn on "Launch DemoTape at Login".</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>dev.demotape.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>demotape</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

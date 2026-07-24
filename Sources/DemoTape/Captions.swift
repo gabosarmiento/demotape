@@ -62,7 +62,11 @@ final class Captions {
     /// Returns the written URLs. Runs synchronously; call off the main thread.
     @discardableResult
     func generate(for video: URL, config: Config) throws -> (srt: URL, vtt: URL, cues: [CaptionCue]) {
-        guard !config.apiKey.isEmpty else { throw CaptionsError.missingKey }
+        // A key is required only for hosted providers. Local servers (localhost) run keyless, so
+        // an empty key against a local endpoint is fine; a remote 401 is surfaced as an API error.
+        if config.apiKey.isEmpty && !Settings.isLocalHost(urlString: config.baseURL) {
+            throw CaptionsError.missingKey
+        }
         let audio = try extractAudio(from: video)
         defer { try? FileManager.default.removeItem(at: audio) }
         let cues = try transcribe(audio: audio, config: config)
@@ -225,7 +229,7 @@ final class Captions {
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.timeoutInterval = 300
-        req.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        if !config.apiKey.isEmpty { req.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization") }
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let audioData = try Data(contentsOf: audio)

@@ -82,9 +82,27 @@ final class VoiceoverActionController: ActionPreviewController {
 
     // MARK: - Lifecycle
 
+    private var ttsProvider: Voiceover.TTSProvider { Voiceover.TTSProvider(name: Settings.ttsProvider) }
+
     override func windowDidAppear() {
-        setStatus("Loading voices…", isError: false)
-        loadVoices()
+        if ttsProvider == .elevenLabs {
+            setStatus("Loading voices…", isError: false)
+            loadVoices()
+        } else {
+            configureForLocalProvider()
+        }
+    }
+
+    /// Non-ElevenLabs providers have no live voice list — the voice is a name configured in AI
+    /// Settings. Show it in the popup and skip all network calls so generation works offline.
+    private func configureForLocalProvider() {
+        let voice = Settings.ttsVoice.isEmpty ? "default" : Settings.ttsVoice
+        voicePopup.removeAllItems()
+        voicePopup.addItem(withTitle: "Server voice: \(voice)")
+        voicePopup.isEnabled = false
+        previewVoiceButton.isEnabled = false
+        setStatus("Using \(Settings.ttsProvider) at \(Settings.ttsBaseURL). Write your script, then Generate preview.",
+                  isError: false)
     }
 
     private func loadVoices() {
@@ -92,7 +110,8 @@ final class VoiceoverActionController: ActionPreviewController {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 let list = try Voiceover().fetchVoices(apiKey: key)
-                DispatchQueue.main.async { self?.populateVoices(list) }
+                let credits = try? Voiceover().fetchCredits(apiKey: key)   // best-effort heads-up
+                DispatchQueue.main.async { self?.populateVoices(list, credits: credits) }
             } catch {
                 DispatchQueue.main.async {
                     self?.voicePopup.removeAllItems()
@@ -103,7 +122,7 @@ final class VoiceoverActionController: ActionPreviewController {
         }
     }
 
-    private func populateVoices(_ list: [Voiceover.Voice]) {
+    private func populateVoices(_ list: [Voiceover.Voice], credits: Voiceover.Credits? = nil) {
         voices = list
         voicePopup.removeAllItems()
         voicePopup.addItems(withTitles: list.map { $0.label })
@@ -112,8 +131,18 @@ final class VoiceoverActionController: ActionPreviewController {
             voicePopup.selectItem(at: idx)
         }
         previewVoiceButton.isEnabled = true
-        setStatus("\(list.count) voices. Audition one with ▶, write your script, then Generate preview.",
-                  isError: false)
+        // Proactively flag an empty/low balance so the user tops up before hitting a wall mid-generate.
+        if let c = credits, c.remaining == 0 {
+            setStatus("ElevenLabs is out of credits (0 left) — add credits at elevenlabs.io before generating.",
+                      isError: true)
+        } else if let c = credits, c.remaining < 500 {
+            setStatus("Heads up: ElevenLabs is low (\(c.summary)). Top up at elevenlabs.io if you run out.",
+                      isError: true)
+        } else {
+            let bal = credits.map { " · \($0.summary)" } ?? ""
+            setStatus("\(list.count) voices\(bal). Audition with ▶, write your script, then Generate preview.",
+                      isError: false)
+        }
     }
 
     // MARK: - Actions
@@ -166,17 +195,25 @@ final class VoiceoverActionController: ActionPreviewController {
     override func render(progress: @escaping (Double) -> Void) throws -> URL? {
         let script = scriptView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !script.isEmpty else { return nil }
-        guard voicePopup.indexOfSelectedItem >= 0, voicePopup.indexOfSelectedItem < voices.count else {
-            throw SimpleError("Pick a voice first.")
-        }
-        let voice = voices[voicePopup.indexOfSelectedItem]
-        Settings.elevenVoiceId = voice.id
-        Settings.elevenVoiceName = voice.name
-        Settings.elevenVoiceGender = voice.gender   // lets the avatar step auto-match gender
 
-        let result = try Voiceover().generate(video: source, script: script,
-                                              voiceId: voice.id, model: Settings.elevenModel, apiKey: apiKey)
-        return result.videoURL
+        let config: Voiceover.TTSConfig
+        if ttsProvider == .elevenLabs {
+            guard voicePopup.indexOfSelectedItem >= 0, voicePopup.indexOfSelectedItem < voices.count else {
+                throw SimpleError("Pick a voice first.")
+            }
+            let voice = voices[voicePopup.indexOfSelectedItem]
+            Settings.elevenVoiceId = voice.id
+            Settings.elevenVoiceName = voice.name
+            Settings.elevenVoiceGender = voice.gender   // lets the avatar step auto-match gender
+            config = Voiceover.TTSConfig(provider: .elevenLabs, model: Settings.elevenModel,
+                                         voice: voice.id, apiKey: apiKey)
+        } else {
+            // Local/custom: read endpoint + voice from Settings; key (if any) from the TTS account.
+            let key = Keychain.get(account: Keychain.ttsAPIKeyAccount) ?? ""
+            config = Voiceover.TTSConfig(provider: ttsProvider, baseURL: Settings.ttsBaseURL,
+                                         model: Settings.ttsModel, voice: Settings.ttsVoice, apiKey: key)
+        }
+        return try Voiceover().generate(video: source, script: script, config: config).videoURL
     }
 
     // MARK: - Prefill

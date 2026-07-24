@@ -73,12 +73,18 @@ demo feel tight and snappy. Fully local.
 ### 💬 Captions
 Transcribes your narration automatically, shows the lines with their timestamps so you can fix
 any wording, then burns them into the video. Pick the language in its tab. (Transcribed once and
-remembered, so re-opening never costs you again.)
+remembered, so re-opening never costs you again.) Use OpenAI/Groq with a key, or the
+**Local (OpenAI-compatible)** provider to transcribe **free and offline** against your own Whisper
+server — see [`tools/tts-shim`](tools/tts-shim).
 
 ### 🎙️ Voiceover
-Turn a script into narration with an [ElevenLabs](https://elevenlabs.io) voice. The script
-pre-fills from your captions, you can **preview any voice with one click**, and the narration is
-laid over the video. Best for screen-only demos.
+Turn a script into narration. The script pre-fills from your captions and the narration is laid
+over the video — best for screen-only demos. Pick your engine in **AI Settings → Voiceover**:
+- **[ElevenLabs](https://elevenlabs.io)** (paid, hosted) — preview any voice with one click.
+- **Run it locally, free** — point at any OpenAI-compatible TTS server (e.g.
+  [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) in Docker). No key, no network egress.
+  See [`tools/tts-shim`](tools/tts-shim) for a one-command setup and a template for wrapping your
+  own model (Chatterbox, Qwen3-TTS, …).
 
 ### 🧑 Avatar Presenter
 Turn your voiceover into a photorealistic presenter that lip-syncs to it and sits in your webcam

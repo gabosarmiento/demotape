@@ -11,7 +11,9 @@ enum LoginItem {
 
     static var isEnabled: Bool {
         if #available(macOS 13.0, *) {
-            return SMAppService.mainApp.status == .enabled
+            if SMAppService.mainApp.status == .enabled { return true }
+            // May have been added via the System Events fallback below.
+            return legacyIsEnabled()
         }
         return legacyIsEnabled()
     }
@@ -25,8 +27,11 @@ enum LoginItem {
                 else { try SMAppService.mainApp.unregister() }
                 return true
             } catch {
-                Log.write("LoginItem: SMAppService failed: \(error.localizedDescription)")
-                return false
+                // SMAppService is strict about code signing, so a locally self-signed build often
+                // can't use it. Fall back to scripting System Events' login-item list, which works
+                // regardless of signature (it asks for Automation permission the first time).
+                Log.write("LoginItem: SMAppService failed (\(error.localizedDescription)); trying System Events fallback")
+                return legacySetEnabled(enabled)
             }
         }
         return legacySetEnabled(enabled)

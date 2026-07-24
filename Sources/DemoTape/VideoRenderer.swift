@@ -92,7 +92,8 @@ final class VideoRenderer {
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
     func render(videoURL: URL, metadata: RecordingMetadata, cameraURL: URL? = nil,
-                to outURL: URL, style: Style = Style()) throws {
+                to outURL: URL, style: Style = Style(),
+                progress: ((Double) -> Void)? = nil) throws {
         let asset = AVAsset(url: videoURL)
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.noVideoTrack }
 
@@ -228,6 +229,7 @@ final class VideoRenderer {
         var badgeCacheLabel: String? = nil
         var badgeCacheImage: CIImage? = nil
         var frameCount = 0
+        var lastProgress: Double = -1
 
         // Feed audio concurrently with video. AVAssetWriter interleaves the two tracks,
         // so feeding all of one before the other deadlocks (video input never becomes
@@ -272,6 +274,12 @@ final class VideoRenderer {
             var dt = lastEmit < 0 ? frameInterval : (t - lastEmit)
             dt = min(max(dt, 1.0 / 240.0), 1.0 / 20.0)
             lastEmit = t
+
+            // Report progress (fraction of the recording processed), throttled.
+            if let progress = progress, metadata.duration > 0 {
+                let frac = min(1.0, max(0.0, t / metadata.duration))
+                if frac - lastProgress >= 0.01 { lastProgress = frac; progress(frac) }
+            }
 
             // Event timeline aligned to the video's first frame (fixes cursor lag).
             let eventT = t + (metadata.eventTimeOffset ?? 0)
@@ -434,6 +442,7 @@ final class VideoRenderer {
         if writer.status != .completed {
             throw RenderError.writerFailed(writer.error?.localizedDescription ?? "status \(writer.status.rawValue)")
         }
+        progress?(1.0)
     }
 
     // MARK: - Audio processing

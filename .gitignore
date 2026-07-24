@@ -28,3 +28,11 @@ xcuserdata/
 
 # Local verification scratch dir (live API probes, secrets via env — never commit)
 .verify/
+
+# Playwright demo driver (external Node tool — deps not committed)
+tools/demo-driver/node_modules/
+tools/demo-driver/driver.log
+
+# Python bytecode from the local TTS shim
+__pycache__/
+*.pyc
