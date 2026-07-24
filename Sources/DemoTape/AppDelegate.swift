@@ -55,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         title: "No Background", action: #selector(toggleNoBackground), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        startApp()
+    }
+
+    private func startApp() {
         installMainMenu()
         RecordingLayout.migrateFlatRecordings()   // group any older flat recordings into folders
         LaunchLocationGuard.check()   // warn if we're translocated / outside /Applications
@@ -300,11 +304,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         sysItem.submenu = sysMenu
         menu.addItem(sysItem)
-
-        let licenseItem = NSMenuItem(title: "License…",
-                                     action: #selector(openLicense), keyEquivalent: "")
-        licenseItem.target = self
-        menu.addItem(licenseItem)
 
         let aboutItem = NSMenuItem(title: "About DemoTape",
                                    action: #selector(openAbout), keyEquivalent: "")
@@ -738,12 +737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aboutController.show()
     }
 
-    private var licenseController: LicenseController?
-    @objc private func openLicense() {
-        let controller = LicenseController()
-        licenseController = controller   // retain while open
-        controller.show()
-    }
+
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
         let want = sender.state != .on

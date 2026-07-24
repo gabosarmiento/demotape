@@ -147,24 +147,9 @@ DEMOTAPE_TTS_PROVIDER=OpenAI-compatible DEMOTAPE_TTS_BASEURL=http://localhost:88
   ./.build/release/DemoTape --tts script.txt /tmp/vo.mp3
 ```
 
-### Licensing (offline, share-a-DMG-with-friends)
-
-DemoTape verifies signed licenses locally (Ed25519 via CryptoKit, no server). The app embeds a
-**public** key (`License.publicKeyBase64`); the issuer keeps the **private** key on their machine
-(`~/Movies/DemoTape/.demotape/license_signing.key`, never committed).
-
-```bash
-# One-time (issuer): create the signing keypair; paste the printed public key into
-# Sources/DemoTape/License.swift (License.publicKeyBase64), then rebuild + ship the signed DMG.
-./.build/release/DemoTape --license-keygen        # add --force to rotate (invalidates old keys)
-
-# Mint a license for a friend, then send them the printed string:
-./.build/release/DemoTape --gen-license "Alice"
-```
-
-Recipients paste the string in **License…** (menu). `License.isActivated` is the single checkpoint
-for gating Pro/licensed behavior. Offline licenses are intentionally shareable (they can't be
-revoked without rotating the keypair) — fine for gifting; not a hard-DRM anti-piracy system.
+DemoTape is **free and open source (MIT)** — no license gate. The paid/facilitated artifact is
+just the convenience of a prebuilt **notarized DMG** (`release-notarized.sh`); anyone can build
+from source for free.
 
 Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
 `*.styled.mp4` output, `*.cam.mov` webcam). A run log is at `~/Movies/DemoTape/demotape.log`.
