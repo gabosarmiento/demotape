@@ -85,5 +85,7 @@ enum Keychain {
     static let elevenAPIKeyAccount = "elevenlabs-api-key"
     /// Key for the OpenAI-compatible / custom TTS provider (optional — local servers often need none).
     static let ttsAPIKeyAccount = "tts-api-key"
+    /// Stored, activated license string (verified against the embedded public key).
+    static let licenseAccount = "license"
     static let heygenAPIKeyAccount = "heygen-api-key"
 }

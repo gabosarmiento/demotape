@@ -301,6 +301,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sysItem.submenu = sysMenu
         menu.addItem(sysItem)
 
+        let licenseItem = NSMenuItem(title: "License…",
+                                     action: #selector(openLicense), keyEquivalent: "")
+        licenseItem.target = self
+        menu.addItem(licenseItem)
+
         let aboutItem = NSMenuItem(title: "About DemoTape",
                                    action: #selector(openAbout), keyEquivalent: "")
         aboutItem.target = self
@@ -731,6 +736,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openAbout() {
         aboutController.show()
+    }
+
+    private var licenseController: LicenseController?
+    @objc private func openLicense() {
+        let controller = LicenseController()
+        licenseController = controller   // retain while open
+        controller.show()
     }
 
     @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
