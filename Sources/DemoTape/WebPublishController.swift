@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import UniformTypeIdentifiers
 
 /// Small window to publish the latest styled recording as lightweight, web-ready MP4s.
 /// Select one or more height tiers (with a live total-size estimate); it writes an mp4
@@ -13,14 +14,16 @@ final class WebPublishController: NSObject, NSWindowDelegate {
     private var duration: Double = 0
     private var selected: Set<Int> = []
 
+    private var sourceLabel: NSTextField!
     private var gifCheckbox: NSButton!
     private var gifQualitySeg: NSSegmentedControl!
     private var gifDesc: NSTextField!
-    /// Plain-language GIF presets backed by common README-GIF settings (≈480–800px, 10–15fps).
+    /// Plain-language GIF presets. The encoder frame-diffs (transparent unchanged pixels), so these
+    /// stay light; "Smaller" is tuned for dropping a tiny loop into a page/README.
     private let gifPresets: [(name: String, width: Int, fps: Int, blurb: String)] = [
-        ("Smaller",  480, 10, "Smallest file — loads fastest"),
-        ("Balanced", 640, 12, "Recommended for most READMEs"),
-        ("Sharp",    800, 15, "Crisp detail — larger file")
+        ("Smaller",  360,  8, "Tiny file — best for page inserts"),
+        ("Balanced", 480, 10, "Recommended for most READMEs"),
+        ("Sharp",    640, 12, "Crisp detail — larger file")
     ]
 
     func show() {
@@ -47,8 +50,16 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         let src = NSTextField(labelWithString: "Source: \(styled.lastPathComponent)")
         src.font = .systemFont(ofSize: 11)
         src.textColor = .secondaryLabelColor
-        src.frame = NSRect(x: 20, y: h - 40, width: w - 40, height: 18)
+        src.lineBreakMode = .byTruncatingMiddle
+        src.frame = NSRect(x: 20, y: h - 40, width: w - 40 - 78, height: 18)
         content.addSubview(src)
+        self.sourceLabel = src
+
+        let changeButton = NSButton(title: "Change…", target: self, action: #selector(changeSource))
+        changeButton.bezelStyle = .rounded
+        changeButton.controlSize = .small
+        changeButton.frame = NSRect(x: w - 20 - 72, y: h - 44, width: 72, height: 22)
+        content.addSubview(changeButton)
 
         let title = NSTextField(labelWithString: "Quality (select one or more)")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -118,6 +129,20 @@ final class WebPublishController: NSObject, NSWindowDelegate {
     @objc private func toggleTier(_ sender: NSButton) {
         if sender.state == .on { selected.insert(sender.tag) } else { selected.remove(sender.tag) }
         Settings.publishTiers = Array(selected).sorted()
+        updateEstimate()
+    }
+
+    @objc private func changeSource() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie, .quickTimeMovie, .mpeg4Movie]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = source?.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        source = url
+        duration = CMTimeGetSeconds(AVAsset(url: url).duration)
+        sourceLabel.stringValue = "Source: \(url.lastPathComponent)"
+        sourceLabel.toolTip = url.path
         updateEstimate()
     }
 
