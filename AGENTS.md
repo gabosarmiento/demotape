@@ -138,6 +138,13 @@ DEMOTAPE_STT_KEY=sk-... ./.build/release/DemoTape --captions "path/to/styled.mp4
 # List ElevenLabs voices, and generate a voiceover (BYO ElevenLabs key). Requires network.
 DEMOTAPE_ELEVEN_KEY=sk_... ./.build/release/DemoTape --voices
 DEMOTAPE_ELEVEN_KEY=sk_... ./.build/release/DemoTape --voiceover "path/to/styled.mp4" script.txt [voiceId]
+
+# TTS is pluggable — `--tts`/`--voiceover` pick a backend from DEMOTAPE_TTS_PROVIDER:
+#   ElevenLabs (default) | OpenAI-compatible | Custom. Run a local server (see tools/tts-shim)
+#   for free, offline narration with NO paid key:
+DEMOTAPE_TTS_PROVIDER=OpenAI-compatible DEMOTAPE_TTS_BASEURL=http://localhost:8880/v1 \
+  DEMOTAPE_TTS_MODEL=kokoro DEMOTAPE_TTS_VOICE=af_bella \
+  ./.build/release/DemoTape --tts script.txt /tmp/vo.mp3
 ```
 
 Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
@@ -150,9 +157,12 @@ Recordings live in `~/Movies/DemoTape/` (`*.mov` raw, `*.events.json` sidecar,
   `startCapture()` succeeds but delivers zero frames. Capture uses `AVCaptureScreenInput`.
 - **No third-party dependencies.** Keep it Apple-frameworks-only and dependency-free.
 - **Local by default.** The core recorder/render/publish path must make **no network
-  requests**. Network is allowed only in explicitly opt-in, bring-your-own-key AI features
-  (e.g. captions in `Captions.swift`), which talk only to the user-configured endpoint with
-  the user's key. API keys go in the **Keychain** (`Keychain.swift`), never UserDefaults.
+  requests**. Network is allowed only in explicitly opt-in AI features (e.g. captions in
+  `Captions.swift`, TTS in `Voiceover.swift`), which talk only to the user-configured endpoint.
+  These are **provider-pluggable**: STT and TTS each support a hosted paid option, an
+  OpenAI-compatible endpoint, or a custom URL — so a user can run everything **locally/offline**
+  by pointing the base URL at their own server (see `tools/tts-shim`). Keys are optional for local
+  servers; when present they go in the **Keychain** (`Keychain.swift`), never UserDefaults.
 - **Don't commit** recordings, `.app` bundles, `.build/`, or signing artifacts (see `.gitignore`).
 - **Never push or create remotes** without the maintainer's explicit request.
 - After any change, run `swift build -c release` and `swift test`. For render/encode changes,

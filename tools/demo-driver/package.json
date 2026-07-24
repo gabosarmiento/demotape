@@ -1,0 +1,15 @@
+{
+  "name": "demotape-demo-driver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "External Playwright driver that produces an auto-narrated DemoTape demo from a config. Not part of the DemoTape app (which stays Apple-frameworks-only); this is a standalone Node tool.",
+  "bin": { "demotape-demo": "driver.mjs" },
+  "scripts": {
+    "demo": "node driver.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

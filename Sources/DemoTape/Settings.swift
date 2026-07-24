@@ -16,6 +16,13 @@ enum Settings {
         get { defaults.object(forKey: "autoZoomEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "autoZoomEnabled") }
     }
+    /// "Demo mode": keep DemoTape's own menu/config/action items active while a recording is in
+    /// progress, so you can record a walkthrough *of DemoTape itself* (showing off its features).
+    /// Normally these are greyed out while recording. Default off.
+    static var allowSelfRecording: Bool {
+        get { defaults.bool(forKey: "allowSelfRecording") }
+        set { defaults.set(newValue, forKey: "allowSelfRecording") }
+    }
     /// Set once the first-run welcome/onboarding has been completed.
     static var didCompleteOnboarding: Bool {
         get { defaults.bool(forKey: "didCompleteOnboarding") }
@@ -247,10 +254,22 @@ enum Settings {
         get { defaults.string(forKey: "elevenVoiceGender") ?? "" }
         set { defaults.set(newValue, forKey: "elevenVoiceGender") }
     }
-    /// Chosen provider preset name ("OpenAI", "Groq", or "Custom").
+    /// Chosen provider preset name ("OpenAI", "Groq", "Local (OpenAI-compatible)", or "Custom").
     static var aiProvider: String {
         get { defaults.string(forKey: "aiProvider") ?? "OpenAI" }
         set { defaults.set(newValue, forKey: "aiProvider") }
+    }
+    /// True when the speech-to-text endpoint is a local server (localhost), which needs no API key.
+    /// Lets captions run fully offline against e.g. faster-whisper-server / speaches / LocalAI.
+    static var sttKeyOptional: Bool { isLocalHost(urlString: sttBaseURL) }
+
+    /// Heuristic: does this URL point at a machine-local server (loopback)? Used to decide when an
+    /// API key is optional for a bring-your-own-endpoint AI feature.
+    static func isLocalHost(urlString: String) -> Bool {
+        guard let host = URLComponents(string: urlString.trimmingCharacters(in: .whitespaces))?.host?.lowercased()
+        else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0"
+            || host == "::1" || host.hasSuffix(".local")
     }
     /// Chat model used by the AI Director to reason over the transcript + activity. Uses the same
     /// endpoint/key as captions. Default suits OpenAI; change for other providers.
@@ -259,7 +278,34 @@ enum Settings {
         set { defaults.set(newValue, forKey: "aiDirectorModel") }
     }
 
-    // MARK: - Voiceover (ElevenLabs, bring-your-own-key)
+    // MARK: - Voiceover (bring-your-own-key OR local, pluggable provider)
+
+    /// TTS provider preset name: "ElevenLabs" (hosted, paid), "OpenAI-compatible" (the standard
+    /// `/v1/audio/speech` contract — works with LocalAI, Kokoro-FastAPI, openedai-speech, or any
+    /// local Docker server that speaks it), or "Custom" (a raw HTTP endpoint returning audio bytes).
+    /// Default is ElevenLabs so existing setups keep working untouched.
+    static var ttsProvider: String {
+        get { defaults.string(forKey: "ttsProvider") ?? "ElevenLabs" }
+        set { defaults.set(newValue, forKey: "ttsProvider") }
+    }
+    /// Base URL for the OpenAI-compatible/custom providers, e.g. "http://localhost:8880/v1"
+    /// (Kokoro-FastAPI) or "http://localhost:8080/v1" (LocalAI). Ignored for ElevenLabs, which
+    /// uses its fixed endpoint. The API key (if any) lives in the Keychain.
+    static var ttsBaseURL: String {
+        get { defaults.string(forKey: "ttsBaseURL") ?? "http://localhost:8880/v1" }
+        set { defaults.set(newValue, forKey: "ttsBaseURL") }
+    }
+    /// TTS model id for the OpenAI-compatible/custom providers (e.g. "tts-1", "kokoro").
+    static var ttsModel: String {
+        get { defaults.string(forKey: "ttsModel") ?? "tts-1" }
+        set { defaults.set(newValue, forKey: "ttsModel") }
+    }
+    /// Voice name/id used by the OpenAI-compatible/custom providers (e.g. "alloy", "af_bella").
+    /// ElevenLabs voices are chosen from its live voice list and stored in `elevenVoiceId`.
+    static var ttsVoice: String {
+        get { defaults.string(forKey: "ttsVoice") ?? "alloy" }
+        set { defaults.set(newValue, forKey: "ttsVoice") }
+    }
 
     /// ElevenLabs TTS model. eleven_multilingual_v2 is a solid default.
     static var elevenModel: String {

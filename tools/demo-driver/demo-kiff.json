@@ -1,0 +1,49 @@
+{
+  "//": "Real demo: create a KIFF domain end-to-end on the local stack (web :8081 + api :8080, stub auth). Each scene asserts its outcome; the render is verified.",
+  "url": "http://localhost:8081/sign-in",
+  "viewport": { "x": 120, "y": 80, "width": 1280, "height": 860 },
+  "stepPauseMs": 900,
+  "voiceId": "XrExE9yKIg1WjnnlVkGX",
+  "showCursor": true,
+  "osClick": false,
+  "maxAttempts": 1,
+  "verify": true,
+  "scenes": [
+    {
+      "say": "Okay, let me show you how to create a domain in KIFF Cloud. First, I'll sign in.",
+      "steps": [
+        { "action": "fill", "selector": "input[name=subject]", "text": "dev-user" },
+        { "action": "click", "selector": "button[type=submit]" }
+      ],
+      "expect": { "urlContains": "/dashboard" }
+    },
+    {
+      "say": "This is the dashboard. To define a domain, I head into Build — that's KIFF Studio, where you protect one action at a time.",
+      "steps": [ { "action": "goto", "url": "http://localhost:8081/dashboard/build" } ],
+      "expect": { "visible": "text=Paste one tool call" }
+    },
+    {
+      "say": "KIFF derives controls from what your agent actually does. There's no runtime connected here, so I'll paste one tool call — issuing a refund on an order — and derive a control from it.",
+      "steps": [
+        { "action": "expand", "selector": "details.studio-af-replay" },
+        { "action": "fill", "selector": "textarea[name=tool_call]", "text": "{\"tool\":\"refund.issue_refund\",\"entity_type\":\"order\",\"fields\":{\"order_id\":\"A-1001\",\"amount\":42.5}}" },
+        { "action": "click", "selector": "button:has-text('Derive a control')" }
+      ],
+      "expect": { "visible": "summary:has-text('kiff.yaml')" }
+    },
+    {
+      "say": "Now I'll drop in the finished kiff dot yaml — the states, the transition, and the refund action, gated for approval — and activate it.",
+      "steps": [
+        { "action": "expand", "selector": "details.studio-handoff-manual" },
+        { "action": "expand", "selector": "details.studio-yaml-panel" },
+        { "action": "fill", "selector": "textarea[name=yaml]", "text": "domain: refund-flow\nentity: Order\nevents: [ISSUE_REFUND]\nstates: [REQUESTED, REFUNDED]\ntransitions:\n  - on: ISSUE_REFUND\n    from: REQUESTED\n    to: REFUNDED\nactions:\n  - name: ISSUE_REFUND\n    allowed_states: [REQUESTED]\n    required_parameters: [amount_cents]\n    required_permissions: [refund-flow.issue_refund]\n    risk: high\n    approval: required\n    executor: cloud.proxy\npermissions:\n  roles:\n    tenant_owner: [refund-flow.issue_refund, refund-flow.issue_refund.approve]\n" },
+        { "action": "click", "selector": "button:has-text('Validate and activate')" }
+      ],
+      "expect": { "urlContains": "/dashboard/domains" }
+    },
+    {
+      "say": "And there it is. The refund-flow domain is live and governing in shadow mode — every refund now runs through this control, with a signed receipt. That's how you create a domain.",
+      "steps": [ { "action": "wait", "ms": 1200 } ]
+    }
+  ]
+}

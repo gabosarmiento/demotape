@@ -25,6 +25,36 @@ final class CaptionsTests: XCTestCase {
         XCTAssertNil(Captions.transcriptionEndpoint(baseURL: "   "))
     }
 
+    // MARK: - Local (keyless) endpoint detection
+
+    func testIsLocalHostTrueForLoopback() {
+        XCTAssertTrue(Settings.isLocalHost(urlString: "http://localhost:8000/v1"))
+        XCTAssertTrue(Settings.isLocalHost(urlString: "http://127.0.0.1:8880/v1"))
+        XCTAssertTrue(Settings.isLocalHost(urlString: "  http://0.0.0.0:9000/v1  "))
+        XCTAssertTrue(Settings.isLocalHost(urlString: "http://mini.local:8000/v1"))
+    }
+
+    func testIsLocalHostFalseForRemote() {
+        XCTAssertFalse(Settings.isLocalHost(urlString: "https://api.openai.com/v1"))
+        XCTAssertFalse(Settings.isLocalHost(urlString: "https://api.groq.com/openai/v1"))
+        XCTAssertFalse(Settings.isLocalHost(urlString: ""))
+    }
+
+    /// A local endpoint transcribes with no key; a hosted one still requires one.
+    func testGenerateAllowsEmptyKeyOnlyForLocal() {
+        let localMissingAudio = Captions.Config(baseURL: "http://localhost:8000/v1", model: "m", apiKey: "")
+        // Local + empty key must get PAST the key guard (it then fails later extracting audio from a
+        // bogus file — proving the missingKey guard did not trip).
+        XCTAssertThrowsError(try Captions().generate(for: URL(fileURLWithPath: "/nope.mov"), config: localMissingAudio)) { err in
+            if case Captions.CaptionsError.missingKey = err { XCTFail("local should not require a key") }
+        }
+        // Hosted + empty key must trip missingKey.
+        let hosted = Captions.Config(baseURL: "https://api.openai.com/v1", model: "whisper-1", apiKey: "")
+        XCTAssertThrowsError(try Captions().generate(for: URL(fileURLWithPath: "/nope.mov"), config: hosted)) { err in
+            guard case Captions.CaptionsError.missingKey = err else { return XCTFail("expected missingKey") }
+        }
+    }
+
     // MARK: - Response parsing
 
     func testParseSegments() throws {

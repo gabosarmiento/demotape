@@ -153,6 +153,156 @@ if let i = args.firstIndex(of: "--captions"), args.count > i + 1 {
     }
 }
 
+// Headless AI brief:  DemoTape --brief <input.mov|.mp4>
+// Turns a short "explain it to the AI" recording into a <name>-brief/ folder (+ .zip) with an
+// AI-authored BRIEF.md, keyframes, transcript, and a copy-paste handoff prompt. Uses
+// DEMOTAPE_STT_KEY for transcription and the same key for the chat model
+// (DEMOTAPE_BRIEF_MODEL, default gpt-4o-mini). No GUI/Keychain needed.
+if let i = args.firstIndex(of: "--brief"), args.count > i + 1 {
+    if #available(macOS 12.3, *) {
+        let input = URL(fileURLWithPath: args[i + 1])
+        let env = ProcessInfo.processInfo.environment
+        let key = env["DEMOTAPE_STT_KEY"] ?? Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
+        guard !key.isEmpty else {
+            FileHandle.standardError.write("brief error: no API key (set DEMOTAPE_STT_KEY)\n".data(using: .utf8)!)
+            exit(1)
+        }
+        let baseURL = env["DEMOTAPE_STT_BASEURL"] ?? "https://api.openai.com/v1"
+        let stt = Captions.Config(baseURL: baseURL, model: env["DEMOTAPE_STT_MODEL"] ?? "whisper-1",
+                                  apiKey: key, language: env["DEMOTAPE_STT_LANG"] ?? "")
+        let chat = AIBrief.Config(baseURL: baseURL, model: env["DEMOTAPE_BRIEF_MODEL"] ?? "gpt-4o-mini", apiKey: key)
+        do {
+            let r = try AIBriefBuilder(stt: stt, chat: chat).build(for: input) { p in
+                FileHandle.standardError.write("brief: \(Int(p * 100))%\r".data(using: .utf8)!)
+            }
+            print("\nbrief: \(r.bundleDir.path)\nzip:   \(r.zipURL.path)\n\n--- PROMPT ---\n\(r.agentPrompt)")
+            exit(0)
+        } catch {
+            FileHandle.standardError.write("brief error: \(error.localizedDescription)\n".data(using: .utf8)!)
+            exit(1)
+        }
+    } else { exit(1) }
+}
+
+// Headless self-verification:  DemoTape --verify <video> <spec.json>
+// spec.json: {"scenes":[{"at":3.8,"say":"I'll click Get started"}, …]}
+// Grabs the frame at each scene and asks a vision model whether it matches the narration. Prints a
+// JSON report and exits 0 if every scene passed, 2 otherwise (so a driver can gate on it).
+if let i = args.firstIndex(of: "--verify"), args.count > i + 2 {
+    if #available(macOS 12.3, *) {
+        let video = URL(fileURLWithPath: args[i + 1])
+        let specURL = URL(fileURLWithPath: args[i + 2])
+        let env = ProcessInfo.processInfo.environment
+        let key = env["DEMOTAPE_STT_KEY"] ?? Keychain.get(account: Keychain.sttAPIKeyAccount) ?? ""
+        guard !key.isEmpty else {
+            FileHandle.standardError.write("verify error: no API key (set DEMOTAPE_STT_KEY)\n".data(using: .utf8)!)
+            exit(1)
+        }
+        let config = AIBrief.Config(baseURL: env["DEMOTAPE_STT_BASEURL"] ?? "https://api.openai.com/v1",
+                                    model: env["DEMOTAPE_BRIEF_MODEL"] ?? "gpt-4o-mini", apiKey: key)
+        struct Spec: Decodable { let scenes: [DemoVerifier.Scene] }
+        do {
+            let spec = try JSONDecoder().decode(Spec.self, from: Data(contentsOf: specURL))
+            let report = try DemoVerifier.run(video: video, scenes: spec.scenes, config: config)
+            let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted]
+            FileHandle.standardOutput.write(try enc.encode(report))
+            FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+            exit(report.pass ? 0 : 2)
+        } catch {
+            FileHandle.standardError.write("verify error: \(error.localizedDescription)\n".data(using: .utf8)!)
+            exit(1)
+        }
+    } else { exit(1) }
+}
+
+// Headless scene-synced voiceover:  DemoTape --voiceover-timeline <video> <spec.json>
+// spec.json: {"clips":[{"audio":"/path/a.mp3","at":0.0},{"audio":"/path/b.mp3","at":6.2}]}
+// Lays each clip at its offset so a scripted walkthrough stays in sync with the actions.
+if let i = args.firstIndex(of: "--voiceover-timeline"), args.count > i + 2 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    let specURL = URL(fileURLWithPath: args[i + 2])
+    struct Spec: Decodable { struct Clip: Decodable { let audio: String; let at: Double }; let clips: [Clip] }
+    do {
+        let spec = try JSONDecoder().decode(Spec.self, from: Data(contentsOf: specURL))
+        let clips = spec.clips.map { Voiceover.TimedClip(url: URL(fileURLWithPath: $0.audio), at: $0.at) }
+        let out = try Voiceover().assembleTimeline(video: video, clips: clips)
+        print("voiceover: \(out.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("voiceover-timeline error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless cursor control for driven demos (so the real macOS cursor is visible in the capture,
+// and optionally so clicks trigger DemoTape's auto-zoom):
+//   DemoTape --cursor move  <x> <y>
+//   DemoTape --cursor click <x> <y>
+// Coordinates are global display points (top-left origin). "move" needs no permission; "click"
+// posts a real mouse click (the controlling process needs Accessibility permission).
+if let i = args.firstIndex(of: "--cursor"), args.count > i + 3 {
+    let action = args[i + 1]
+    let x = Double(args[i + 2]) ?? 0
+    let y = Double(args[i + 3]) ?? 0
+    let pt = CGPoint(x: x, y: y)
+    // Glide from the current position with ease-in-out so it reads as a human hand, not a teleport.
+    let start = CGEvent(source: nil)?.location ?? pt
+    let steps = 26
+    for s in 1...steps {
+        let t = Double(s) / Double(steps)
+        let e = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t   // easeInOut
+        CGWarpMouseCursorPosition(CGPoint(x: start.x + (pt.x - start.x) * e,
+                                          y: start.y + (pt.y - start.y) * e))
+        usleep(13_000)
+    }
+    CGWarpMouseCursorPosition(pt)
+    CGAssociateMouseAndMouseCursorPosition(1)
+    if action == "click" {
+        let src = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
+        usleep(60_000)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
+    }
+    print("cursor \(action) \(Int(x)) \(Int(y))")
+    exit(0)
+}
+
+// Headless text-to-speech:  DemoTape --tts <script.txt> <out.mp3> [voice]
+// Synthesizes narration only (no video). The provider is chosen by DEMOTAPE_TTS_PROVIDER:
+//   (unset)/ElevenLabs      → ElevenLabs (paid). Key: DEMOTAPE_TTS_KEY or DEMOTAPE_ELEVEN_KEY.
+//   OpenAI-compatible       → POST {DEMOTAPE_TTS_BASEURL}/audio/speech (local Docker, LocalAI, …).
+//   Custom                  → POST {DEMOTAPE_TTS_BASEURL} with {text,voice,model}.
+// This is what lets a demo run fully locally with no paid key.
+if let i = args.firstIndex(of: "--tts"), args.count > i + 2 {
+    let scriptURL = URL(fileURLWithPath: args[i + 1])
+    let outURL = URL(fileURLWithPath: args[i + 2])
+    let env = ProcessInfo.processInfo.environment
+    let voiceArg = args.count > i + 3 ? args[i + 3] : (env["DEMOTAPE_ELEVEN_VOICE"] ?? env["DEMOTAPE_TTS_VOICE"] ?? "")
+    var config = Voiceover.TTSConfig.fromEnvironment(voice: voiceArg)
+    // For ElevenLabs, fall back to the stored Keychain key and a sensible default voice.
+    if config.provider == .elevenLabs {
+        if config.apiKey.isEmpty { config.apiKey = Keychain.get(account: Keychain.elevenAPIKeyAccount) ?? "" }
+        if config.voice.isEmpty { config.voice = "CwhRBWXzGAHq8TQ4Fs17" }
+        guard !config.apiKey.isEmpty else {
+            FileHandle.standardError.write("tts error: no key (set DEMOTAPE_ELEVEN_KEY, or DEMOTAPE_TTS_PROVIDER=OpenAI-compatible for a local server)\n".data(using: .utf8)!)
+            exit(1)
+        }
+    }
+    do {
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        let mp3 = try Voiceover().synthesize(text: script, config: config)
+        try? FileManager.default.removeItem(at: outURL)
+        try FileManager.default.moveItem(at: mp3, to: outURL)
+        print("tts: \(outURL.path)")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("tts error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // Headless voice list:  DemoTape --voices   (uses DEMOTAPE_ELEVEN_KEY)
 if args.contains("--voices") {
     let key = ProcessInfo.processInfo.environment["DEMOTAPE_ELEVEN_KEY"]
