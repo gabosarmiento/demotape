@@ -88,14 +88,40 @@ codesign --force --timestamp --options runtime \
     "${BUNDLE}"
 codesign --verify --deep --strict --verbose=2 "${BUNDLE}"
 
-# ---- Package the .dmg ----------------------------------------------------------------------
-echo "==> Creating ${DMG_PATH}..."
-mkdir -p "${STAGE}" "${DIST_DIR}"
-cp -R "${BUNDLE}" "${STAGE}/"
-ln -s /Applications "${STAGE}/Applications"
+# ---- Package a styled .dmg (drag-to-Applications) ------------------------------------------
+# Built with `create-dmg` (build-time tool, not an app dependency) for a reliable "drag DemoTape
+# onto Applications" window with our branded background. Falls back to a plain image if the tool
+# isn't installed. Dropping the app on the Applications alias replaces any existing copy.
+echo "==> Creating styled ${DMG_PATH}..."
+mkdir -p "${DIST_DIR}"
 rm -f "${DMG_PATH}"
-hdiutil create -volname "${VOL_NAME}" -srcfolder "${STAGE}" \
-    -fs HFS+ -format UDZO -ov "${DMG_PATH}" >/dev/null
+DMG_SRC="${STAGE_ROOT}/dmgsrc"
+rm -rf "${DMG_SRC}"; mkdir -p "${DMG_SRC}"
+cp -R "${BUNDLE}" "${DMG_SRC}/"
+
+if command -v create-dmg >/dev/null 2>&1; then
+    bg_args=()
+    [ -f "Resources/dmg-background.png" ] && bg_args=(--background "Resources/dmg-background.png")
+    # create-dmg exits non-zero on some benign Finder hiccups but still writes the dmg — so we
+    # check for the output file rather than trusting the exit code.
+    create-dmg \
+        --volname "${VOL_NAME}" \
+        "${bg_args[@]}" \
+        --window-pos 200 120 \
+        --window-size 640 400 \
+        --icon-size 128 \
+        --icon "${APP_NAME}.app" 150 205 \
+        --app-drop-link 490 205 \
+        --hdiutil-quiet \
+        "${DMG_PATH}" "${DMG_SRC}" || true
+fi
+
+if [[ ! -f "${DMG_PATH}" ]]; then
+    echo "    (create-dmg unavailable/failed — building a plain DMG)"
+    ln -s /Applications "${DMG_SRC}/Applications"
+    hdiutil create -volname "${VOL_NAME}" -srcfolder "${DMG_SRC}" \
+        -fs HFS+ -format UDZO -ov "${DMG_PATH}" >/dev/null
+fi
 
 # Sign the disk image itself (belt-and-suspenders): the app inside is already signed + will be
 # notarized, but signing the .dmg lets `spctl` assess the image directly as a clean pass too.

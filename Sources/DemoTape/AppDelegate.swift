@@ -1,5 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
+import CoreGraphics
+import AVFoundation
 
 @available(macOS 12.3, *)
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -58,11 +60,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startApp()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // Pick up a notification-permission change the user made in System Settings while running.
+        Notifier.shared.refreshAuthorization()
+    }
+
     private func startApp() {
+        // Keep the mic toggle honest: if it was left "on" but macOS doesn't grant mic access, show
+        // it off until the user re-enables it (which re-requests permission).
+        if Settings.captureMicrophone && AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+            Settings.captureMicrophone = false
+        }
+        // Same for the webcam: don't show it "on" at launch if macOS doesn't grant camera access.
+        if Settings.captureWebcam && AVCaptureDevice.authorizationStatus(for: .video) != .authorized {
+            Settings.captureWebcam = false
+        }
         installMainMenu()
         RecordingLayout.migrateFlatRecordings()   // group any older flat recordings into folders
         LaunchLocationGuard.check()   // warn if we're translocated / outside /Applications
         Notifier.shared.setup()   // ask for notification permission on first launch
+        // (Screen Recording registration/guidance is handled by the Welcome window below and by
+        // the record flow — we don't fire the system prompt at launch, so it can't get hidden
+        // behind the Welcome window.)
         // Brand the app icon (used by Finder and by NSAlert dialogs).
         if let url = Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns"),
            let icon = NSImage(contentsOf: url) {
@@ -339,9 +358,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateCaptureModeChecks()
         presentRecorderBar()
 
-        // Show the welcome for the first few launches, then only ~monthly (it becomes wallpaper
-        // otherwise). Skip entirely once the user has everything granted and has seen it enough.
-        if Settings.shouldShowWelcome {
+        // Show the welcome for the first few launches, then only ~monthly — BUT always show it when
+        // the required Screen Recording permission is missing, so a new install (or one whose grant
+        // was invalidated by a signature change) is guided to grant it instead of silently not
+        // working. The welcome only surfaces still-missing permissions and disappears once granted.
+        let needsRequiredPermission = !CGPreflightScreenCaptureAccess()
+        if Settings.shouldShowWelcome || needsRequiredPermission {
             Settings.markWelcomeShown()
             let welcome = WelcomeController()
             welcomeController = welcome
@@ -1058,16 +1080,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     @objc private func toggleMic() {
-        Settings.captureMicrophone.toggle()
-        micItem.state = Settings.captureMicrophone ? .on : .off
-        recorderBar?.updateMic(Settings.captureMicrophone)
+        // Turning the mic ON is only honest if macOS grants microphone access. Request it on the
+        // spot; if it's denied, keep the mic OFF and point the user to Settings — don't show an
+        // "on" mic that can't actually record.
+        if Settings.captureMicrophone {
+            setMic(false)   // turning off never needs permission
+            return
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            setMic(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted { self?.setMic(true) } else { self?.micPermissionNeeded() }
+                }
+            }
+        default:
+            micPermissionNeeded()
+        }
+    }
+
+    /// Applies the mic on/off state to the menu item and recorder bar.
+    private func setMic(_ on: Bool) {
+        Settings.captureMicrophone = on
+        micItem.state = on ? .on : .off
+        recorderBar?.updateMic(on)
+    }
+
+    /// Mic was requested but macOS hasn't granted it — keep it off and offer to open Settings.
+    private func micPermissionNeeded() {
+        setMic(false)
+        let alert = NSAlert()
+        alert.messageText = "Microphone access needed"
+        alert.informativeText = "To record narration, allow DemoTape to use the microphone in "
+            + "System Settings → Privacy & Security → Microphone, then turn the mic on again."
+        alert.addButton(withTitle: "Open Settings…")
+        alert.addButton(withTitle: "Not now")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func toggleWebcam() {
-        Settings.captureWebcam.toggle()
-        webcamItem.state = Settings.captureWebcam ? .on : .off
-        recorderBar?.updateWebcam(Settings.captureWebcam)
+        // Same honesty rule as the mic: only show the webcam "on" if macOS grants camera access.
+        // Request it on the spot; if denied, keep it OFF and point the user to Settings rather
+        // than pretending a camera bubble will appear.
+        if Settings.captureWebcam {
+            setWebcam(false)   // turning off never needs permission
+            return
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            setWebcam(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted { self?.setWebcam(true) } else { self?.cameraPermissionNeeded() }
+                }
+            }
+        default:
+            cameraPermissionNeeded()
+        }
+    }
+
+    /// Applies the webcam on/off state to the menu item, recorder bar, and preview.
+    private func setWebcam(_ on: Bool) {
+        Settings.captureWebcam = on
+        webcamItem.state = on ? .on : .off
+        recorderBar?.updateWebcam(on)
         refreshWebcamPreview()
+    }
+
+    /// Camera was requested but macOS hasn't granted it — keep it off and offer to open Settings.
+    private func cameraPermissionNeeded() {
+        setWebcam(false)
+        let alert = NSAlert()
+        alert.messageText = "Camera access needed"
+        alert.informativeText = "To add a webcam bubble, allow DemoTape to use the camera in "
+            + "System Settings → Privacy & Security → Camera, then turn the webcam on again."
+        alert.addButton(withTitle: "Open Settings…")
+        alert.addButton(withTitle: "Not now")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private var webcamSettingsController: WebcamSettingsController?

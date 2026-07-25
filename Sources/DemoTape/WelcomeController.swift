@@ -125,12 +125,12 @@ final class WelcomeController: NSObject, NSWindowDelegate {
 
         if !screenOK {
             addPermissionRow(title: "Allow Screen Recording", tag: "required",
-                             detail: "Needed to capture your screen.",
+                             detail: "So DemoTape can record your screen.",
                              buttonTitle: "Allow…", action: #selector(allowScreen), y: &y, boxW: boxW)
         }
         if !axOK {
-            addPermissionRow(title: "Allow Accessibility", tag: "optional",
-                             detail: "Adds keyboard-shortcut badges. You can skip this.",
+            addPermissionRow(title: "Allow Accessibility", tag: "unlocks",
+                             detail: "Show the keys you press as on-screen badges.",
                              buttonTitle: "Allow…", action: #selector(allowAccessibility), y: &y, boxW: boxW)
         }
     }
@@ -161,13 +161,19 @@ final class WelcomeController: NSObject, NSWindowDelegate {
     }
 
     @objc private func allowScreen() {
-        _ = CGRequestScreenCaptureAccess()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.rebuildPermissions() }
+        // ONE action: take the user straight to the Screen Recording pane to tick DemoTape. We
+        // don't also fire the CGRequest lock alert — that produced a second, duplicate prompt.
+        // (Screen Recording only applies after the app is quit and reopened — macOS rule.)
+        openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.rebuildPermissions() }
     }
     @objc private func allowAccessibility() {
-        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(opts)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.rebuildPermissions() }
+        openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.rebuildPermissions() }
+    }
+
+    private func openSettings(_ urlString: String) {
+        if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
     }
 
     @objc private func finish() { window?.close() }

@@ -52,7 +52,7 @@ final class AboutController: NSObject, NSWindowDelegate {
         [
             Permission(
                 name: "Screen Recording",
-                detail: "Required — capture the screen.",
+                detail: "So DemoTape can record your screen.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
                 status: { CGPreflightScreenCaptureAccess() ? .granted : .denied },
                 request: { done in
@@ -63,7 +63,7 @@ final class AboutController: NSObject, NSWindowDelegate {
                 ambiguousDenied: true),
             Permission(
                 name: "Microphone",
-                detail: "Optional — record narration.",
+                detail: "Turn on to narrate your demo in your own voice.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
                 status: { Self.map(AVCaptureDevice.authorizationStatus(for: .audio)) },
                 request: { done in
@@ -74,7 +74,7 @@ final class AboutController: NSObject, NSWindowDelegate {
                 ambiguousDenied: false),
             Permission(
                 name: "Camera",
-                detail: "Optional — webcam overlay.",
+                detail: "Turn on to add a webcam bubble to your recording.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
                 status: { Self.map(AVCaptureDevice.authorizationStatus(for: .video)) },
                 request: { done in
@@ -85,7 +85,7 @@ final class AboutController: NSObject, NSWindowDelegate {
                 ambiguousDenied: false),
             Permission(
                 name: "Accessibility",
-                detail: "Optional — keyboard-shortcut badges.",
+                detail: "Turn on to show the keys you press as on-screen badges.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
                 status: { AXIsProcessTrusted() ? .granted : .denied },
                 request: { done in
@@ -97,12 +97,27 @@ final class AboutController: NSObject, NSWindowDelegate {
                 ambiguousDenied: true),
             Permission(
                 name: "Notifications",
-                detail: "Optional — \"render ready\" alerts.",
+                detail: "Turn on to get a ping when your video is ready.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.notifications",
                 status: { .unknown },   // resolved asynchronously; see refreshNotificationStatus()
                 request: { done in
-                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
-                        DispatchQueue.main.async { done() }
+                    // macOS only shows the notification prompt while the status is notDetermined.
+                    // Once the user has answered (or dismissed) it once, re-requesting is a silent
+                    // no-op — so in that case send them to System Settings to flip it on instead.
+                    let center = UNUserNotificationCenter.current()
+                    center.getNotificationSettings { settings in
+                        DispatchQueue.main.async {
+                            if settings.authorizationStatus == .notDetermined {
+                                center.requestAuthorization(options: [.alert, .sound]) { _, _ in
+                                    DispatchQueue.main.async { done() }
+                                }
+                            } else {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                                done()
+                            }
+                        }
                     }
                 },
                 ambiguousDenied: false)
@@ -424,4 +439,9 @@ final class AboutController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) { /* keep instance for reuse */ }
+
+    /// Re-check every permission whenever the window regains focus — e.g. after the user grants
+    /// something in System Settings and switches back — so the statuses update live without
+    /// having to close and reopen the window.
+    func windowDidBecomeKey(_ notification: Notification) { refreshStatuses() }
 }

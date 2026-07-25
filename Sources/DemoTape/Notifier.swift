@@ -33,8 +33,28 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let category = UNNotificationCategory(identifier: readyCategory, actions: [reveal],
                                               intentIdentifiers: [], options: [])
         center.setNotificationCategories([category])
-        center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
-            self?.authorized = granted
+        // Ask only when the decision hasn't been made yet; otherwise trust the LIVE status so the
+        // `authorized` flag can't go stale (it previously only ever reflected a fresh prompt).
+        center.getNotificationSettings { [weak self] settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                self?.authorized = true
+            case .notDetermined:
+                self?.center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    self?.authorized = granted
+                }
+            default:
+                self?.authorized = false
+            }
+        }
+    }
+
+    /// Refreshes the cached authorization from the system (e.g. after the user flips it in
+    /// System Settings while the app is running).
+    func refreshAuthorization() {
+        center.getNotificationSettings { [weak self] settings in
+            self?.authorized = (settings.authorizationStatus == .authorized
+                                || settings.authorizationStatus == .provisional)
         }
     }
 

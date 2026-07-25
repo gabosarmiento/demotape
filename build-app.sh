@@ -31,13 +31,25 @@ if [ -d "Resources/background" ]; then
 fi
 
 echo "==> Code signing..."
-# Prefer the stable self-signed "DemoTape Dev" identity so macOS keeps Screen
-# Recording permission across rebuilds. Fall back to ad-hoc if it's missing.
-if security find-certificate -c "DemoTape Dev" >/dev/null 2>&1; then
+# Sign with the SAME identity the shipped DMG uses, so macOS keeps every permission grant across
+# rebuilds AND across the notarized DMG (TCC binds grants to the signing identity's designated
+# requirement — mixing identities is what forces re-granting). Preference:
+#   1. Developer ID Application  → identical designated requirement as the release DMG (grants persist forever)
+#   2. "DemoTape Dev" self-signed → stable across local rebuilds, but differs from the DMG
+#   3. ad-hoc                     → last resort (permission resets each rebuild)
+SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')"
+ENTITLEMENTS="Resources/DemoTape.entitlements"
+if [ -n "${SIGN_ID}" ]; then
+    # Hardened runtime REQUIRES the matching entitlements (mic/camera/apple-events) or macOS kills
+    # the app when it touches those — sign exactly like the release DMG does.
+    codesign --force --deep --options runtime --entitlements "${ENTITLEMENTS}" --sign "${SIGN_ID}" "${BUNDLE}"
+    echo "    signed with: ${SIGN_ID}"
+elif security find-certificate -c "DemoTape Dev" >/dev/null 2>&1; then
+    SIGN_ID="DemoTape Dev"
     codesign --force --deep --sign "DemoTape Dev" "${BUNDLE}"
-    echo "    signed with: DemoTape Dev (stable identity)"
+    echo "    signed with: DemoTape Dev (self-signed; differs from the release DMG)"
 else
-    echo "    'DemoTape Dev' identity not found; run ./create-identity.sh once."
+    echo "    no signing identity found; run ./create-identity.sh once."
     codesign --force --deep --sign - "${BUNDLE}"
     echo "    signed ad-hoc (permission will reset on each rebuild)"
 fi
@@ -49,8 +61,12 @@ echo "==> Installing to ${INSTALL_DIR}..."
 rm -rf "${INSTALL_DIR}/${BUNDLE}"
 cp -R "${BUNDLE}" "${INSTALL_DIR}/${BUNDLE}"
 # Re-sign in place so the designated requirement stays identical across rebuilds.
-if security find-certificate -c "DemoTape Dev" >/dev/null 2>&1; then
-    codesign --force --deep --sign "DemoTape Dev" "${INSTALL_DIR}/${BUNDLE}"
+if [ -n "${SIGN_ID}" ] && [ "${SIGN_ID}" != "-" ]; then
+    if [ "${SIGN_ID}" = "DemoTape Dev" ]; then
+        codesign --force --deep --sign "DemoTape Dev" "${INSTALL_DIR}/${BUNDLE}"
+    else
+        codesign --force --deep --options runtime --entitlements "${ENTITLEMENTS}" --sign "${SIGN_ID}" "${INSTALL_DIR}/${BUNDLE}"
+    fi
 fi
 
 # Remove the local staging bundle. Leaving a second DemoTape.app in the project folder
