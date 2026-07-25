@@ -33,6 +33,11 @@ xcuserdata/
 tools/demo-driver/node_modules/
 tools/demo-driver/driver.log
 
+# Locally installed copy of the record-verified-demo skill (created by
+# tools/demo-driver/skill/install.sh --kiro). The source of truth is that folder,
+# so committing the copy would just create a second one that drifts.
+.kiro/
+
 # Python bytecode from the local TTS shim
 __pycache__/
 *.pyc

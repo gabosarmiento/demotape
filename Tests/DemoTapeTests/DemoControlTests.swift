@@ -69,3 +69,146 @@ final class DemoControlTests: XCTestCase {
         XCTAssertNil(parse("demotape://cursor/move?x=10"))
     }
 }
+
+/// `demotape://ui/…` — lets a scripted walkthrough open DemoTape's own windows, since a menu row's
+/// screen rect isn't discoverable from outside the app.
+extension DemoControlTests {
+
+    func testParseOpenUIByQuery() {
+        let url = URL(string: "demotape://ui/open?window=publish")!
+        XCTAssertEqual(DemoControl.parse(url), .openUI(.publish))
+    }
+
+    func testParseOpenUIShorthandPath() {
+        let url = URL(string: "demotape://ui/about")!
+        XCTAssertEqual(DemoControl.parse(url), .openUI(.about))
+    }
+
+    func testParseOpenUIIsCaseInsensitive() {
+        let url = URL(string: "demotape://ui/open?window=COMPOSER")!
+        XCTAssertEqual(DemoControl.parse(url), .openUI(.composer))
+    }
+
+    func testParseOpenUIRejectsUnknownWindow() {
+        let url = URL(string: "demotape://ui/open?window=nope")!
+        XCTAssertNil(DemoControl.parse(url))
+    }
+
+    func testEveryWindowCaseParses() {
+        for w in DemoControl.Window.allCases {
+            let url = URL(string: "demotape://ui/open?window=\(w.rawValue)")!
+            XCTAssertEqual(DemoControl.parse(url), .openUI(w), "failed for \(w.rawValue)")
+        }
+    }
+}
+
+/// Cursor glide — animated, human-looking travel instead of a teleport.
+extension DemoControlTests {
+
+    func testPlainCursorDoesNotGlide() {
+        let url = URL(string: "demotape://cursor?x=100&y=200")!
+        XCTAssertEqual(DemoControl.parse(url), .cursor(x: 100, y: 200, click: false, glideMs: 0))
+    }
+
+    func testGlidePathGetsDefaultDuration() {
+        let url = URL(string: "demotape://cursor/glide?x=100&y=200")!
+        XCTAssertEqual(DemoControl.parse(url), .cursor(x: 100, y: 200, click: false, glideMs: 420))
+    }
+
+    func testExplicitMsOverridesGlideDefault() {
+        let url = URL(string: "demotape://cursor/glide?x=10&y=20&ms=900")!
+        XCTAssertEqual(DemoControl.parse(url), .cursor(x: 10, y: 20, click: false, glideMs: 900))
+    }
+
+    func testMsWorksWithoutGlidePathSegment() {
+        let url = URL(string: "demotape://cursor?x=10&y=20&ms=250")!
+        XCTAssertEqual(DemoControl.parse(url), .cursor(x: 10, y: 20, click: false, glideMs: 250))
+    }
+
+    func testGlideAndClickCombine() {
+        let url = URL(string: "demotape://cursor/glide/click?x=5&y=6&ms=300")!
+        XCTAssertEqual(DemoControl.parse(url), .cursor(x: 5, y: 6, click: true, glideMs: 300))
+    }
+
+    func testNegativeDurationIsClampedToZero() {
+        let url = URL(string: "demotape://cursor?x=1&y=2&ms=-500")!
+        XCTAssertEqual(DemoControl.parse(url), .cursor(x: 1, y: 2, click: false, glideMs: 0))
+    }
+
+    func testCursorStillRequiresBothCoordinates() {
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://cursor/glide?x=10")!))
+    }
+}
+
+/// Semantic (coordinate-free) targeting through the control surface.
+extension DemoControlTests {
+
+    func testParseElementClickByLabel() {
+        let url = URL(string: "demotape://ui/click?label=Export")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .element(query: .init(label: "Export"), click: true))
+    }
+
+    func testParseElementFindDoesNotClick() {
+        let url = URL(string: "demotape://ui/find?label=Export")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .element(query: .init(label: "Export"), click: false))
+    }
+
+    func testParseElementCarriesRoleAppAndIndex() {
+        let url = URL(string: "demotape://ui/click?label=Allow&role=AXButton&app=Safari&index=2")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .element(query: .init(label: "Allow", role: "AXButton",
+                                             app: "Safari", index: 2), click: true))
+    }
+
+    func testParseElementRequiresALabel() {
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://ui/click?role=AXButton")!))
+    }
+
+    func testParseDumpUI() {
+        XCTAssertEqual(DemoControl.parse(URL(string: "demotape://ui/dump")!), .dumpUI(app: nil))
+        XCTAssertEqual(DemoControl.parse(URL(string: "demotape://ui/dump?app=Safari")!),
+                       .dumpUI(app: "Safari"))
+    }
+}
+
+/// `+` in a query value means a space — scripts build these URLs by hand.
+extension DemoControlTests {
+
+    func testPlusIsDecodedAsSpaceInLabels() {
+        let url = URL(string: "demotape://ui/click?label=Check+for+Updates")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .element(query: .init(label: "Check for Updates"), click: true))
+    }
+
+    func testPercentEncodedSpacesStillWork() {
+        let url = URL(string: "demotape://ui/click?label=Check%20for%20Updates")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .element(query: .init(label: "Check for Updates"), click: true))
+    }
+
+    func testPlusDecodingAppliesToAppNames() {
+        let url = URL(string: "demotape://ui/dump?app=Visual+Studio+Code")!
+        XCTAssertEqual(DemoControl.parse(url), .dumpUI(app: "Visual Studio Code"))
+    }
+}
+
+/// The menu must be told how long to stay open: while it tracks, it blocks every later command.
+extension DemoControlTests {
+
+    func testMenuHoldIsParsed() {
+        let url = URL(string: "demotape://ui/open?window=menu&hold=2500")!
+        XCTAssertEqual(DemoControl.parse(url), .openUI(.menu, holdMs: 2500))
+    }
+
+    func testHoldDefaultsToZeroMeaningNoAutoDismiss() {
+        let url = URL(string: "demotape://ui/open?window=menu")!
+        XCTAssertEqual(DemoControl.parse(url), .openUI(.menu, holdMs: 0))
+    }
+
+    func testNegativeHoldIsClamped() {
+        let url = URL(string: "demotape://ui/open?window=menu&hold=-400")!
+        XCTAssertEqual(DemoControl.parse(url), .openUI(.menu, holdMs: 0))
+    }
+}

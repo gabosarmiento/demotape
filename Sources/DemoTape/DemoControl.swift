@@ -39,7 +39,34 @@ enum DemoControl {
         /// Move (and optionally click) the cursor from the RUNNING app process, which holds the
         /// Accessibility grant — so synthetic clicks register and trigger auto-zoom. `click` false
         /// = move only.
-        case cursor(x: Double, y: Double, click: Bool)
+        /// `glideMs` > 0 animates the trip instead of teleporting: eased, slightly arced, with a
+        /// small overshoot-and-settle at the end. A hard warp reads as a robot on video, and the
+        /// travel itself is what carries the viewer's eye between two points, so a demo should
+        /// almost always glide. The animation runs inside the app (one URL per move) because
+        /// issuing a URL per intermediate point would stutter at ~150ms of shell overhead each.
+        case cursor(x: Double, y: Double, click: Bool, glideMs: Int = 0)
+        /// Open one of DemoTape's own windows. This exists so a walkthrough *of DemoTape itself*
+        /// can be scripted: an orchestrator can't reliably click menu rows (their screen rects
+        /// aren't discoverable from outside), but it can ask the app to show a window directly.
+        /// `holdMs` only applies to `.menu`: an open NSMenu runs a nested tracking loop that stalls
+        /// incoming control URLs until it closes, so the app must dismiss its own menu after the
+        /// requested time. Without it a scripted walkthrough deadlocks behind its own menu.
+        case openUI(Window, holdMs: Int = 0)
+        /// Resolve a target from the LIVE UI (by label/role, via AppKit for our own windows or the
+        /// Accessibility API for any other app) and act on it. This is the coordinate-free path:
+        /// `find` publishes the element's rect, `click` glides to it and clicks it.
+        case element(query: UIQuery.Query, click: Bool)
+        /// Write the current UI tree to `ui-tree.json` so an agent can read what's on screen.
+        case dumpUI(app: String?)
+    }
+
+    /// Windows reachable through `demotape://ui/open?window=…`.
+    ///
+    /// `menu` isn't a window — it drops the menu-bar menu open. Clicking the icon with a synthetic
+    /// event doesn't reliably reach a status item, so the app performs the click on itself instead,
+    /// which needs no screen coordinates at all.
+    enum Window: String, Equatable, CaseIterable {
+        case about, publish, composer, settings, welcome, menu
     }
 
     /// Parses a `demotape://` control URL into a command. Returns nil for anything unrecognized.
@@ -52,14 +79,41 @@ enum DemoControl {
         if let host = comps.host { tokens.append(host.lowercased()) }
         tokens += comps.path.split(separator: "/").map { $0.lowercased() }
 
-        // Query lookup (case-insensitive keys).
+        // Query lookup (case-insensitive keys). `+` is decoded as a space: URLComponents leaves it
+        // literal, but callers building URLs from shells and scripts routinely use it for spaces,
+        // which otherwise silently fails to match a label like "Check for Updates".
         var q: [String: String] = [:]
-        for item in comps.queryItems ?? [] { q[item.name.lowercased()] = item.value }
+        for item in comps.queryItems ?? [] {
+            q[item.name.lowercased()] = item.value?.replacingOccurrences(of: "+", with: " ")
+        }
         func dbl(_ k: String) -> Double? { q[k].flatMap(Double.init) }
 
         if tokens.contains("cursor") {
             guard let x = dbl("x"), let y = dbl("y") else { return nil }
-            return .cursor(x: x, y: y, click: tokens.contains("click"))
+            // demotape://cursor/glide?x=&y=&ms=420  (ms also accepted as `glide`)
+            var glide = Int(dbl("ms") ?? dbl("glide") ?? 0)
+            if tokens.contains("glide"), glide <= 0 { glide = 420 }   // sensible default travel
+            return .cursor(x: x, y: y, click: tokens.contains("click"), glideMs: max(0, glide))
+        }
+        if tokens.contains("ui") {
+            // demotape://ui/dump?app=Safari
+            if tokens.contains("dump") { return .dumpUI(app: q["app"]) }
+            // Semantic targeting: demotape://ui/click?label=Export&role=AXButton&app=Safari
+            // (or ui/find to only publish the rect). Beats coordinates: it survives a moved window
+            // and reports honestly when the element isn't there.
+            if tokens.contains("click") || tokens.contains("find") {
+                guard let label = q["label"], !label.isEmpty else { return nil }
+                let query = UIQuery.Query(label: label,
+                                          role: q["role"],
+                                          app: q["app"],
+                                          index: Int(q["index"] ?? "") ?? 0)
+                return .element(query: query, click: tokens.contains("click"))
+            }
+            // demotape://ui/open?window=about  — or the shorthand demotape://ui/about
+            let named = q["window"]?.lowercased() ?? tokens.last
+            guard let named = named, let win = Window(rawValue: named) else { return nil }
+            let hold = Int(dbl("hold") ?? dbl("holdms") ?? 0)
+            return .openUI(win, holdMs: max(0, hold))
         }
         if tokens.contains("stop") { return .stop }
         guard tokens.contains("start") else { return nil }
@@ -92,13 +146,45 @@ enum DemoControl {
 
     /// Writes the current control state. `state` is one of idle/countdown/recording/rendering;
     /// `lastOutput` (when known) is the absolute path of the most recent finished video.
-    static func writeStatus(state: String, lastOutput: String? = nil) {
+    /// `menuBarButton` (when known) is the screen rect of DemoTape's menu-bar icon in top-left
+    /// origin points, so an orchestrator can click it to film the menu — there's no other way to
+    /// find a menu-bar extra's position from outside the app.
+    /// `window` (when known) is the screen rect of the window most recently opened through
+    /// `ui/open`, in the same top-left origin points the cursor commands take. A scripted
+    /// walkthrough needs this to aim: windows are centred by AppKit, so guessing their position
+    /// risks landing an "emphasis" click on a real button.
+    /// Result of the most recent semantic lookup, so a script can confirm what it hit — or that it
+    /// missed, which it must treat as a failure rather than clicking blindly.
+    struct ElementStatus {
+        var role: String
+        var label: String
+        var frame: CGRect
+        var found: Bool
+    }
+
+    static func writeStatus(state: String, lastOutput: String? = nil,
+                            menuBarButton: CGRect? = nil, window: CGRect? = nil,
+                            element: ElementStatus? = nil) {
         var dict: [String: Any] = [
             "state": state,
             "recording": (state == "recording"),
             "updatedAt": ISO8601DateFormatter().string(from: Date())
         ]
         if let lastOutput = lastOutput { dict["lastOutput"] = lastOutput }
+        if let r = menuBarButton {
+            dict["menuBarButton"] = ["x": r.minX, "y": r.minY, "w": r.width, "h": r.height,
+                                     "centerX": r.midX, "centerY": r.midY]
+        }
+        if let r = window {
+            dict["window"] = ["x": r.minX, "y": r.minY, "w": r.width, "h": r.height,
+                              "centerX": r.midX, "centerY": r.midY]
+        }
+        if let e = element {
+            dict["element"] = ["found": e.found, "role": e.role, "label": e.label,
+                               "x": e.frame.minX, "y": e.frame.minY,
+                               "w": e.frame.width, "h": e.frame.height,
+                               "centerX": e.frame.midX, "centerY": e.frame.midY]
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]) else { return }
         try? data.write(to: statusURL, options: .atomic)
     }

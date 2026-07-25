@@ -329,6 +329,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         aboutItem.target = self
         menu.addItem(aboutItem)
 
+        // DemoTape is free — a star is the only ask, so keep it one click away.
+        let starItem = NSMenuItem(title: "Star DemoTape on GitHub",
+                                  action: #selector(starRepo), keyEquivalent: "")
+        starItem.target = self
+        menu.addItem(starItem)
+
         menu.addItem(NSMenuItem(title: "Quit DemoTape",
                                 action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
@@ -528,8 +534,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func execute(_ command: DemoControl.Command) {
         switch command {
-        case .cursor(let x, let y, let click):
-            performControlCursor(x: x, y: y, click: click)
+        case .cursor(let x, let y, let click, let glideMs):
+            // Run cursor work on a SERIAL BACKGROUND queue, never the main thread. An animated
+            // glide sleeps for its whole duration; doing that on main blocks the run loop, so
+            // further demotape:// URLs pile up and then execute in one burst (observed: four
+            // clicks landing on the same video frame). A serial queue keeps them strictly ordered
+            // while leaving the main thread free to keep receiving them.
+            cursorQueue.async { [weak self] in
+                self?.performControlCursor(x: x, y: y, click: click, glideMs: glideMs)
+            }
+        case .openUI(let window, let holdMs):
+            openControlWindow(window, holdMs: holdMs)
+        case .dumpUI(let app):
+            UIQuery.writeDump(app: app)
+        case .element(let query, let click):
+            resolveAndAct(query: query, click: click)
         case .stop:
             if state == .recording { stopRecording() }
         case .start(let opts):
@@ -551,26 +570,181 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Opens one of our own windows on request, so a walkthrough of DemoTape itself can be scripted
+    /// without an orchestrator having to guess where menu rows are on screen.
+    private func openControlWindow(_ window: DemoControl.Window, holdMs: Int = 0) {
+        Log.write("control: open window \(window.rawValue)")
+        switch window {
+        case .about: openAbout()
+        case .publish: openWebPublish()
+        case .composer: openDemoComposer()
+        case .settings: openAISettings()
+        case .welcome:
+            let welcome = WelcomeController()
+            welcomeController = welcome
+            welcome.show(onFinish: { [weak self] in self?.welcomeController = nil })
+        case .menu:
+            // Drop our own menu open — deterministic, and it makes the menu appear exactly where a
+            // real user's click would put it, which is what a walkthrough needs to film.
+            //
+            // Schedule the dismissal BEFORE opening, because performClick blocks in NSMenu's
+            // tracking loop until the menu closes. The timer must be registered in `.common` modes:
+            // a default-mode timer (or DispatchQueue.main.asyncAfter) never fires during menu
+            // tracking, which would leave the menu open forever and stall every later command.
+            if holdMs > 0 {
+                let timer = Timer(timeInterval: Double(holdMs) / 1000.0, repeats: false) { [weak self] _ in
+                    self?.statusItem.menu?.cancelTracking()
+                    Log.write("menu: auto-dismissed after \(holdMs)ms")
+                }
+                RunLoop.main.add(timer, forMode: .common)
+            }
+            statusItem.button?.performClick(nil)
+            return
+        }
+        // Give AppKit a beat to lay the window out, then publish where it landed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.publishControlWindowFrame()
+        }
+    }
+
+    /// Serialises cursor commands off the main thread so an animated glide can't stall URL handling.
+    private let cursorQueue = DispatchQueue(label: "dev.demotape.cursor")
+
+    /// Looks a target up in the live UI and (optionally) clicks it. The resolved rect is published
+    /// to control.json either way, and a miss is logged with `found: false` rather than silently
+    /// clicking somewhere arbitrary — a demo should fail loudly, not record a lie.
+    private func resolveAndAct(query: UIQuery.Query, click: Bool) {
+        guard let element = UIQuery.find(query) else {
+            Log.write("UIQuery: no match for '\(query.label)'"
+                      + (query.role.map { " role=\($0)" } ?? "")
+                      + " in \(query.app ?? "DemoTape")")
+            lastControlElement = nil
+            publishElementStatus(found: false, label: query.label)
+            return
+        }
+        Log.write("UIQuery: '\(query.label)' -> \(element.role) '\(element.label)' "
+                  + "at \(Int(element.centre.x)),\(Int(element.centre.y))")
+        lastControlElement = element
+        publishElementStatus(found: true, label: element.label)
+        guard click else { return }
+        let point = element.centre
+        cursorQueue.async { [weak self] in
+            // Travel scaled to distance, so near targets don't crawl and far ones don't teleport.
+            self?.performControlCursor(x: point.x, y: point.y, click: true, glideMs: 520)
+        }
+    }
+
+    private var lastControlElement: UIQuery.Element?
+
+    private func publishElementStatus(found: Bool, label: String) {
+        DemoControl.writeStatus(state: state == .recording ? "recording" : "idle",
+                                lastOutput: lastOutputPath,
+                                menuBarButton: menuBarButtonFrame(),
+                                window: lastControlWindowFrame,
+                                element: lastControlElement.map {
+                                    DemoControl.ElementStatus(role: $0.role, label: $0.label,
+                                                              frame: $0.frame, found: found)
+                                } ?? DemoControl.ElementStatus(role: "", label: label,
+                                                               frame: .zero, found: false))
+    }
+
     /// Moves (and optionally clicks) the cursor from inside the running app. Because DemoTape
     /// holds the Accessibility grant and is the process doing the recording, the synthetic click
     /// is both delivered to the target app AND observed by our own global event monitor — so it
     /// lands in `events.json` and drives the auto-zoom. Coordinates are global screen pixels with
     /// a top-left origin (matching CoreGraphics display space), which is what the driver sends.
-    private func performControlCursor(x: Double, y: Double, click: Bool) {
+    private func performControlCursor(x: Double, y: Double, click: Bool, glideMs: Int = 0) {
         let pt = CGPoint(x: x, y: y)
-        CGWarpMouseCursorPosition(pt)
-        CGAssociateMouseAndMouseCursorPosition(1)   // re-sync HW cursor after the warp
+        if glideMs > 0 {
+            glideCursor(to: pt, duration: Double(glideMs) / 1000.0)
+        } else {
+            CGWarpMouseCursorPosition(pt)
+            CGAssociateMouseAndMouseCursorPosition(1)   // re-sync HW cursor after the warp
+        }
         guard click else { return }
-        // Small settle so the move is visible before the click, mirroring a human motion.
+        // Beat between arriving and clicking — a human lands, aims, then presses.
+        Thread.sleep(forTimeInterval: 0.12)
         let src = CGEventSource(stateID: .hidSystemState)
         if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown,
                               mouseCursorPosition: pt, mouseButton: .left) {
             down.post(tap: .cghidEventTap)
         }
+        // Real presses have dwell; an instant down/up can also be swallowed by some controls.
+        Thread.sleep(forTimeInterval: 0.06)
         if let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp,
                             mouseCursorPosition: pt, mouseButton: .left) {
             up.post(tap: .cghidEventTap)
         }
+    }
+
+    /// Animates the cursor from where it is to `target` so the recording reads as a hand, not a
+    /// teleport. Three things make it feel human:
+    ///
+    /// - **Ease-in-out** — accelerate away, decelerate onto the target, rather than constant speed.
+    /// - **A slight arc** — real pointer paths bow; a dead-straight line looks machine-driven. The
+    ///   bow is perpendicular to the travel and scales with distance, so short hops stay direct.
+    /// - **Overshoot and settle** — long moves drift just past the target and come back, the way a
+    ///   hand does when it commits fast and corrects.
+    ///
+    /// Runs synchronously on the calling (main) thread: the control URLs are sequential by design,
+    /// so a script's next instruction shouldn't start mid-glide.
+    private func glideCursor(to target: CGPoint, duration: Double) {
+        let start = currentCursorPoint()
+        let dx = target.x - start.x, dy = target.y - start.y
+        let distance = (dx * dx + dy * dy).squareRoot()
+        guard distance > 1 else {
+            CGWarpMouseCursorPosition(target)
+            CGAssociateMouseAndMouseCursorPosition(1)
+            return
+        }
+
+        let frameRate = 60.0
+        let steps = max(2, Int((duration * frameRate).rounded()))
+        // Bow the path perpendicular to travel, capped so long trips don't swing wildly.
+        let bow = min(distance * 0.06, 34.0)
+        let nx = -dy / distance, ny = dx / distance
+        // Only long moves get an overshoot; short nudges land clean.
+        let overshoot = distance > 220 ? min(distance * 0.012, 7.0) : 0
+
+        for i in 1...steps {
+            let t = Double(i) / Double(steps)
+            let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2   // easeInOutQuad
+            // sin() peaks mid-flight and returns to zero at both ends, so the arc never
+            // displaces the start or the target.
+            let arc = sin(eased * .pi) * bow
+            // Ramps in quadratically so the drift past the target only appears at the end.
+            let push = eased * eased * overshoot
+            let p = CGPoint(x: start.x + dx * eased + nx * arc + (dx / distance) * push,
+                            y: start.y + dy * eased + ny * arc + (dy / distance) * push)
+            CGWarpMouseCursorPosition(p)
+            Thread.sleep(forTimeInterval: duration / Double(steps))
+        }
+
+        if overshoot > 0 {
+            // Settle back onto the target from the overshoot.
+            let settleSteps = 6
+            let from = CGPoint(x: target.x + (dx / distance) * overshoot,
+                               y: target.y + (dy / distance) * overshoot)
+            for i in 1...settleSteps {
+                let t = Double(i) / Double(settleSteps)
+                let p = CGPoint(x: from.x + (target.x - from.x) * t,
+                                y: from.y + (target.y - from.y) * t)
+                CGWarpMouseCursorPosition(p)
+                Thread.sleep(forTimeInterval: 0.012)
+            }
+        }
+        CGWarpMouseCursorPosition(target)
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// Current cursor position in top-left-origin screen points (CoreGraphics space), matching what
+    /// the control surface accepts. `NSEvent.mouseLocation` is bottom-left, so it needs flipping.
+    /// Uses CGDisplayBounds rather than NSScreen because this now runs on a background queue, and
+    /// CoreGraphics display queries are safe there while AppKit's screen list is not.
+    private func currentCursorPoint() -> CGPoint {
+        let p = NSEvent.mouseLocation
+        let height = CGDisplayBounds(CGMainDisplayID()).height
+        return CGPoint(x: p.x, y: height - p.y)
     }
 
     /// Applies a control-surface region to the capture settings.
@@ -613,7 +787,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .recording: s = "recording"
         case .rendering: s = "rendering"
         }
-        DemoControl.writeStatus(state: s, lastOutput: lastOutputPath)
+        DemoControl.writeStatus(state: s, lastOutput: lastOutputPath,
+                                menuBarButton: menuBarButtonFrame(),
+                                window: lastControlWindowFrame)
+    }
+
+    /// Screen rect (top-left origin) of the window most recently opened via `ui/open`.
+    private var lastControlWindowFrame: CGRect?
+
+    /// Records the frontmost window's rect after a `ui/open`, then republishes status so a script
+    /// can read it and aim at inert parts of the window.
+    private func publishControlWindowFrame() {
+        // Prefer the key window; fall back to a visible TITLED window. The plain
+        // `isVisible && canBecomeKey` test picked up the borderless recorder bar panel instead.
+        let candidate = NSApp.keyWindow ?? NSApp.orderedWindows.first {
+            $0.isVisible && $0.styleMask.contains(.titled)
+        }
+        guard let win = candidate, win.styleMask.contains(.titled),
+              let screen = NSScreen.screens.first else { return }
+        let f = win.frame   // bottom-left origin
+        lastControlWindowFrame = CGRect(x: f.minX, y: screen.frame.height - f.maxY,
+                                        width: f.width, height: f.height)
+        DemoControl.writeStatus(state: state == .recording ? "recording" : "idle",
+                                lastOutput: lastOutputPath,
+                                menuBarButton: menuBarButtonFrame(),
+                                window: lastControlWindowFrame)
+    }
+
+    /// Screen rect of our menu-bar icon, converted to top-left origin points (CoreGraphics space)
+    /// so it matches the coordinates `demotape://cursor` expects. Published in control.json so a
+    /// walkthrough of DemoTape itself can click its own menu.
+    private func menuBarButtonFrame() -> CGRect? {
+        guard let window = statusItem.button?.window else { return nil }
+        let f = window.frame   // bottom-left origin; horizontally reliable
+        // Vertically, a status item's window lives in its own space above NSScreen.frame, so
+        // converting its maxY yields a negative (off-screen) value. The icon is always inside the
+        // menu bar, which occupies the top `thickness` points of the screen — use that instead.
+        let barHeight = NSStatusBar.system.thickness
+        guard f.width > 0, f.minX > 0 else { return nil }   // not laid out yet
+        return CGRect(x: f.minX, y: 0, width: f.width, height: barHeight)
     }
 
     @objc private func stopRecording() {
@@ -757,6 +969,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openAbout() {
         aboutController.show()
+    }
+
+    /// DemoTape is free and MIT-licensed; a GitHub star is the only thing we ask in return.
+    @objc private func starRepo() {
+        if let url = URL(string: "https://github.com/gabosarmiento/demotape") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
 
@@ -1424,6 +1643,10 @@ extension AppDelegate: NSMenuDelegate {
     // Refresh the AI action items right before the submenu opens, reflecting the latest
     // per-feature settings and stored keys.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === statusItem.menu {
+            // Lets a scripted self-demo confirm its click actually opened the menu.
+            Log.write("menu: opened")
+        }
         if menu === inputMenu {
             noiseToggleItem?.state = Settings.noiseSuppressionEnabled ? .on : .off
             enhanceToggleItem?.state = Settings.enhanceVoiceEnabled ? .on : .off
