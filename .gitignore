@@ -44,10 +44,9 @@ tools/demo-driver/.profiles/
 
 # Someone's own demo configs and probes. These name real hosts, tenants, routes, selectors and page
 # copy from the app being demoed — that's the author's product, not this tool's business, and this
-# repo is public. Keep them local; demo.example.json is the reference to copy.
+# repo is public. Keep them here; demo.example.json is the reference to copy.
+tools/demo-driver/.local/
 tools/demo-driver/demo-*.local.json
-tools/demo-driver/*-probe.mjs
-tools/demo-driver/probe.mjs
 
 # Python bytecode from the local TTS shim
 __pycache__/
