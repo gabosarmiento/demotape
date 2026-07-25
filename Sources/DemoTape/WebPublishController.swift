@@ -178,8 +178,8 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         let preset = gifPresets[gifQualitySeg.indexOfSelectedItem]
         Settings.gifQuality = preset.name
         DispatchQueue.global(qos: .userInitiated).async {
-            let folder = Self.publish(source: source, heights: heights,
-                                      gif: gifOn, gifWidth: preset.width, gifFps: preset.fps)
+            let folder = WebPublish.export(source: source, heights: heights,
+                                           gif: gifOn, gifWidth: preset.width, gifFps: preset.fps)
             DispatchQueue.main.async {
                 if let folder = folder {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
@@ -191,78 +191,6 @@ final class WebPublishController: NSObject, NSWindowDelegate {
                 }
             }
         }
-    }
-
-    /// Produces `<name>-web/` with an mp4 per tier, a poster, a responsive embed, an optional
-    /// animated GIF, and a readme.
-    private static func publish(source: URL, heights: [Int],
-                                gif: Bool, gifWidth: Int, gifFps: Int) -> URL? {
-        let base = source.deletingPathExtension().lastPathComponent
-            .replacingOccurrences(of: ".styled", with: "")
-        let folder = source.deletingLastPathComponent().appendingPathComponent("\(base)-web", isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-
-        let t = Transcoder()
-        let sorted = heights.sorted()
-        for h in sorted {
-            do {
-                try t.transcode(input: source, to: folder.appendingPathComponent("demo-\(h)p.mp4"), height: h)
-            } catch {
-                Log.write("WebPublish tier \(h) failed: \(error.localizedDescription)")
-                return nil
-            }
-        }
-
-        // Optional animated GIF.
-        var gifMade = false
-        if gif {
-            do {
-                try GifEncoder().encode(video: source, to: folder.appendingPathComponent("demo.gif"),
-                                        maxWidth: gifWidth, fps: Double(gifFps))
-                gifMade = true
-            } catch {
-                Log.write("WebPublish GIF failed: \(error.localizedDescription)")
-                if sorted.isEmpty { return nil }   // GIF-only export that failed
-            }
-        }
-
-        // Poster + responsive <video> only when we produced MP4 tiers.
-        if !sorted.isEmpty {
-            t.savePoster(from: source, to: folder.appendingPathComponent("poster.jpg"),
-                         maxHeight: sorted.max() ?? 540)
-            let breakpoints: [Int: Int] = [720: 1000, 540: 760, 480: 560, 360: 400]
-            let desc = sorted.sorted(by: >)
-            var sources = ""
-            for (i, h) in desc.enumerated() {
-                let name = "demo-\(h)p.mp4"
-                if i < desc.count - 1, let bp = breakpoints[h] {
-                    sources += "  <source src=\"\(name)\" type=\"video/mp4\" media=\"(min-width: \(bp)px)\">\n"
-                } else {
-                    sources += "  <source src=\"\(name)\" type=\"video/mp4\">\n"
-                }
-            }
-            let embed = """
-            <video controls muted loop playsinline preload="metadata" poster="poster.jpg" width="100%">
-            \(sources)</video>
-            """
-            try? embed.write(to: folder.appendingPathComponent("embed.html"), atomically: true, encoding: .utf8)
-        }
-
-        var files = sorted.sorted(by: >).map { "demo-\($0)p.mp4" }
-        if gifMade { files.append("demo.gif") }
-        let readme = """
-        DemoTape — Web Publish
-        =======================
-        Files: \(files.joined(separator: ", "))
-        MP4: H.264 High + AAC, faststart — lightweight, fast-loading.
-        demo.gif: looping, silent — drop into a README with ![](demo.gif).
-        poster.jpg / embed.html: thumbnail + responsive <video> snippet for your page.
-
-        Uploading to X / LinkedIn: upload the largest mp4 directly — they re-encode it.
-        Hosting on your site: upload all files and use embed.html (serves the right size per screen).
-        """
-        try? readme.write(to: folder.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8)
-        return folder
     }
 
     static func latestStyled() -> URL? {

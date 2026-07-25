@@ -386,6 +386,26 @@ if let i = args.firstIndex(of: "--tighten"), args.count > i + 1 {
     }
 }
 
+// Headless Web Publish — the SAME pipeline the GUI's "Web Publish" window runs, so automation and
+// README assets can't drift from what users get:
+//   DemoTape --publish <styled.mp4> [heights=720,540,360] [gifWidth=640] [gifFps=10]
+// Pass heights="" to skip the mp4 tiers (GIF only), or gifWidth=0 to skip the GIF.
+if let i = args.firstIndex(of: "--publish"), args.count > i + 1 {
+    let input = URL(fileURLWithPath: args[i + 1])
+    let heights: [Int] = args.count > i + 2
+        ? args[i + 2].split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        : WebPublish.defaultHeights
+    let gifWidth = args.count > i + 3 ? (Int(args[i + 3]) ?? 640) : 640
+    let gifFps = args.count > i + 4 ? (Int(args[i + 4]) ?? 10) : 10
+    guard let folder = WebPublish.export(source: input, heights: heights,
+                                         gif: gifWidth > 0, gifWidth: gifWidth, gifFps: gifFps) else {
+        FileHandle.standardError.write("publish error: export failed\n".data(using: .utf8)!)
+        exit(1)
+    }
+    print("published: \(folder.path)")
+    exit(0)
+}
+
 // Headless GIF export:  DemoTape --gif <input> <maxWidth> <fps> <output.gif>
 if let i = args.firstIndex(of: "--gif"), args.count > i + 4 {
     let input = URL(fileURLWithPath: args[i + 1])
