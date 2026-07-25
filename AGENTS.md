@@ -125,6 +125,13 @@ files (no TCC prompts, no GUI):
 # Transcode a styled .mp4 down to a web tier (height in px)
 ./.build/release/DemoTape --transcode "path/to/styled.mp4" 540 /tmp/web-540.mp4
 
+# Run the FULL Web Publish pipeline headlessly — the same code path the GUI's
+# "Web Publish" window uses, so scripted output matches what a user gets by clicking
+# Export. Writes <name>-web/ with an mp4 per tier, poster.jpg, embed.html and demo.gif.
+#   --publish <styled.mp4> [heights=720,540,360] [gifWidth=640] [gifFps=10]
+./.build/release/DemoTape --publish "path/to/styled.mp4"
+./.build/release/DemoTape --publish "path/to/styled.mp4" 540,360 560 8
+
 # Generate .srt + .vtt captions (opt-in AI, bring-your-own-key). Reads the key from
 # the environment so it needs no GUI/Keychain. Requires network + a valid key.
 DEMOTAPE_STT_KEY=sk-... ./.build/release/DemoTape --captions "path/to/styled.mp4"
