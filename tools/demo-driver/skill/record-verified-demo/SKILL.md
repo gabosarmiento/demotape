@@ -34,6 +34,7 @@ the actual schema; do not paper over it.
 6. **Record + voice** — DemoTape records; each line is laid at its scene's moment (synced).
 7. **Verify** — assertions (deterministic) + a vision check (semantic); retry or fail loudly.
 8. **Hand back** — the video path, the verification report, and what you'd tighten.
+9. **Revise on request** — change the video from a prompt, usually WITHOUT re-recording.
 
 Do not skip 5 (rehearsal). Recording a broken take wastes minutes and produces slop; a headless
 rehearsal fails in seconds and tells you exactly which selector or input is wrong.
@@ -134,6 +135,74 @@ Give the user the final `…voiceover.mp4` path, the verification result, and on
 on what a second pass would improve. If they dislike the voice, you don't re-record — see the
 `revoice` command in `references/demotape-driver.md`.
 
+## 9. Revise on request (usually without re-recording)
+
+Demos get notes: "too long", "zoom less", "make it portrait for LinkedIn", "Spanish subtitles",
+"different voice". Handling those by recording again is slow and, worse, **risky** — a fresh take is
+different footage, so a cosmetic request can quietly change what the demo shows.
+
+DemoTape has **no timeline editor on purpose**: the user wants the finished video, not another
+editing suite. So the timeline exists as **data**, and you edit the data.
+
+**What makes this safe:** the raw `.mov` plus its `events.json` sidecar is lossless ground truth
+(cursor, clicks, scrolls, keys, display geometry, camera/event offsets). The styled video is
+*derived* from it, and the derivation is described by `recipe.json` saved beside the recording. Change
+a field, re-render, and the footage is identical.
+
+### Decide first: re-render or re-record?
+
+| The change is about… | Do this |
+|---|---|
+| How it **looks or sounds** — zoom, cursor, background, branding, size, fps, voice, captions | **Re-render.** Fast, and the take is untouched. |
+| What it **shows** — a different flow, another feature, an extra click, corrected inputs | **Re-record.** The content itself changed. |
+
+Getting this backwards is the expensive mistake in both directions: re-recording for a colour tweak
+wastes minutes, and re-rendering when the flow changed ships a video that lies.
+
+### Re-rendering from a recipe
+
+Print the recipe first so you edit real field names instead of guessing:
+
+```bash
+DemoTape --show-recipe "<recording-folder>"        # or with no path for the defaults
+```
+
+Then apply a patch. **Every field is optional and means "leave the default"**, so a revision should
+be the smallest possible file — one or two keys, not a copy of the whole recipe:
+
+```bash
+echo '{ "maxZoom": 1.4 }' > /tmp/patch.json
+DemoTape --render "<folder>/.source/<base>.mov" "<folder>/<base>.revised.mp4" --recipe /tmp/patch.json
+```
+
+A recipe beside the recording is picked up automatically; `--recipe` overrides it. Unknown keys are
+reported by name — if you see `recipe warning: ignoring unknown key(s): …`, you misspelled a field
+and the change did **not** happen. Never treat that warning as success.
+
+### Mapping requests to fields
+
+- "less/more zoom", "it's dizzying" → `maxZoom` (1.0 disables it), `stiffness`, `damping`
+- "for LinkedIn / Shorts / a phone" → `exportSize` (e.g. `"1080x1350"`)
+- "hide the keyboard badges", "hide the cursor" → `showShortcuts`, `drawCursor`
+- "put it on a background", "add our logo" → `useBackground`, `bgTop`/`bgBottom`, `brandingImage`
+- "make the webcam bigger / move it" → `webcamDiameterFraction`, `webcamCenterX/Y`
+- "different voice" → `revoice` (re-lays the saved `timeline.json` offsets; no re-record)
+- "subtitles in <language>" → `--captions` for the spoken language, or author the cues and `--burn`
+  (transcription returns the language that was *spoken*, so another language means authoring them)
+- "shorter / tighter" → Auto-Cut (`Tightener`) for silence and pace; if a whole beat must go, that's
+  a script change, so re-record
+- "lighter file for the README" → `--publish` (tiers + GIF budget), never a hand-rolled transcode
+
+### Rules for revisions
+
+- **Non-destructive.** Write a new file (`<base>.revised.mp4`); never overwrite the original, so a
+  rejected revision costs nothing.
+- **Keep the patch beside the output** so the change is reviewable and repeatable.
+- **Re-verify only what you touched.** A style change can't alter what the app did, so re-running the
+  whole vision gate is waste — check the scenes the edit affected.
+- **Say what you changed** in the handoff, in the user's words ("zoom softened, exported portrait"),
+  not as a JSON dump.
+
 ## Anti-slop checklist
 
 - [ ] Every narration claim maps to real app behavior (no invented capabilities).
@@ -144,6 +213,8 @@ on what a second pass would improve. If they dislike the voice, you don't re-rec
 - [ ] Reveal-early: every page/section is on screen while its line is spoken (no late reveals).
 - [ ] Fast pace: short lines, a visible change each scene; no long static shots.
 - [ ] Attention: an emphasis click zooms the focal element (and `clicks` in events.json is non-empty).
+- [ ] Revisions: presentation notes were re-rendered from a recipe patch, not re-recorded; no
+      `unknown key` warning was ignored; the original file still exists.
 
 ## References
 

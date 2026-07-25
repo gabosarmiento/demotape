@@ -940,6 +940,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let styled = paths.output(suffix: "styled")     // recording-folder root
             try VideoRenderer().render(videoURL: raw, metadata: metadata, cameraURL: camera,
                                        to: styled, style: style, progress: progress)
+            // Save the recipe that produced this video. Without it a later `--render` would fall
+            // back to defaults (or, worse, whatever the settings happen to be then), so the look
+            // couldn't be reproduced or revised one field at a time.
+            let recipeURL = paths.recordingRoot.appendingPathComponent(RenderRecipe.filename)
+            do {
+                try RenderRecipe.capture(from: style).write(to: recipeURL)
+            } catch {
+                Log.write("recipe not saved: \(error.localizedDescription)")   // non-fatal
+            }
             return styled
         } catch {
             Log.write("renderStyled failed: \(error.localizedDescription)")

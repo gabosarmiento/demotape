@@ -6,9 +6,28 @@ import AppKit
 // Note: MenuBarExtra (SwiftUI) requires macOS 13, so the menu bar is built with
 // AppKit's NSStatusItem to stay compatible with Monterey 12.7.6.
 
-// Headless render mode for testing:  DemoTape --render <video.mov> <output.mov>
-// Reads the matching .events.json sidecar. No GUI, no permissions.
 let args = CommandLine.arguments
+
+/// Reads `--recipe <file>` from anywhere in the argument list. Kept separate from the positional
+/// hooks so it can decorate any of them.
+func recipeArgument() -> RenderRecipe? {
+    guard let i = args.firstIndex(of: "--recipe"), args.count > i + 1 else { return nil }
+    let url = URL(fileURLWithPath: args[i + 1])
+    do {
+        return try RenderRecipe.load(from: url)
+    } catch {
+        FileHandle.standardError.write("recipe error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Headless render:  DemoTape --render <video.mov> <output.mov> [--recipe <recipe.json>]
+// Reads the matching .events.json sidecar. No GUI, no permissions.
+//
+// With a recipe, this is the REVISION path: the raw take plus events.json is lossless ground truth,
+// so changing how the video looks never means recording it again. A recipe beside the recording is
+// picked up automatically; --recipe overrides it. Without either, defaults apply — notably NOT the
+// app's current global settings, so an old take can't be silently re-styled by today's preferences.
 if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
     let videoURL = URL(fileURLWithPath: args[i + 1])
     let outURL = URL(fileURLWithPath: args[i + 2])
@@ -21,19 +40,68 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
         let camURL = videoURL.deletingPathExtension().appendingPathExtension("cam.mov")
         let camera = FileManager.default.fileExists(atPath: camURL.path) ? camURL : nil
         var style = VideoRenderer.Style()
+
+        // A recipe saved beside the recording reproduces the original look; --recipe wins over it.
+        let sidecarRecipe = videoURL.deletingLastPathComponent()
+            .appendingPathComponent(RenderRecipe.filename)
+        if let explicit = recipeArgument() {
+            explicit.apply(to: &style)
+            print("recipe: \(args[args.firstIndex(of: "--recipe")! + 1])")
+        } else if FileManager.default.fileExists(atPath: sidecarRecipe.path),
+                  let found = try? RenderRecipe.load(from: sidecarRecipe) {
+            found.apply(to: &style)
+            print("recipe: \(sidecarRecipe.path)")
+        }
+
+        // Legacy env overrides, kept so existing smoke-tests keep working. A recipe supersedes them.
         if let brand = ProcessInfo.processInfo.environment["DEMOTAPE_BRAND_IMAGE"],
-           FileManager.default.fileExists(atPath: brand) {
+           FileManager.default.fileExists(atPath: brand), style.brandingImageURL == nil {
             style.brandingImageURL = URL(fileURLWithPath: brand)   // headless branding smoke-test
         }
-        if let ex = ProcessInfo.processInfo.environment["DEMOTAPE_EXPORT"] {  // e.g. 1080x1350
-            let parts = ex.lowercased().split(separator: "x").compactMap { Double($0) }
-            if parts.count == 2 { style.exportSize = CGSize(width: parts[0], height: parts[1]) }
+        if let ex = ProcessInfo.processInfo.environment["DEMOTAPE_EXPORT"],   // e.g. 1080x1350
+           style.exportSize == nil {
+            style.exportSize = RenderRecipe.size(fromString: ex)
         }
         try VideoRenderer().render(videoURL: videoURL, metadata: metadata, cameraURL: camera, to: outURL, style: style)
         print("rendered: \(outURL.path)")
         exit(0)
     } catch {
         FileHandle.standardError.write("render error: \(error)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
+// Show or scaffold a recipe:  DemoTape --show-recipe [<recording-folder-or-video>] [out.json]
+// Prints the recipe beside the recording if there is one, otherwise a FULL default snapshot — so an
+// agent asked to "make the zoom softer" has every valid field name in front of it instead of
+// guessing, then edits one value and re-renders with --render … --recipe.
+if let i = args.firstIndex(of: "--show-recipe") {
+    var recipe = RenderRecipe.capture(from: VideoRenderer.Style())
+    var source = "defaults"
+    if args.count > i + 1, !args[i + 1].hasPrefix("--") {
+        let path = URL(fileURLWithPath: args[i + 1])
+        let isDir = (try? path.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        let folder = isDir ? path : path.deletingLastPathComponent()
+        let candidate = folder.appendingPathComponent(RenderRecipe.filename)
+        if FileManager.default.fileExists(atPath: candidate.path),
+           let found = try? RenderRecipe.load(from: candidate) {
+            recipe = found
+            source = candidate.path
+        }
+    }
+    let outPath = args.count > i + 2 && !args[i + 2].hasPrefix("--") ? args[i + 2] : nil
+    do {
+        if let outPath = outPath {
+            try recipe.write(to: URL(fileURLWithPath: outPath))
+            print("recipe (\(source)) -> \(outPath)")
+        } else {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            print(String(data: try encoder.encode(recipe), encoding: .utf8) ?? "{}")
+        }
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("recipe error: \(error.localizedDescription)\n".data(using: .utf8)!)
         exit(1)
     }
 }

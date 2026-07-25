@@ -33,7 +33,12 @@ poll `state:"idle"` → read `lastOutput` (the styled video).
 - `DemoTape --verify <video> <spec.json>` — vision-check each scene's frame vs its line; exits 0 if
   all pass, 2 otherwise. spec: `{"scenes":[{"at":3.8,"say":"…"}]}`.
 - `DemoTape --cursor move|click <x> <y>` — move the real cursor (visible in capture) / click.
-- `DemoTape --render`, `--transcode`, `--captions`, `--burn`, etc. (see repo AGENTS.md).
+- `DemoTape --render`, `--transcode`, `--captions`, `--burn`, `--publish`, etc. (see AGENTS.md).
+- `DemoTape --show-recipe [<recording-dir>]` — print the render recipe (all valid field names).
+- `DemoTape --render <raw.mov> <out.mp4> --recipe <patch.json>` — **revise without re-recording.**
+  The raw take + `events.json` are ground truth, so the styled video is re-derivable; `recipe.json`
+  beside the recording captures the look. Fields are optional, so a patch can be a single key.
+  Unknown keys are reported, not ignored. See the Revise phase in SKILL.md.
 
 ## Driver config schema (`demo-*.json`)
 

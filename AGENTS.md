@@ -122,6 +122,18 @@ files (no TCC prompts, no GUI):
 # Re-render a raw recording (.mov + its .events.json sidecar) into a styled .mp4
 ./.build/release/DemoTape --render "path/to/recording.mov" /tmp/out.mp4
 
+# REVISE a video without re-recording. Every styling decision lives in `recipe.json`, saved
+# beside each recording — the raw .mov + .events.json are lossless ground truth, so the styled
+# video can always be re-derived. This is why DemoTape needs no timeline editor: the timeline is
+# data. Fields are all optional ("leave the default"), so a revision is a 1-key patch.
+./.build/release/DemoTape --show-recipe                          # full default recipe (field names)
+./.build/release/DemoTape --show-recipe "path/to/recording-dir"  # the recipe that made that video
+echo '{ "maxZoom": 1.4, "exportSize": "1080x1350" }' > /tmp/patch.json
+./.build/release/DemoTape --render "path/to/.source/base.mov" /tmp/revised.mp4 --recipe /tmp/patch.json
+#   A recipe beside the recording is applied automatically; --recipe overrides it. Misspelled keys
+#   are REPORTED ("recipe warning: ignoring unknown key(s): …") rather than silently dropped — if
+#   you see that warning, the change did not happen.
+
 # Transcode a styled .mp4 down to a web tier (height in px)
 ./.build/release/DemoTape --transcode "path/to/styled.mp4" 540 /tmp/web-540.mp4
 
