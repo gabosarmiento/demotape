@@ -127,7 +127,7 @@ async function elementScreenPoint(page, selector, fx = 0.5) {
   try {
     const el = page.locator(selector).first();
     await el.scrollIntoViewIfNeeded({ timeout: 5000 });
-    const box = await el.boundingBox();
+    const box = await inkRect(page, selector) ?? await el.boundingBox();
     if (!box) return null;
     const w = await page.evaluate(() => ({ sx: window.screenX, sy: window.screenY, oh: outerHeight, ih: innerHeight }));
     // Keep a small inset so the point never sits on the border itself.
@@ -143,12 +143,27 @@ async function elementScreenCenter(page, selector) {
 async function moveCursorToSelector(page, cfg, selector) {
   if (!cfg.showCursor || !selector) return null;
   const c = await elementScreenCenter(page, selector);
-  if (c) {
-    osCursor(cfg, "move", c.x, c.y, cfg.moveMs);
-    // Wait out the glide, then a beat to aim — a human lands, settles, then presses.
-    await sleep(cfg.moveMs + 160);
+  if (!c) return c;
+
+  // Aim slightly off dead-centre: people don't hit the exact middle of a button, and identical
+  // pixel-perfect landings across a whole demo are a tell.
+  //
+  // CLAMPED to the element's own box, though. Unclamped jitter misses narrow targets — an inline
+  // link a few pixels tall — and a missed OS click looks like the app ignored you.
+  const box = await elementBox(page, selector);
+  const jitter = cfg.aimJitter ?? 4;
+  let tx = c.x + (Math.random() * 2 - 1) * jitter;
+  let ty = c.y + (Math.random() * 2 - 1) * jitter;
+  if (box) {
+    const padX = Math.min(6, Math.max(1, box.width / 4));
+    const padY = Math.min(4, Math.max(1, box.height / 4));
+    tx = Math.min(Math.max(tx, box.left + padX), box.right - padX);
+    ty = Math.min(Math.max(ty, box.top + padY), box.bottom - padY);
   }
-  return c;
+  osCursor(cfg, "move", tx, ty, cfg.moveMs);
+  // Wait out the glide, then a beat to aim — a human lands, settles, then presses.
+  await sleep(cfg.moveMs + 160);
+  return { x: tx, y: ty };
 }
 
 // Resolve a gesture target to a screen point. Prefer a selector (grounded to a real element);
@@ -171,10 +186,28 @@ async function gesturePoint(page, cfg, g) {
 // emphasize with a soft click (click: true) so DemoTape auto-zooms on that spot. This is what
 // makes the motion feel human — a few unhurried points that trace what's being said — rather than
 // one robotic click on a button.
+/**
+ * Attention gestures: the cursor used as a POINTER, which is what people actually do with it.
+ *
+ * The cursor is the only thing in a screen recording that can say "look here". A demo that moves it
+ * solely to press buttons wastes it — the viewer scans a whole screen while the narration talks
+ * about one value in a corner. Each gesture is therefore a way of directing the eye, and because
+ * DemoTape zooms on real clicks, an emphasis click also reframes the shot around what's being said.
+ *
+ * Kinds:
+ *   point     — glide there and settle (the default), with a little idle drift
+ *   circle    — trace a small circle around it: "this whole area here"
+ *   underline — sweep left→right across it, like running a finger under a line of text
+ *   select    — glide there and actually highlight the text being read aloud
+ *
+ * `click: true` adds an emphasis click, which triggers the zoom. Prefer non-navigating elements
+ * (headings, labels, values) for pure emphasis, so a "look here" doesn't change the page.
+ */
 async function playGestures(page, cfg, gestures, windowMs) {
   if (!cfg.showCursor || !gestures || !gestures.length) { await sleep(Math.max(0, windowMs)); return; }
   const slice = Math.max(0, windowMs) / gestures.length;
   for (const g of gestures) {
+    const started = Date.now();
     const p = await gesturePoint(page, cfg, g);
     if (p) {
       // Give the glide most of its slice so the travel is visible, but never longer than the
@@ -182,11 +215,310 @@ async function playGestures(page, cfg, gestures, windowMs) {
       const travel = Math.min(cfg.moveMs, Math.max(220, slice * 0.5));
       osCursor(cfg, "move", p.x, p.y, travel);
       await sleep(Math.min(slice * 0.45, travel + 160));   // let the glide land before any click
-      if (g.click && cfg.osClick) osCursor(cfg, "click", p.x, p.y);
+      if (g.click && cfg.osClick) {
+        // Same staleness risk as a real click: the aim was measured before the glide.
+        const aim = g.selector ? await settleAimOnSelector(page, cfg, g.selector, p) : p;
+        osCursor(cfg, "click", aim.x, aim.y);
+      }
+
+      const box = g.selector ? await elementBox(page, g.selector) : null;
+      // Shape-based gestures are handed to the app as ONE path and swept in a single motion. Issuing
+      // them as a series of short moves left a visible seam at every leg — the cursor stuttered around
+      // a circle instead of drawing it.
+      const shape = g.kind === "auto" ? pickGestureShape(box) : g.kind;
+      if (SHAPE_GESTURES.has(shape) && box) {
+        const pts = gesturePath(shape, p, box, g);
+        osPath(cfg, pts, g.sweepMs ?? shapeDurationMs(shape, box));
+        await sleep((g.sweepMs ?? shapeDurationMs(shape, box)) + 200 + (g.dwellMs ?? 0));
+        continue;
+      }
+      switch (g.kind) {
+        case "circle": {
+          // A hand-drawn loop, never the same twice. A perfect ellipse traced at constant speed is
+          // the most obviously robotic thing a cursor can do, so every property varies: where the
+          // loop starts, which way it goes, how round it is, how it tilts, and how the speed ebbs
+          // through it. The radius also wobbles per step, the way a wrist does.
+          const rx0 = Math.min(box ? box.width / 2 + 14 : 44, 95);
+          const ry0 = Math.min(box ? box.height / 2 + 12 : 28, 64);
+          const startAngle = Math.random() * Math.PI * 2;
+          const direction = Math.random() < 0.5 ? 1 : -1;      // clockwise or not
+          const tilt = (Math.random() * 2 - 1) * 0.35;         // radians of lean
+          const squash = 0.85 + Math.random() * 0.35;          // never perfectly round
+          const sweep = Math.PI * 2 * (0.9 + Math.random() * 0.35);  // slightly over/under a loop
+          const steps = 9 + Math.floor(Math.random() * 4);
+          for (let i = 1; i <= steps; i++) {
+            const u = i / steps;
+            // Ease in and out of the loop rather than tracing at constant speed.
+            const eased = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+            const a = startAngle + direction * eased * sweep;
+            const wobble = 1 + (Math.random() * 2 - 1) * 0.08;
+            const ex = Math.cos(a) * rx0 * wobble;
+            const ey = Math.sin(a) * ry0 * squash * wobble;
+            // Rotate the ellipse so the loop isn't axis-aligned.
+            const x = p.x + ex * Math.cos(tilt) - ey * Math.sin(tilt);
+            const y = p.y + ex * Math.sin(tilt) + ey * Math.cos(tilt);
+            const legMs = 90 + Math.random() * 70;
+            osCursor(cfg, "move", x, y, legMs);
+            await sleep(legMs + 15);
+          }
+          break;
+        }
+        case "underline": {
+          // Left→right, the direction reading goes — a finger under a line. Swept in a few uneven
+          // legs with a slight vertical waver rather than one straight glide, because a single
+          // perfectly level slide is the other obvious robot tell.
+          if (box) {
+            const y0 = p.y + (Math.random() * 2 - 1) * 3;
+            osCursor(cfg, "move", box.left + 8 + Math.random() * 6, y0, 200);
+            await sleep(230);
+            const total = g.sweepMs ?? 900;
+            const legs = 3 + Math.floor(Math.random() * 2);
+            const span = (box.right - 12) - (box.left + 8);
+            for (let i = 1; i <= legs; i++) {
+              // Uneven progress: reading isn't metronomic either.
+              const u = Math.min(1, (i / legs) * (0.85 + Math.random() * 0.3));
+              const legMs = (total / legs) * (0.75 + Math.random() * 0.5);
+              osCursor(cfg, "move", box.left + 8 + span * u,
+                       y0 + (Math.random() * 2 - 1) * 2.5, legMs);
+              await sleep(legMs + 25);
+            }
+          }
+          break;
+        }
+        case "select": {
+          // A real selection, so the words being narrated are visibly highlighted.
+          try { await page.locator(g.selector).first().selectText({ timeout: 3000 }); } catch {}
+          await sleep(g.dwellMs ?? 700);
+          break;
+        }
+        default:
+          await microDrift(cfg, p);
+      }
+      if (g.dwellMs && g.kind !== "select") await sleep(g.dwellMs);
     }
-    const rest = slice - Math.min(slice * 0.45, 400);
+    const rest = slice - (Date.now() - started);
     if (rest > 0) await sleep(rest);
   }
+}
+
+/**
+ * The gesture vocabulary — how the cursor says "look at this".
+ *
+ * A single move-in-a-circle is not enough: what reads naturally depends on the SHAPE of the thing
+ * being pointed at and on what you mean by pointing at it. A line of text wants a sweep along it. A
+ * number wants a loop around it. A card wants its outline traced. A value you're contrasting wants a
+ * bracket beside it. So the driver carries several, and `"kind": "auto"` lets it choose by geometry.
+ *
+ * Every shape is generated as a point list and handed to the app as one path, so it's drawn in a
+ * single eased motion (see `demotape://cursor/path`). Every shape is also randomised — start angle,
+ * direction, radius wobble, corner slop — because the giveaway isn't the shape, it's repetition.
+ */
+const SHAPE_GESTURES = new Set(["ellipse", "box", "bracket", "zigzag", "sweep", "check"]);
+
+/** Pick a shape that suits the target's proportions. */
+function pickGestureShape(box) {
+  if (!box) return "ellipse";
+  const ratio = box.width / Math.max(1, box.height);
+  const candidates = ratio > 6 ? ["sweep", "zigzag", "sweep"]        // a line of text
+    : ratio > 2.2 ? ["ellipse", "box", "sweep"]                       // a row, a tile, a button
+    : ["ellipse", "box", "bracket"];                                  // a block or a card
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/** Longer shapes need longer to draw; a hand doesn't sprint round a big card. */
+function shapeDurationMs(shape, box) {
+  const span = box ? Math.max(box.width, box.height) : 120;
+  const base = { sweep: 850, zigzag: 1150, ellipse: 1050, box: 1250, bracket: 900, check: 700 }[shape] || 1000;
+  return Math.round(base * (0.85 + Math.min(1.4, span / 700)));
+}
+
+const jitter = (amount) => (Math.random() * 2 - 1) * amount;
+
+/** Point list for a gesture shape, in screen coordinates. */
+function gesturePath(shape, p, box, g = {}) {
+  const pad = 10;
+  const left = box.left - pad, right = box.right + pad;
+  const top = box.top - pad, bottom = box.bottom + pad;
+  const midY = (box.top + box.bottom) / 2;
+  const pts = [];
+
+  switch (shape) {
+    case "sweep": {
+      // Along a line of text, the way you'd run a finger under it — with a slight bow, since nobody
+      // draws a ruler-straight line.
+      const y = midY + jitter(2);
+      const bow = jitter(3.5);
+      for (let i = 0; i <= 6; i++) {
+        const u = i / 6;
+        pts.push({ x: box.left + 6 + (box.width - 12) * u, y: y + Math.sin(u * Math.PI) * bow });
+      }
+      break;
+    }
+    case "zigzag": {
+      // A scribbled highlight over text: back and forth along it, like a marker.
+      const passes = 2 + Math.floor(Math.random() * 2);
+      const amp = Math.min(box.height * 0.32, 9);
+      for (let pass = 0; pass < passes; pass++) {
+        const forward = pass % 2 === 0;
+        for (let i = 0; i <= 5; i++) {
+          const u = forward ? i / 5 : 1 - i / 5;
+          pts.push({ x: box.left + 6 + (box.width - 12) * u,
+                     y: midY + (i % 2 ? amp : -amp) * 0.6 + jitter(1.5) });
+        }
+      }
+      break;
+    }
+    case "box": {
+      // Trace the card's outline. Corners are rounded by the spline, and the loop starts at a random
+      // corner so two boxes in one demo don't look stamped.
+      const corners = [
+        { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },
+      ];
+      const start = Math.floor(Math.random() * 4);
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      for (let i = 0; i <= 4; i++) {
+        const c = corners[(start + i * dir + 8) % 4];
+        pts.push({ x: c.x + jitter(4), y: c.y + jitter(4) });
+      }
+      break;
+    }
+    case "bracket": {
+      // A bracket down one side: "this whole group". Cheaper than a box and reads as grouping.
+      const onLeft = Math.random() < 0.5;
+      const x = onLeft ? left : right;
+      const inset = (onLeft ? 12 : -12);
+      pts.push({ x: x + inset, y: top + jitter(3) });
+      pts.push({ x: x + jitter(2), y: top + 6 });
+      pts.push({ x: x + jitter(2), y: bottom - 6 });
+      pts.push({ x: x + inset, y: bottom + jitter(3) });
+      break;
+    }
+    case "check": {
+      // A tick over something confirmed — for a line about something that passed or was approved.
+      pts.push({ x: box.left + box.width * 0.28, y: midY });
+      pts.push({ x: box.left + box.width * 0.42, y: box.bottom - 4 });
+      pts.push({ x: box.left + box.width * 0.72, y: box.top + 2 });
+      break;
+    }
+    case "ellipse":
+    default: {
+      // A loop around it. Never the same twice: start angle, direction, tilt, squash and radius all
+      // vary, and the spline smooths what's left.
+      const rx = Math.min(box.width / 2 + 14, 110);
+      const ry = Math.min(box.height / 2 + 12, 70);
+      const startAngle = Math.random() * Math.PI * 2;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const tilt = jitter(0.3);
+      const squash = 0.85 + Math.random() * 0.3;
+      const sweep = Math.PI * 2 * (0.92 + Math.random() * 0.22);
+      const steps = 10;
+      for (let i = 0; i <= steps; i++) {
+        const a = startAngle + dir * (i / steps) * sweep;
+        const wob = 1 + jitter(0.06);
+        const ex = Math.cos(a) * rx * wob, ey = Math.sin(a) * ry * squash * wob;
+        pts.push({ x: p.x + ex * Math.cos(tilt) - ey * Math.sin(tilt),
+                   y: p.y + ex * Math.sin(tilt) + ey * Math.cos(tilt) });
+      }
+      break;
+    }
+  }
+  return pts;
+}
+
+/** Hand a whole gesture path to the app, which sweeps it as one eased motion. */
+function osPath(cfg, points, ms) {
+  if (!points || points.length < 2) return;
+  const pts = points.map((q) => `${Math.round(q.x)},${Math.round(q.y)}`).join(";");
+  try {
+    execFileSync("/usr/bin/open", [`demotape://cursor/path?pts=${pts}&ms=${Math.round(ms)}`]);
+  } catch (e) { log("cursor path failed:", e.message); }
+}
+
+/**
+ * Re-measure the target right before pressing, and correct the aim if it drifted.
+ *
+ * The aim point is taken, then the cursor glides for half a second, then it clicks — and in between
+ * the page can reflow (a card renders, a banner collapses, a live region updates). The click then
+ * lands where the button *used to be*, which in one recording put the pointer in the gap between two
+ * buttons: a click on nothing, on camera, right as the narration said "I'll grant it".
+ *
+ * Cheap because it only corrects when the aim actually fell outside the fresh box — a matching
+ * layout keeps the human jitter from `moveCursorToSelector` instead of snapping to dead centre.
+ */
+async function settleAimOnSelector(page, cfg, selector, aimed, fx = 0.5) {
+  if (!aimed || !selector) return aimed;
+  const box = await elementBox(page, selector);
+  if (!box) return aimed;
+  const inside = aimed.x >= box.left + 1 && aimed.x <= box.right - 1 &&
+                 aimed.y >= box.top + 1 && aimed.y <= box.bottom - 1;
+  if (inside) return aimed;
+  const fresh = await elementScreenPoint(page, selector, fx);
+  if (!fresh) return aimed;
+  log(`  ${selector} moved under the cursor — re-aiming before the click`);
+  osCursor(cfg, "move", fresh.x, fresh.y, 220);
+  await sleep(280);
+  return fresh;
+}
+
+/**
+ * The rect of the WORDS inside a target, not the box around them.
+ *
+ * Pointing at a container is how a demo ends up clicking nothing. A card or a list is mostly padding
+ * and gaps, so its geometric centre is often blank — in one take the emphasis click for "I'll approve
+ * it" landed in the space between the Grant and Deny buttons, on camera, because the gesture targeted
+ * the surrounding list. The pointer should go where the ink is.
+ *
+ * So: if the element paints its own text, use it. Otherwise walk down to the first visible descendant
+ * that does. A button whose label sits in a span resolves to the span (still inside the button); an
+ * input has no text and no children, so it is left alone.
+ *
+ * Resolved through the Playwright locator, not `querySelector`, so `:has-text(...)` selectors work.
+ */
+async function inkRect(page, selector) {
+  try {
+    return await page.locator(selector).first().evaluate((el) => {
+      const paints = (n) => {
+        const r = n.getBoundingClientRect(), st = getComputedStyle(n);
+        return r.width > 8 && r.height > 6 && st.visibility !== "hidden" &&
+               st.display !== "none" && parseFloat(st.opacity || "1") > 0.05;
+      };
+      const ownText = (n) =>
+        Array.from(n.childNodes).some((c) => c.nodeType === 3 && c.textContent.trim().length > 0);
+      let target = el;
+      if (!ownText(el) && el.children.length) {
+        const queue = Array.from(el.children);
+        while (queue.length) {
+          const n = queue.shift();
+          if (paints(n) && ownText(n)) { target = n; break; }
+          queue.push(...Array.from(n.children));
+        }
+      }
+      const r = target.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+  } catch { return null; }
+}
+
+/** Element rect in SCREEN coordinates, for gestures that need its extent rather than a point. */
+async function elementBox(page, selector) {
+  try {
+    const box = await inkRect(page, selector) ?? await page.locator(selector).first().boundingBox();
+    if (!box) return null;
+    const w = await page.evaluate(() => ({ sx: window.screenX, sy: window.screenY, oh: outerHeight, ih: innerHeight }));
+    const top = w.sy + (w.oh - w.ih) + box.y;
+    return { left: w.sx + box.x, right: w.sx + box.x + box.width, top,
+             bottom: top + box.height, width: box.width, height: box.height };
+  } catch { return null; }
+}
+
+/**
+ * A small idle drift. A hand never parks a pointer perfectly still, and a frozen cursor between
+ * actions is one of the clearest tells that a recording was scripted.
+ */
+async function microDrift(cfg, p, amount = 9) {
+  osCursor(cfg, "move", p.x + (Math.random() * 2 - 1) * amount,
+           p.y + (Math.random() * 2 - 1) * amount, 240);
+  await sleep(300);
 }
 
 /**
@@ -238,11 +570,47 @@ async function humanType(page, cfg, step) {
   // as it does when a human types.
   const punctuation = (text.match(/[.?!,;:]/g) || []).length;
   const expectedMs = text.length * base + punctuation * base * 4;
+
+  // Report typing activity as a HEARTBEAT while typing, not as one upfront estimate.
+  //
+  // An estimate always drifts: the browser types with jitter and pauses, so the reported activity
+  // ran out before the sentence finished and the zoom fell back to a wide shot mid-thought. Each
+  // beat also carries the CARET's real position, measured from the field's own text, so the camera
+  // follows the words as they grow instead of staring at where the field started.
+  const box0 = await elementBox(page, step.selector);
+  const caretPoint = async () => {
+    if (!box0) return null;
+    // Measure the rendered width of the text so far, in the field's own font.
+    const w = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return 0;
+      const cs = getComputedStyle(el);
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const padLeft = parseFloat(cs.paddingLeft) || 0;
+      return Math.min(c.measureText(el.value || "").width + padLeft, el.clientWidth - 8);
+    }, step.selector).catch(() => 0);
+    return { x: box0.left + 6 + w, y: box0.top + box0.height / 2 };
+  };
+
+  let heartbeat = null;
   if (cfg.osType && !step.browserType) {
     const cps = 1000 / base;
-    const chars = text.length + punctuation * 4;    // pad so the hold covers the pauses too
-    execFileSync("/usr/bin/open",
-                 [`demotape://typing?chars=${chars}&cps=${cps.toFixed(1)}`]);
+    // Each beat covers exactly its own interval — no overlap. Overlapping batches interleave stale
+    // and fresh caret positions in the event stream, and the camera then jitters between them
+    // instead of panning.
+    const beatMs = 700;
+    const beat = async () => {
+      const p = await caretPoint();
+      const q = p ? `&x=${Math.round(p.x)}&y=${Math.round(p.y)}` : "";
+      try {
+        execFileSync("/usr/bin/open",
+                     [`demotape://typing?chars=${Math.max(2, Math.round(cps * beatMs / 1000))}`
+                      + `&cps=${cps.toFixed(1)}${q}`]);
+      } catch {}
+    };
+    await beat();
+    heartbeat = setInterval(beat, beatMs);
   }
 
   for (const ch of text) {
@@ -253,6 +621,7 @@ async function humanType(page, cfg, step) {
     else if (ch === " " && Math.random() < 0.08) d += base * 4;   // brief hesitation
     await sleep(d);
   }
+  if (heartbeat) clearInterval(heartbeat);
 
   const got = (await el.inputValue().catch(() => "")).trim();
   if (got !== text.trim()) log(`  typing landed "${got.slice(0, 40)}…" (expected the full line)`);
@@ -266,9 +635,28 @@ async function runStep(page, step, cfg) {
     case "goto": await page.goto(step.url, { waitUntil: "domcontentloaded", timeout: 45000 }); break;
     case "wait": await sleep(step.ms ?? 1000); return;
     case "click": {
-      const c = await moveCursorToSelector(page, cfg, step.selector);
-      if (cfg.osClick && c) osCursor(cfg, "click", c.x, c.y);
-      else await page.click(step.selector, { timeout: step.timeout ?? 8000 });
+      const before = page.url();
+      let c = await moveCursorToSelector(page, cfg, step.selector);
+      if (cfg.osClick && c) {
+        c = await settleAimOnSelector(page, cfg, step.selector, c);
+        osCursor(cfg, "click", c.x, c.y);
+        // `mustAct: true` means this click has to DO something (follow a link, submit a form). An OS
+        // click can miss — a narrow target, a late reflow, an overlay — and a miss is silent: the
+        // demo carries on as if the app ignored the user. So verify it navigated and, if not, click
+        // through the browser to save the take. The zoom came from the real click either way.
+        //
+        // Opt-in on purpose: retrying blindly would double-fire, and an emphasis click on a heading
+        // legitimately changes nothing while a second click on a submit button is a real action.
+        if (step.mustAct) {
+          await sleep(step.settleMs ?? 900);
+          if (page.url() === before) {
+            log(`  os-click did not take effect on ${step.selector} — clicking through the browser`);
+            await page.click(step.selector, { timeout: step.timeout ?? 8000 }).catch(() => {});
+          }
+        }
+      } else {
+        await page.click(step.selector, { timeout: step.timeout ?? 8000 });
+      }
       break;
     }
     // `type` types like a person, character by character. `fill` pastes instantly.

@@ -36,6 +36,23 @@ struct CursorSample: Codable {
     var t: Double
     var x: Double
     var y: Double
+    /// Which pointer the system was showing: `"arrow"`, `"hand"`, `"ibeam"`, `"resize"`.
+    ///
+    /// Recorded so the styled video can switch shape the way the real pointer does — a hand over a
+    /// button, a text bar over a field. Drawing one arrow for the whole take loses a signal the
+    /// viewer reads unconsciously: the hand is what says "this is clickable". Optional so sidecars
+    /// recorded before this existed still decode (they render as an arrow).
+    var kind: String?
+}
+
+/// The pointer shapes the renderer can draw. Kept deliberately small: these are the ones that carry
+/// meaning in a product demo. Anything else falls back to the arrow.
+enum CursorKind: String {
+    case arrow, hand, ibeam, resize
+
+    init(rawValueOrArrow raw: String?) {
+        self = CursorKind(rawValue: raw ?? "") ?? .arrow
+    }
 }
 
 struct ClickSample: Codable {
@@ -58,4 +75,13 @@ struct KeySample: Codable {
     var keyCode: Int
     var chars: String
     var modifiers: [String]   // e.g. ["cmd", "shift"]
+    /// Where the text is being entered, normalized to the display (top-left origin), when known.
+    ///
+    /// Real keystrokes carry no position, so typing normally anchors the camera on the click that
+    /// focused the field. That's correct for a short entry, but a long sentence grows past the edge
+    /// of a zoomed frame — the words being typed leave the shot. When a driver reports the caret's
+    /// position, the camera can follow the text instead of staring at where the field started.
+    /// Optional so existing sidecars still decode.
+    var x: Double?
+    var y: Double?
 }

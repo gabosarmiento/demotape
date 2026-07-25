@@ -548,9 +548,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cursorQueue.async { [weak self] in
                 self?.performControlTyping(text: text, cps: cps, expectedApp: expectedApp)
             }
-        case .typingActivity(let chars, let cps):
-            Log.write("control: typing activity \(chars) chars (zoom hold only)")
-            engine.noteTypingActivity(characters: chars, charsPerSecond: cps > 0 ? cps : 14)
+        case .typingActivity(let chars, let cps, let caret):
+            engine.noteTypingActivity(characters: chars, charsPerSecond: cps > 0 ? cps : 14,
+                                      caret: caret)
+        case .cursorPath(let points, let ms):
+            cursorQueue.async { [weak self] in
+                self?.sweepCursor(along: points, duration: Double(ms) / 1000.0)
+            }
         case .openUI(let window, let holdMs):
             openControlWindow(window, holdMs: holdMs)
         case .dumpUI(let app):
@@ -756,22 +760,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let frameRate = 60.0
         let steps = max(2, Int((duration * frameRate).rounded()))
-        // Bow the path perpendicular to travel, capped so long trips don't swing wildly.
-        let bow = min(distance * 0.06, 34.0)
+        // Bow the path perpendicular to travel, capped so long trips don't swing wildly. The amount
+        // AND the side vary per move: a hand doesn't curve the same way twice, and a fixed bow makes
+        // repeated travels between the same two points look stamped from a template.
+        let bowSide: CGFloat = Bool.random() ? 1 : -1
+        let bow = min(distance * CGFloat.random(in: 0.035...0.075), 38.0) * bowSide
         let nx = -dy / distance, ny = dx / distance
         // Only long moves get an overshoot; short nudges land clean.
-        let overshoot = distance > 220 ? min(distance * 0.012, 7.0) : 0
+        let overshoot = distance > 220 ? min(distance * CGFloat.random(in: 0.008...0.016), 9.0) : 0
+
+        // Vary the acceleration curve per move. A fixed easing exponent is subtle but consistent,
+        // and consistency across dozens of moves is what reads as mechanical.
+        let curve = Double.random(in: 1.7...2.4)
+        // A slow tremor across the path, so even the straight part of a glide isn't perfectly clean.
+        let tremor = CGFloat.random(in: 0.6...1.8)
+        let tremorPhase = Double.random(in: 0...(2 * .pi))
 
         for i in 1...steps {
             let t = Double(i) / Double(steps)
-            let eased = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2   // easeInOutQuad
+            let eased = t < 0.5
+                ? pow(2 * t, curve) / 2
+                : 1 - pow(-2 * t + 2, curve) / 2   // easeInOut with a per-move exponent
             // sin() peaks mid-flight and returns to zero at both ends, so the arc never
             // displaces the start or the target.
             let arc = sin(eased * .pi) * bow
             // Ramps in quadratically so the drift past the target only appears at the end.
             let push = eased * eased * overshoot
-            let p = CGPoint(x: start.x + dx * eased + nx * arc + (dx / distance) * push,
-                            y: start.y + dy * eased + ny * arc + (dy / distance) * push)
+            // Tremor fades out towards the target, so the landing is still precise.
+            let wobble = sin(eased * 6 * .pi + tremorPhase) * tremor * CGFloat(1 - eased)
+            let p = CGPoint(x: start.x + dx * eased + nx * (arc + wobble) + (dx / distance) * push,
+                            y: start.y + dy * eased + ny * (arc + wobble) + (dy / distance) * push)
             CGWarpMouseCursorPosition(p)
             Thread.sleep(forTimeInterval: duration / Double(steps))
         }
@@ -791,6 +809,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         CGWarpMouseCursorPosition(target)
         CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// Sweeps the cursor along a path as one continuous motion.
+    ///
+    /// Attention gestures used to be issued as a series of short moves, and every seam showed — the
+    /// cursor stuttered around a circle instead of drawing it. Here the whole shape arrives at once,
+    /// so it can be treated as a single animation: a Catmull-Rom spline through the given points
+    /// (which rounds the corners a hand would round anyway), sampled at frame rate, with the speed
+    /// eased in and out over the WHOLE gesture rather than per segment.
+    private func sweepCursor(along points: [CGPoint], duration: Double) {
+        guard points.count >= 2, duration > 0 else { return }
+        // Start from where the cursor actually is, so the gesture doesn't jump to begin.
+        var control = [currentCursorPoint()] + points
+        // Duplicate the endpoints: Catmull-Rom needs a neighbour on each side to define the tangent.
+        control.insert(control[0], at: 0)
+        control.append(control[control.count - 1])
+
+        let steps = max(8, Int(duration * 60))
+        let segments = control.count - 3
+        for i in 1...steps {
+            let progress = Double(i) / Double(steps)
+            // Ease the whole sweep, not each leg — that's what made it feel mechanical.
+            let eased = progress < 0.5
+                ? 2 * progress * progress
+                : 1 - pow(-2 * progress + 2, 2) / 2
+            let scaled = eased * Double(segments)
+            let index = min(segments - 1, Int(scaled))
+            let t = CGFloat(scaled - Double(index))
+            let p = catmullRom(control[index], control[index + 1],
+                               control[index + 2], control[index + 3], t: t)
+            CGWarpMouseCursorPosition(p)
+            Thread.sleep(forTimeInterval: duration / Double(steps))
+        }
+        CGWarpMouseCursorPosition(points[points.count - 1])
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    /// Catmull-Rom interpolation: passes through p1 and p2, using p0/p3 for the tangents. Chosen over
+    /// Bézier because the caller supplies points the cursor must actually visit.
+    private func catmullRom(_ p0: CGPoint, _ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint,
+                            t: CGFloat) -> CGPoint {
+        let t2 = t * t, t3 = t2 * t
+        func axis(_ a: CGFloat, _ b: CGFloat, _ c: CGFloat, _ d: CGFloat) -> CGFloat {
+            0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+        }
+        return CGPoint(x: axis(p0.x, p1.x, p2.x, p3.x), y: axis(p0.y, p1.y, p2.y, p3.y))
     }
 
     /// Current cursor position in top-left-origin screen points (CoreGraphics space), matching what

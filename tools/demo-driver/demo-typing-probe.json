@@ -20,10 +20,10 @@
       "say": "Checking that the typing lands in the field, and that the camera stays on it.",
       "steps": [
         { "action": "waitFor", "selector": "#input" },
-        { "action": "type", "selector": "#input", "text": "the quick brown fox jumps over the lazy dog" },
+        { "action": "type", "selector": "#input", "text": "the data looks corrupt, so drop the database for checkout-api and let it recreate itself from the last snapshot" },
         { "action": "wait", "ms": 1500 }
       ],
-      "expect": { "value": { "selector": "#input", "is": "the quick brown fox jumps over the lazy dog" } }
+      "expect": { "value": { "selector": "#input", "is": "the data looks corrupt, so drop the database for checkout-api and let it recreate itself from the last snapshot" } }
     }
   ]
 }

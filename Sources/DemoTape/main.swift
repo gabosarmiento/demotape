@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 // DemoTape — a lightweight, local-first screen recorder for macOS 12+ (Intel & Apple Silicon).
 // Phase 1: menu-bar app that records the main display to an H.264 .mov file.
@@ -69,6 +70,54 @@ if let i = args.firstIndex(of: "--render"), args.count > i + 2 {
         FileHandle.standardError.write("render error: \(error)\n".data(using: .utf8)!)
         exit(1)
     }
+}
+
+// Grab still frames:  DemoTape --frame <video> <seconds[,seconds…]> <out.png-or-dir> [maxHeight]
+// No GUI, no permissions, no network. Exists because you cannot check a recording by reading a log:
+// whether the pointer landed on the button, whether the zoom framed the right thing, whether a
+// caption overlaps the UI — those are visual facts, and an agent (or a human on a terminal) needs a
+// still to look at. Full resolution unless a maxHeight is given.
+if let i = args.firstIndex(of: "--frame"), args.count > i + 3 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    let times = args[i + 2].split(separator: ",").compactMap { Double($0) }
+    let out = URL(fileURLWithPath: args[i + 3])
+    let maxHeight = args.count > i + 4 ? Double(args[i + 4]) ?? 0 : 0
+    guard !times.isEmpty else {
+        FileHandle.standardError.write("frame error: no valid timestamps in \"\(args[i + 2])\"\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let asset = AVAsset(url: video)
+    let gen = AVAssetImageGenerator(asset: asset)
+    gen.appliesPreferredTrackTransform = true
+    gen.requestedTimeToleranceBefore = .zero      // exact frame: a cursor moves between frames
+    gen.requestedTimeToleranceAfter = .zero
+    if maxHeight > 0 { gen.maximumSize = CGSize(width: 0, height: maxHeight) }
+
+    // One timestamp writes exactly the path given; several write numbered files into a folder.
+    let multiple = times.count > 1
+    if multiple {
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    }
+    var written = 0
+    for t in times {
+        guard let cg = try? gen.copyCGImage(at: CMTime(seconds: t, preferredTimescale: 600),
+                                            actualTime: nil) else {
+            FileHandle.standardError.write("frame error: no frame at \(t)s\n".data(using: .utf8)!)
+            continue
+        }
+        let dest = multiple
+            ? out.appendingPathComponent(String(format: "%07.2fs.png", t))
+            : out
+        let rep = NSBitmapImageRep(cgImage: cg)
+        guard let data = rep.representation(using: .png, properties: [:]),
+              (try? data.write(to: dest, options: .atomic)) != nil else {
+            FileHandle.standardError.write("frame error: could not write \(dest.path)\n".data(using: .utf8)!)
+            continue
+        }
+        print("frame \(t)s -> \(dest.path)")
+        written += 1
+    }
+    exit(written == times.count ? 0 : 1)
 }
 
 // Show or scaffold a recipe:  DemoTape --show-recipe [<recording-folder-or-video>] [out.json]

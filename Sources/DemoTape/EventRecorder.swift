@@ -28,6 +28,8 @@ final class EventRecorder {
 
     private var monitors: [Any] = []
     private var samplingTimer: DispatchSourceTimer?
+    private var cachedCursorKind: CursorKind = .arrow
+    private var lastCursorKindCheck: TimeInterval = 0
     private let samplingQueue = DispatchQueue(label: "pro.demotape.events")
     private let lock = NSLock()
 
@@ -110,6 +112,24 @@ final class EventRecorder {
 
     // MARK: - Sampling
 
+    /// Pointer shape for the position being sampled, rate-limited.
+    ///
+    /// Derived from whatever sits UNDER the pointer (via Accessibility), not from `NSCursor`, which
+    /// only ever reports the calling app's own cursor — while another app is frontmost it always
+    /// answered "arrow". Measured: a take over a text field recorded 1208 samples, every one `arrow`.
+    ///
+    /// The lookup is an inter-process query, and the shape only changes when the pointer crosses a
+    /// control, so it refreshes a few times a second and is reused in between. Called on the sampling
+    /// queue, which already holds no lock at this point.
+    private func currentCursorKind(at point: CGPoint) -> CursorKind {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastCursorKindCheck > 0.12 {
+            lastCursorKindCheck = now
+            cachedCursorKind = CursorKindProbe.kind(at: point)
+        }
+        return cachedCursorKind
+    }
+
     private func startSampling() {
         let timer = DispatchSource.makeTimerSource(queue: samplingQueue)
         let interval = 1.0 / sampleRate
@@ -120,8 +140,12 @@ final class EventRecorder {
             let point = CGEvent(source: nil)?.location ?? .zero
             let n = self.normalize(point)
             let t = ProcessInfo.processInfo.systemUptime - self.startUptime
+            // The pointer's SHAPE, so the render switches it the way the system does — a hand over a
+            // button, a text bar over a field. Inferred from what's under the pointer, cached between
+            // samples because this timer runs many times a second.
+            let kind = self.currentCursorKind(at: point)
             self.lock.lock()
-            self.cursor.append(CursorSample(t: t, x: n.x, y: n.y))
+            self.cursor.append(CursorSample(t: t, x: n.x, y: n.y, kind: kind.rawValue))
             self.lock.unlock()
         }
         samplingTimer = timer
@@ -196,10 +220,14 @@ final class EventRecorder {
     /// This records the activity only: one sample per character, timestamped on the recorder's own
     /// clock, with no system events posted. The anchor still comes from the preceding real click, so
     /// the camera holds exactly where a human's would.
-    func recordTypingActivity(characters: Int, charsPerSecond: Double) {
+    /// `caret` (optional, in global top-left screen points) is where the text is appearing. When
+    /// given, the camera follows the caret instead of holding on the click that focused the field,
+    /// so a long sentence doesn't grow out of a zoomed frame.
+    func recordTypingActivity(characters: Int, charsPerSecond: Double, caret: CGPoint? = nil) {
         guard characters > 0 else { return }
         let rate = max(1.0, charsPerSecond)
         let interval = 1.0 / rate
+        let position = caret.map { normalize($0) }
         for i in 0..<characters {
             let delay = Double(i) * interval
             DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -208,7 +236,8 @@ final class EventRecorder {
                 self.lock.lock()
                 // keyCode -1 marks a synthetic marker: it drives the zoom hold, and because it
                 // carries no modifiers it can never render a shortcut badge.
-                self.keys.append(KeySample(t: t, keyCode: -1, chars: "", modifiers: []))
+                self.keys.append(KeySample(t: t, keyCode: -1, chars: "", modifiers: [],
+                                           x: position?.x, y: position?.y))
                 self.lock.unlock()
             }
         }

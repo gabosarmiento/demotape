@@ -137,6 +137,12 @@ echo '{ "maxZoom": 1.4, "exportSize": "1080x1350" }' > /tmp/patch.json
 # Transcode a styled .mp4 down to a web tier (height in px)
 ./.build/release/DemoTape --transcode "path/to/styled.mp4" 540 /tmp/web-540.mp4
 
+# Grab a still to LOOK at. You cannot check a recording by reading a log — whether the pointer
+# landed on the button, whether the zoom framed the right thing, whether a caption overlaps the
+# UI are visual facts. One timestamp writes exactly that path; several write into a folder.
+./.build/release/DemoTape --frame "path/to/styled.mp4" 6.1 /tmp/frame.png
+./.build/release/DemoTape --frame "path/to/styled.mp4" 2,6.1,11.4 /tmp/frames [maxHeight]
+
 # Run the FULL Web Publish pipeline headlessly — the same code path the GUI's
 # "Web Publish" window uses, so scripted output matches what a user gets by clicking
 # Export. Writes <name>-web/ with an mp4 per tier, poster.jpg, embed.html and demo.gif.

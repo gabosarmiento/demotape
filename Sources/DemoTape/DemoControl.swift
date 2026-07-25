@@ -68,7 +68,17 @@ enum DemoControl {
         /// enter the text — and then nothing tells DemoTape that typing is happening, leaving the
         /// camera to drift off the field mid-sentence. `chars` is how many characters are being
         /// typed and `cps` the rate, which together reproduce the same zoom hold real typing gives.
-        case typingActivity(chars: Int, cps: Double)
+        /// `caret` (screen points, top-left) lets the camera follow the text as it grows, instead of
+        /// holding on the point that was clicked to focus the field.
+        case typingActivity(chars: Int, cps: Double, caret: CGPoint?)
+        /// Sweep the cursor along a whole path as ONE continuous motion.
+        ///
+        /// Attention gestures — circling a value, underlining a line, boxing a card — used to be sent
+        /// as a series of separate short moves, and the seam between each one showed: the cursor
+        /// stuttered around the shape instead of drawing it. Handing over the whole path lets the app
+        /// interpolate it smoothly (a spline through the points, eased end to end), which is the
+        /// difference between a gesture and a twitch.
+        case cursorPath(points: [CGPoint], ms: Int)
         /// Open one of DemoTape's own windows. This exists so a walkthrough *of DemoTape itself*
         /// can be scripted: an orchestrator can't reliably click menu rows (their screen rects
         /// aren't discoverable from outside), but it can ask the app to show a window directly.
@@ -113,14 +123,28 @@ enum DemoControl {
         func dbl(_ k: String) -> Double? { q[k].flatMap(Double.init) }
 
         if tokens.contains("typing") {
-            // demotape://typing?chars=42&cps=14  — activity only, nothing is posted.
+            // demotape://typing?chars=42&cps=14[&x=&y=]  — activity only, nothing is posted.
             guard let chars = dbl("chars"), chars > 0 else { return nil }
-            return .typingActivity(chars: Int(chars), cps: max(0, dbl("cps") ?? 0))
+            var caret: CGPoint?
+            if let cx = dbl("x"), let cy = dbl("y") { caret = CGPoint(x: cx, y: cy) }
+            return .typingActivity(chars: Int(chars), cps: max(0, dbl("cps") ?? 0), caret: caret)
         }
         if tokens.contains("type") {
             // demotape://type?text=hello%20world&cps=14&app=Chromium
             guard let text = q["text"], !text.isEmpty else { return nil }
             return .type(text: text, cps: max(0, dbl("cps") ?? 0), expectedApp: q["app"])
+        }
+        if tokens.contains("path") {
+            // demotape://cursor/path?pts=120,80;200,140;260,90&ms=1400
+            guard let raw = q["pts"], !raw.isEmpty else { return nil }
+            let points: [CGPoint] = raw.split(separator: ";").compactMap { pair in
+                let parts = pair.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+                guard parts.count == 2 else { return nil }
+                return CGPoint(x: parts[0], y: parts[1])
+            }
+            guard points.count >= 2 else { return nil }
+            let ms = Int(dbl("ms") ?? 0)
+            return .cursorPath(points: points, ms: max(120, ms == 0 ? 900 : ms))
         }
         if tokens.contains("cursor") {
             guard let x = dbl("x"), let y = dbl("y") else { return nil }

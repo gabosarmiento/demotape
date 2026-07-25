@@ -249,12 +249,12 @@ extension DemoControlTests {
 
     func testParseTypingActivity() {
         let url = URL(string: "demotape://typing?chars=42&cps=14")!
-        XCTAssertEqual(DemoControl.parse(url), .typingActivity(chars: 42, cps: 14))
+        XCTAssertEqual(DemoControl.parse(url), .typingActivity(chars: 42, cps: 14, caret: nil))
     }
 
     func testTypingActivityRateIsOptional() {
         let url = URL(string: "demotape://typing?chars=8")!
-        XCTAssertEqual(DemoControl.parse(url), .typingActivity(chars: 8, cps: 0))
+        XCTAssertEqual(DemoControl.parse(url), .typingActivity(chars: 8, cps: 0, caret: nil))
     }
 
     func testTypingActivityRequiresPositiveCount() {
@@ -267,7 +267,7 @@ extension DemoControlTests {
         XCTAssertEqual(DemoControl.parse(URL(string: "demotape://type?text=hi")!),
                        .type(text: "hi", cps: 0, expectedApp: nil))
         XCTAssertEqual(DemoControl.parse(URL(string: "demotape://typing?chars=2")!),
-                       .typingActivity(chars: 2, cps: 0))
+                       .typingActivity(chars: 2, cps: 0, caret: nil))
     }
 }
 
@@ -290,5 +290,66 @@ extension DemoControlTests {
     func testExpectedAppIsOptional() {
         let url = URL(string: "demotape://type?text=hi")!
         XCTAssertEqual(DemoControl.parse(url), .type(text: "hi", cps: 0, expectedApp: nil))
+    }
+}
+
+/// The caret position on typing activity. Without it the camera holds where the field was clicked,
+/// so a long sentence grows out of a zoomed frame; with it, the shot follows the words.
+extension DemoControlTests {
+
+    func testTypingActivityCarriesCaret() {
+        let url = URL(string: "demotape://typing?chars=20&cps=14&x=420&y=680")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .typingActivity(chars: 20, cps: 14, caret: CGPoint(x: 420, y: 680)))
+    }
+
+    func testCaretNeedsBothCoordinates() {
+        // A half-specified caret would silently anchor at y=0 — better to ignore it.
+        XCTAssertEqual(DemoControl.parse(URL(string: "demotape://typing?chars=20&x=420")!),
+                       .typingActivity(chars: 20, cps: 0, caret: nil))
+    }
+}
+
+/// Cursor PATH — a whole attention gesture handed over as one motion. Sending a gesture as a series
+/// of short moves left a visible seam at every leg, so the cursor stuttered around a circle instead
+/// of drawing it.
+extension DemoControlTests {
+
+    func testParsePathWithSeveralPoints() {
+        let url = URL(string: "demotape://cursor/path?pts=120,80;200,140;260,90&ms=1400")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .cursorPath(points: [CGPoint(x: 120, y: 80), CGPoint(x: 200, y: 140),
+                                            CGPoint(x: 260, y: 90)], ms: 1400))
+    }
+
+    func testPathDurationDefaultsWhenAbsent() {
+        let url = URL(string: "demotape://cursor/path?pts=10,10;20,20")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .cursorPath(points: [CGPoint(x: 10, y: 10), CGPoint(x: 20, y: 20)], ms: 900))
+    }
+
+    func testPathDurationHasAFloorSoItCannotFlash() {
+        let url = URL(string: "demotape://cursor/path?pts=10,10;20,20&ms=5")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .cursorPath(points: [CGPoint(x: 10, y: 10), CGPoint(x: 20, y: 20)], ms: 120))
+    }
+
+    func testPathNeedsAtLeastTwoPoints() {
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://cursor/path?pts=10,10")!))
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://cursor/path?pts=")!))
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://cursor/path?ms=900")!))
+    }
+
+    func testPathSkipsMalformedPairsRatherThanFailing() {
+        // One bad pair shouldn't throw away a whole gesture.
+        let url = URL(string: "demotape://cursor/path?pts=10,10;bad;30,30&ms=500")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .cursorPath(points: [CGPoint(x: 10, y: 10), CGPoint(x: 30, y: 30)], ms: 500))
+    }
+
+    /// `cursor/path` must not be mistaken for a plain `cursor` move.
+    func testPathIsDistinctFromAMove() {
+        XCTAssertEqual(DemoControl.parse(URL(string: "demotape://cursor?x=5&y=6")!),
+                       .cursor(x: 5, y: 6, click: false, glideMs: 0))
     }
 }

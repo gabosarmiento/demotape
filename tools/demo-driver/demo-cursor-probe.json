@@ -1,0 +1,41 @@
+{
+  "//": "Self-contained check that the drawn pointer matches the real one — no app, no network, no account. It loads an inline page with a link, a button and a text field, and takes the cursor across all three so the recording shows the pointer CHANGE shape: arrow over the page, hand over the link and the button, text bar over the field.",
+
+  "//why": "DemoTape draws its own enlarged pointer, so the shape has to be sampled from the system rather than assumed. Watch the recording for three things: the hand appears over the link and the button with its FINGERTIP on the target (not offset, not clipped), the I-beam appears over the field, and the arrow returns over plain page. Then check the recording's .source/*.events.json: `cursor` samples should carry more than one distinct `k` value.",
+
+  "url": "data:text/html,<html><body style='font:16px -apple-system;background:%23f6f7f9;padding:70px'><h1 id='title' style='font-size:22px'>Pointer probe</h1><p style='color:%236b7280;max-width:640px'>The pointer should change shape over each control below, and the drawn cursor should match.</p><p><a id='link' href='%23here' style='font-size:18px'>A link, which should show a hand</a></p><p><button id='btn' style='padding:12px 22px;font-size:16px;border-radius:8px;border:1px solid %23c9ced6;background:white'>A button, also a hand</button></p><p><input id='field' style='width:520px;padding:13px 15px;font-size:16px;border:1px solid %23d7dae0;border-radius:8px' placeholder='A field, which should show a text bar…'></p></body></html>",
+
+  "fullScreen": true,
+  "viewport": { "x": 60, "y": 60, "width": 1340, "height": 840 },
+
+  "osClick": true,
+  "moveMs": 620,
+  "verify": false,
+  "maxAttempts": 1,
+
+  "scenes": [
+    {
+      "say": "Taking the pointer over a link, a button, and a text field, so each shape gets recorded.",
+      "gestures": [
+        { "selector": "#title", "kind": "point", "dwellMs": 700 },
+        { "selector": "#link", "kind": "sweep", "dwellMs": 1400 },
+        { "selector": "#btn", "kind": "point", "dwellMs": 1400 },
+        { "selector": "#field", "kind": "point", "dwellMs": 1400 }
+      ]
+    },
+    {
+      "//": "Also checks a real click: it must land ON the button (which is what triggers the zoom), and the emphasis gesture must resolve to the words rather than the padding around them.",
+      "say": "And a click on the button, which is what makes the camera push in.",
+      "steps": [
+        { "action": "click", "selector": "#btn" },
+        { "action": "wait", "ms": 1200 }
+      ]
+    },
+    {
+      "say": "Then back over plain page, where it should be an arrow again.",
+      "gestures": [
+        { "selector": "#title", "kind": "point", "dwellMs": 1200 }
+      ]
+    }
+  ]
+}

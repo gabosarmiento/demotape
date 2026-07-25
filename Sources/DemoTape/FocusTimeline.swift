@@ -64,7 +64,9 @@ struct FocusTimeline {
     /// Where the camera should look: the field/point being worked on.
     /// While typing, this is the last click (the input the user focused); otherwise
     /// it tracks the cursor.
-    private func focusAnchor(at t: Double) -> (x: CGFloat, y: CGFloat) {
+    /// Internal rather than private so the typing-pan behaviour can be tested directly: `target(at:)`
+    /// additionally clamps the frame inside the video bounds, which hides what the anchor is doing.
+    func focusAnchor(at t: Double) -> (x: CGFloat, y: CGFloat) {
         let lastClick = clicks.last(where: { $0.t <= t })
         let lastKey = keys.last(where: { $0.t <= t })
 
@@ -72,14 +74,72 @@ struct FocusTimeline {
             && (lastClick == nil || lastKey!.t >= lastClick!.t)
             && (t - lastKey!.t) < typeHold
 
-        if typing, let c = lastClick {
-            return (CGFloat(c.x), CGFloat(c.y))  // hold on the text field
+        if typing {
+            // Follow the caret when the recorder knows where it is: a long sentence grows sideways,
+            // and holding on the click that focused the field would let the words leave a zoomed
+            // frame mid-thought.
+            //
+            // Two guards make the pan smooth. Reported positions can arrive out of order and repeat
+            // (a driver may report in overlapping batches), and taking "the latest sample" then makes
+            // the anchor jump backwards and forwards every frame — which looks like a vibration
+            // rather than a pan. So: take the furthest caret reached so far (text only grows), and
+            // ease towards it instead of snapping.
+            if let target = furthestCaret(upTo: t) {
+                return target
+            }
+            if let c = lastClick {
+                return (CGFloat(c.x), CGFloat(c.y))  // hold on the text field
+            }
         }
         if let c = lastClick, (t - c.t) < clickHold {
             return (CGFloat(c.x), CGFloat(c.y))  // hold on the last click
         }
         let cur = cursorPosition(at: t)
         return (cur.x, cur.y)                     // otherwise follow the cursor
+    }
+
+    /// The caret anchor for typing at time `t`: the furthest point reached within the current typing
+    /// run, eased so the camera pans rather than snaps.
+    ///
+    /// Positions are reported per keystroke-batch, which means duplicates and out-of-order arrivals.
+    /// Using the most recent sample makes the anchor oscillate between two nearby x values every
+    /// frame — a vibration, not a pan. Text only ever grows rightwards within a run, so the furthest
+    /// position is the honest target, and easing towards it keeps the motion continuous.
+    private func furthestCaret(upTo t: Double) -> (x: CGFloat, y: CGFloat)? {
+        // Only consider the current run: a gap longer than the hold means a new field/sentence.
+        var runStart = 0.0
+        var previous: Double?
+        for k in keys where k.t <= t {
+            if let p = previous, k.t - p > typeHold { runStart = k.t }
+            previous = k.t
+        }
+        let positioned = keys.filter { $0.t <= t && $0.t >= runStart && $0.x != nil && $0.y != nil }
+        guard !positioned.isEmpty else { return nil }
+
+        // Make the series monotonic first (running maximum): text only grows rightwards within a
+        // run, so a lower x arriving later is a stale report, not the caret moving back.
+        var monotonic: [(t: Double, x: CGFloat, y: CGFloat)] = []
+        var furthestX = -CGFloat.greatestFiniteMagnitude
+        var furthestY: CGFloat = 0
+        for k in positioned {
+            let kx = CGFloat(k.x!), ky = CGFloat(k.y!)
+            if kx > furthestX { furthestX = kx; furthestY = ky }
+            monotonic.append((k.t, furthestX, furthestY))
+        }
+
+        // Then low-pass it. An exponential time kernel is continuous in `t`, so the anchor eases
+        // between reports instead of stepping to each new one — a step every heartbeat is what read
+        // as vibration. Tau is short enough to keep up with fast typing, long enough to smooth it.
+        let tau = 0.45
+        var weightSum = 0.0, xSum = 0.0, ySum = 0.0
+        for sample in monotonic {
+            let weight = exp(-(t - sample.t) / tau)
+            weightSum += weight
+            xSum += Double(sample.x) * weight
+            ySum += Double(sample.y) * weight
+        }
+        guard weightSum > 0 else { return (furthestX, furthestY) }
+        return (CGFloat(xSum / weightSum), CGFloat(ySum / weightSum))
     }
 
     /// Active keyboard-shortcut badge (e.g. "⌘⇧D") at time t, or nil. Only shortcuts
@@ -135,6 +195,18 @@ struct FocusTimeline {
 
     /// Public interpolated cursor position at t (normalized, top-left).
     func cursorPoint(at t: Double) -> (x: CGFloat, y: CGFloat) { cursorPosition(at: t) }
+
+    /// Which pointer shape was on screen at `t`.
+    ///
+    /// Uses the last sample at or before `t` — the shape is a step function (it changes the instant
+    /// the pointer crosses a control), so interpolating it would be meaningless. Sidecars recorded
+    /// before shapes were captured report none, and render as an arrow.
+    func cursorKind(at t: Double) -> CursorKind {
+        guard let sample = cursor.last(where: { $0.t <= t }) ?? cursor.first else {
+            return .arrow
+        }
+        return CursorKind(rawValueOrArrow: sample.kind)
+    }
 
     private func cursorPosition(at t: Double) -> (x: CGFloat, y: CGFloat) {
         guard !cursor.isEmpty else { return (0.5, 0.5) }

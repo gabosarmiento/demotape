@@ -33,7 +33,10 @@ final class VideoRenderer {
         var webcamOverlay = true
 
         var drawCursor = true
-        var cursorScale: CGFloat = 1.7
+        /// Cursor size multiplier over the 22pt system arrow. Demos are watched small — in a README,
+        /// in a feed, on a phone — where a system-sized pointer is almost invisible, so the default
+        /// is deliberately larger than life. Tunable per recording via `recipe.json`.
+        var cursorScale: CGFloat = 2.8
         var cursorSmoothing: CGFloat = 0.7   // EMA for cursor position (higher = less lag)
 
         var showShortcuts = true
@@ -195,7 +198,7 @@ final class VideoRenderer {
         let background = style.useBackground ? makeBackground(size: CGSize(width: outW, height: outH), style: style) : nil
         let mask = style.useBackground ? makeRoundedMask(width: contentW, height: contentH, radius: style.cornerRadius) : nil
         let shadow = style.useBackground ? makeShadow(contentW: contentW, contentH: contentH, outW: outW, outH: outH, padding: pad, radius: style.cornerRadius) : nil
-        let cursorImage = style.drawCursor ? makeCursorImage(scale: style.cursorScale) : nil
+        let cursorArt = style.drawCursor ? makeCursorArt(scale: style.cursorScale) : [:]
         let rippleRing = style.showClickRipples ? makeRing(diameter: 220) : nil
         let rippleBase: CGFloat = 220
         // Branding logo (loaded once) — composited fixed on top of every frame.
@@ -325,15 +328,20 @@ final class VideoRenderer {
             }
 
             // 3) Overlays, drawn on top of the zoomed composition at constant size.
-            if let cursorImage = cursorImage {
+            // Draw whichever pointer the system was showing at this moment — arrow, hand over a
+            // control, text bar over a field.
+            if let art = cursorArt[focus.cursorKind(at: eventT)] ?? cursorArt[.arrow] {
                 let raw = focus.cursorPoint(at: eventT)
                 if curEMA == nil { curEMA = raw }
                 curEMA!.x += (raw.x - curEMA!.x) * style.cursorSmoothing
                 curEMA!.y += (raw.y - curEMA!.y) * style.cursorSmoothing
                 if let p = mapToOutput(curEMA!.x, curEMA!.y) {
-                    let h = cursorImage.extent.height
-                    composite = cursorImage
-                        .transformed(by: CGAffineTransform(translationX: p.x, y: p.y - h))
+                    let h = art.image.extent.height
+                    // Align the HOTSPOT (arrow tip, fingertip, bar centre) with the pointer position.
+                    // The image is padded so the outline isn't clipped, so the corner is not the tip.
+                    composite = art.image
+                        .transformed(by: CGAffineTransform(translationX: p.x - art.hotspot.x,
+                                                           y: p.y - h + art.hotspot.y))
                         .composited(over: composite)
                 }
             }
@@ -592,17 +600,160 @@ final class VideoRenderer {
         return ctx.makeImage()!
     }
 
-    /// A clean, enlarged arrow cursor drawn with CoreGraphics (tip at the image's top-left).
-    private func makeCursorImage(scale: CGFloat) -> CIImage {
-        let s: CGFloat = 22 * scale
-        let w = Int(ceil(s * 0.7)), h = Int(ceil(s))
+    /// The pointer art for every shape we can draw, built once per render.
+    ///
+    /// A real pointer changes shape as it moves — a hand over a link, a text bar over a field — and
+    /// viewers read that without noticing. Drawing one arrow for a whole demo removes the cue that
+    /// says "this is clickable", so each recorded kind gets its own image and hotspot.
+    private func makeCursorArt(scale: CGFloat) -> [CursorKind: (image: CIImage, hotspot: CGPoint)] {
+        var art: [CursorKind: (image: CIImage, hotspot: CGPoint)] = [:]
+        art[.arrow] = makeCursorImage(scale: scale)
+        art[.hand] = makeHandCursorImage(scale: scale)
+        art[.ibeam] = makeIBeamCursorImage(scale: scale)
+        art[.resize] = makeCursorImage(scale: scale)   // no distinct art yet; arrow is honest here
+        return art
+    }
+
+    /// A pointing hand, for links and buttons. The hotspot is the fingertip.
+    ///
+    /// Uses the system's own hand glyph rather than a hand-drawn path. Two attempts at drawing it
+    /// failed in different ways — a stepped polygon with crease lines read as a cartoon glove, and a
+    /// finger-plus-fist union read as a lollipop — because a recognisable hand needs real curves, and
+    /// at 3× every approximation shows. The glyph is a vector, so it stays crisp at any scale, and it
+    /// is the shape viewers already associate with "clickable".
+    private func makeHandCursorImage(scale: CGFloat) -> (image: CIImage, hotspot: CGPoint) {
+        let target = 24 * scale
+        let config = NSImage.SymbolConfiguration(pointSize: target, weight: .regular)
+        guard let glyph = NSImage(systemSymbolName: "hand.point.up.left.fill",
+                                 accessibilityDescription: nil)?
+                .withSymbolConfiguration(config),
+              let cg = glyph.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let rim = tintedGlyph(cg, CGColor(red: 0, green: 0, blue: 0, alpha: 0.92)),
+              let core = tintedGlyph(cg, CGColor(red: 1, green: 1, blue: 1, alpha: 1)) else {
+            return makeCursorImage(scale: scale)      // no glyph available: an arrow is honest
+        }
+
+        let gw = CGFloat(cg.width), gh = CGFloat(cg.height)
+        let outline = max(1.5, target * 0.07)         // dark rim so it reads on any background
+        let pad = ceil(outline)
+        let w = Int(gw + pad * 2), h = Int(gh + pad * 2)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return makeCursorImage(scale: scale)
+        }
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+
+        // The rim is the dark silhouette stamped around a ring of offsets, with the white glyph on
+        // top. Tinted bitmaps rather than `clip(to:mask:)`, which requires a DeviceGray mask and
+        // silently rejects an RGBA symbol bitmap.
+        let inner = CGRect(x: pad, y: pad, width: gw, height: gh)
+        for step in 0..<12 {
+            let angle = Double(step) * Double.pi / 6
+            ctx.draw(rim, in: inner.offsetBy(dx: CGFloat(cos(angle)) * outline,
+                                             dy: CGFloat(sin(angle)) * outline))
+        }
+        ctx.draw(core, in: inner)
+
+        // Hotspot: the fingertip, found from the glyph's own coverage rather than a guessed fraction
+        // of its bounding box — the top-most painted row, centred across that row.
+        let tip = topmostInkPoint(cg) ?? CGPoint(x: gw * 0.3, y: 0)
+        let hotspot = CGPoint(x: pad + tip.x, y: pad + tip.y)
+        guard let image = ctx.makeImage() else { return makeCursorImage(scale: scale) }
+        return (CIImage(cgImage: image), hotspot)
+    }
+
+    /// Re-colours a template glyph, keeping its alpha. `sourceIn` paints the fill only where the
+    /// glyph already has coverage, so the vector edges survive.
+    private func tintedGlyph(_ cg: CGImage, _ color: CGColor) -> CGImage? {
+        let rect = CGRect(x: 0, y: 0, width: cg.width, height: cg.height)
+        guard let ctx = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.clear(rect)
+        ctx.draw(cg, in: rect)
+        ctx.setBlendMode(.sourceIn)
+        ctx.setFillColor(color)
+        ctx.fill(rect)
+        return ctx.makeImage()
+    }
+
+    /// The top-most painted point of a glyph, in top-left pixel coordinates: the highest row with
+    /// any real coverage, and the middle of the covered span on that row. For a pointing hand that
+    /// is the fingertip.
+    private func topmostInkPoint(_ cg: CGImage) -> CGPoint? {
+        let w = cg.width, h = cg.height
+        guard w > 0, h > 0 else { return nil }
+        let bytesPerRow = w * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * h)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { buf -> Bool in
+            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8,
+                                      bytesPerRow: bytesPerRow, space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return nil }
+        // Row 0 of a bitmap context is the image's top row.
+        for row in 0..<h {
+            var first = -1, last = -1
+            for col in 0..<w where pixels[row * bytesPerRow + col * 4 + 3] > 60 {
+                if first < 0 { first = col }
+                last = col
+            }
+            if first >= 0 {
+                return CGPoint(x: CGFloat(first + last) / 2 + 0.5, y: CGFloat(row) + 0.5)
+            }
+        }
+        return nil
+    }
+
+    /// A text bar (I-beam), for editable fields. The hotspot is its centre, as on the system cursor.
+    private func makeIBeamCursorImage(scale: CGFloat) -> (image: CIImage, hotspot: CGPoint) {
+        let k = 22 * scale / 22.0
+        let lineWidth = 1.3 * k
+        let pad = ceil(lineWidth)
+        let w = Int(ceil(9 * k + pad * 2)), h = Int(ceil(22 * k + pad * 2))
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                             space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
-        // Draw in top-left coordinates (flip vertically).
-        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.translateBy(x: pad, y: CGFloat(h) - pad)
         ctx.scaleBy(x: 1, y: -1)
+
+        // Drawn white-filled with a dark outline, like the arrow, so it stays visible on any
+        // background — a plain black bar disappears over dark UI.
+        let stem = 1.6 * k
+        let serif = 8.0 * k
+        let path = CGMutablePath()
+        path.addRect(CGRect(x: (9 * k - stem) / 2, y: 1.6 * k, width: stem, height: 18.8 * k))
+        path.addRect(CGRect(x: (9 * k - serif) / 2, y: 0, width: serif, height: 1.8 * k))
+        path.addRect(CGRect(x: (9 * k - serif) / 2, y: 20.2 * k, width: serif, height: 1.8 * k))
+        ctx.addPath(path); ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1)); ctx.fillPath()
+        ctx.addPath(path); ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
+        ctx.setLineWidth(lineWidth); ctx.setLineJoin(.miter); ctx.strokePath()
+
+        return (CIImage(cgImage: ctx.makeImage()!), CGPoint(x: pad + 4.5 * k, y: pad + 11 * k))
+    }
+
+    /// A clean, enlarged arrow cursor drawn with CoreGraphics.
+    ///
+    /// Returns the image and the **hotspot**: where the arrow's tip sits, measured from the image's
+    /// top-left. The canvas is padded, because the outline is stroked *centred on the path* and the
+    /// path starts at the tip — without padding, half the stroke falls outside the bitmap and the
+    /// cursor renders visibly clipped down its left edge and across its top. The padding shifts the
+    /// tip inwards, so the caller must position by the hotspot rather than the corner.
+    private func makeCursorImage(scale: CGFloat) -> (image: CIImage, hotspot: CGPoint) {
+        let s: CGFloat = 22 * scale
         let k = s / 22.0
+        let lineWidth = 1.4 * k
+        let pad = ceil(lineWidth)                     // room for the outline on the tip side
+        let w = Int(ceil(s * 0.7 + pad * 2)), h = Int(ceil(s + pad * 2))
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        // Draw in top-left coordinates (flip vertically), inset by the padding.
+        ctx.translateBy(x: pad, y: CGFloat(h) - pad)
+        ctx.scaleBy(x: 1, y: -1)
         let pts: [CGPoint] = [
             (0, 0), (0, 16), (3.5, 12.5), (6.2, 18.5), (8.4, 17.6), (5.8, 11.8), (11, 11.2)
         ].map { CGPoint(x: $0.0 * k, y: $0.1 * k) }
@@ -611,8 +762,8 @@ final class VideoRenderer {
         path.closeSubpath()
         ctx.addPath(path); ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1)); ctx.fillPath()
         ctx.addPath(path); ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
-        ctx.setLineWidth(1.4 * k); ctx.setLineJoin(.round); ctx.strokePath()
-        return CIImage(cgImage: ctx.makeImage()!)
+        ctx.setLineWidth(lineWidth); ctx.setLineJoin(.round); ctx.strokePath()
+        return (CIImage(cgImage: ctx.makeImage()!), CGPoint(x: pad, y: pad))
     }
 
     /// Composites the logo watermark at a fixed, normalized position and size.
