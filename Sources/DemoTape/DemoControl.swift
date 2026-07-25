@@ -45,6 +45,30 @@ enum DemoControl {
         /// almost always glide. The animation runs inside the app (one URL per move) because
         /// issuing a URL per intermediate point would stutter at ~150ms of shell overhead each.
         case cursor(x: Double, y: Double, click: Bool, glideMs: Int = 0)
+        /// Type text as REAL OS keystrokes, from the running app (which holds the Accessibility
+        /// grant). This matters for more than fidelity: auto-zoom is driven by clicks *and keys*, so
+        /// keystrokes the app can't observe leave the camera wide while the user types. A browser
+        /// automation tool's synthetic typing is invisible to our global event monitor, so the text
+        /// appeared with no zoom held on the field. Typing through the app records real KeySamples,
+        /// which hold the zoom exactly as they do when a human types.
+        /// `cps` is characters per second (0 = a sensible human default).
+        ///
+        /// `expectedApp` is a REQUIRED-in-practice safety catch: synthetic keystrokes go to whichever
+        /// window holds system focus, not to any window the caller has a handle on. If focus has
+        /// moved, the text lands in the user's editor or terminal — which can be destructive, and is
+        /// invisible to the caller because the keys still get recorded. When set, the app refuses to
+        /// type unless that application is frontmost.
+        case type(text: String, cps: Double, expectedApp: String?)
+        /// Record typing activity WITHOUT posting keystrokes, so the auto-zoom holds on the focused
+        /// field while some other tool types the visible text.
+        ///
+        /// This exists because browsers reject synthetic key events that carry no virtual keycode:
+        /// posting real keystrokes at a Chromium window types nothing, and if another window is
+        /// frontmost it types there instead. So a browser-driven demo must let the automation tool
+        /// enter the text — and then nothing tells DemoTape that typing is happening, leaving the
+        /// camera to drift off the field mid-sentence. `chars` is how many characters are being
+        /// typed and `cps` the rate, which together reproduce the same zoom hold real typing gives.
+        case typingActivity(chars: Int, cps: Double)
         /// Open one of DemoTape's own windows. This exists so a walkthrough *of DemoTape itself*
         /// can be scripted: an orchestrator can't reliably click menu rows (their screen rects
         /// aren't discoverable from outside), but it can ask the app to show a window directly.
@@ -88,6 +112,16 @@ enum DemoControl {
         }
         func dbl(_ k: String) -> Double? { q[k].flatMap(Double.init) }
 
+        if tokens.contains("typing") {
+            // demotape://typing?chars=42&cps=14  — activity only, nothing is posted.
+            guard let chars = dbl("chars"), chars > 0 else { return nil }
+            return .typingActivity(chars: Int(chars), cps: max(0, dbl("cps") ?? 0))
+        }
+        if tokens.contains("type") {
+            // demotape://type?text=hello%20world&cps=14&app=Chromium
+            guard let text = q["text"], !text.isEmpty else { return nil }
+            return .type(text: text, cps: max(0, dbl("cps") ?? 0), expectedApp: q["app"])
+        }
         if tokens.contains("cursor") {
             guard let x = dbl("x"), let y = dbl("y") else { return nil }
             // demotape://cursor/glide?x=&y=&ms=420  (ms also accepted as `glide`)

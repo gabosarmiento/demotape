@@ -166,6 +166,14 @@ final class RecordingEngine {
         onStateChange?(true)
     }
 
+    /// Records typing activity for text an automation tool types through the app being demoed
+    /// (rather than as OS keystrokes), so the auto-zoom holds on the focused field. No-op unless a
+    /// recording is in progress. See `EventRecorder.recordTypingActivity`.
+    func noteTypingActivity(characters: Int, charsPerSecond: Double) {
+        guard isRecording else { return }
+        eventRecorder.recordTypingActivity(characters: characters, charsPerSecond: charsPerSecond)
+    }
+
     func stop() async -> URL? {
         guard isRecording, let output = movieOutput, let session = session else {
             Log.write("stop(): not recording")

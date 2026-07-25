@@ -212,3 +212,83 @@ extension DemoControlTests {
         XCTAssertEqual(DemoControl.parse(url), .openUI(.menu, holdMs: 0))
     }
 }
+
+/// Real OS typing. Auto-zoom is driven by clicks AND keys, so typing the app can't observe leaves
+/// the camera wide while text appears.
+extension DemoControlTests {
+
+    func testParseTypeText() {
+        let url = URL(string: "demotape://type?text=hello%20world")!
+        XCTAssertEqual(DemoControl.parse(url), .type(text: "hello world", cps: 0, expectedApp: nil))
+    }
+
+    func testParseTypeWithRate() {
+        let url = URL(string: "demotape://type?text=abc&cps=12.5")!
+        XCTAssertEqual(DemoControl.parse(url), .type(text: "abc", cps: 12.5, expectedApp: nil))
+    }
+
+    func testParseTypeDecodesPlusAsSpace() {
+        let url = URL(string: "demotape://type?text=roll+it+back")!
+        XCTAssertEqual(DemoControl.parse(url), .type(text: "roll it back", cps: 0, expectedApp: nil))
+    }
+
+    func testParseTypeRequiresText() {
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://type?cps=10")!))
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://type?text=")!))
+    }
+
+    func testParseTypeClampsNegativeRate() {
+        let url = URL(string: "demotape://type?text=abc&cps=-5")!
+        XCTAssertEqual(DemoControl.parse(url), .type(text: "abc", cps: 0, expectedApp: nil))
+    }
+}
+
+/// Typing ACTIVITY — records the zoom hold without posting keystrokes, for text a browser
+/// automation tool types itself (browsers drop synthetic keys that carry no virtual keycode).
+extension DemoControlTests {
+
+    func testParseTypingActivity() {
+        let url = URL(string: "demotape://typing?chars=42&cps=14")!
+        XCTAssertEqual(DemoControl.parse(url), .typingActivity(chars: 42, cps: 14))
+    }
+
+    func testTypingActivityRateIsOptional() {
+        let url = URL(string: "demotape://typing?chars=8")!
+        XCTAssertEqual(DemoControl.parse(url), .typingActivity(chars: 8, cps: 0))
+    }
+
+    func testTypingActivityRequiresPositiveCount() {
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://typing?chars=0")!))
+        XCTAssertNil(DemoControl.parse(URL(string: "demotape://typing?cps=14")!))
+    }
+
+    /// `typing` (activity) and `type` (real keystrokes) must stay distinct commands.
+    func testTypingActivityIsNotConfusedWithRealTyping() {
+        XCTAssertEqual(DemoControl.parse(URL(string: "demotape://type?text=hi")!),
+                       .type(text: "hi", cps: 0, expectedApp: nil))
+        XCTAssertEqual(DemoControl.parse(URL(string: "demotape://typing?chars=2")!),
+                       .typingActivity(chars: 2, cps: 0))
+    }
+}
+
+/// The `app=` guard on real OS typing. Keystrokes follow SYSTEM focus, so a caller must be able to
+/// say which app it expects to be frontmost — otherwise a mis-timed command types into the user's
+/// editor, destructively and silently.
+extension DemoControlTests {
+
+    func testTypeCarriesExpectedApp() {
+        let url = URL(string: "demotape://type?text=hi&app=Chromium")!
+        XCTAssertEqual(DemoControl.parse(url), .type(text: "hi", cps: 0, expectedApp: "Chromium"))
+    }
+
+    func testExpectedAppSurvivesPlusDecoding() {
+        let url = URL(string: "demotape://type?text=hi&app=Google+Chrome")!
+        XCTAssertEqual(DemoControl.parse(url),
+                       .type(text: "hi", cps: 0, expectedApp: "Google Chrome"))
+    }
+
+    func testExpectedAppIsOptional() {
+        let url = URL(string: "demotape://type?text=hi")!
+        XCTAssertEqual(DemoControl.parse(url), .type(text: "hi", cps: 0, expectedApp: nil))
+    }
+}

@@ -256,22 +256,16 @@ final class Captions {
         body.append("--\(boundary)--\r\n")
         req.httpBody = body
 
-        var respData: Data?
-        var respError: Error?
-        var http: HTTPURLResponse?
-        let sema = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: req) { data, resp, err in
-            respData = data; respError = err; http = resp as? HTTPURLResponse; sema.signal()
-        }.resume()
-        sema.wait()
-
-        if let respError { throw CaptionsError.network(respError.localizedDescription) }
-        guard let http else { throw CaptionsError.network("no response") }
+        // Retries 429/5xx — see HTTPRetry. Transcription is a single call, but it's the one users hit
+        // right after a render, when a provider may still be throttling the verification calls.
+        let data: Data
+        let http: HTTPURLResponse
+        do { (data, http) = try HTTPRetry.send(req, label: "transcribe") }
+        catch { throw CaptionsError.network(error.localizedDescription) }
         guard (200..<300).contains(http.statusCode) else {
-            let msg = respData.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
+            let msg = String(data: data, encoding: .utf8) ?? "no body"
             throw CaptionsError.api("HTTP \(http.statusCode): \(msg.prefix(500))")
         }
-        guard let data = respData else { throw CaptionsError.decode("empty body") }
         return try Self.parseCues(fromVerboseJSON: data)
     }
 

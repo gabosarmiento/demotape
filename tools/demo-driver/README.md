@@ -62,11 +62,29 @@ node driver.mjs my-demo.json          # your own config
 Supported actions: `goto`, `wait`, `click`, `fill`/`type`, `press`, `hover`, `scroll`, `waitFor`,
 `narrate` (a no-op marker).
 
-## Pointing it at kiff-cloud
+## Pointing it at your own app
 
-Run the dashboard locally (or use a deployed URL), set `url` to it, and script the steps you want
-shown (sign in → Studio → author a domain → open a receipt). Put the narration in `narration.txt`.
-That's the "idea → script → finished demo" loop end to end.
+Copy `demo.example.json`, set `url` to your app (local or deployed), and script the steps you want
+shown — the flow a new user would be walked through, ending on the thing that proves it worked. Give
+each scene the line you'd say out loud while it happens. That's the "idea → script → finished demo"
+loop end to end.
+
+Name your own configs `demo-<something>.local.json`: that pattern is gitignored, because a real config
+carries your hosts, routes, selectors and page copy, and this repo is public.
+
+If your app is behind a login, sign in once into a reusable profile instead of typing credentials on
+camera:
+
+```bash
+node driver.mjs signin https://app.example.com/home --profile .profiles/myapp
+# then in the config:  "userDataDir": ".profiles/myapp"
+```
+
+Rehearse before you record — it runs every step and assertion headlessly in seconds:
+
+```bash
+node driver.mjs demo-myapp.local.json --rehearse
+```
 
 > Note: narration is laid over the whole clip, not word-synced to each click. Pace the steps
 > (`stepPauseMs` / per-step `pauseMs` / `wait`) so the visuals roughly track the narration.

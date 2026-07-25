@@ -116,12 +116,55 @@ way:
   - Cursor moves are animated (eased, slightly arced, with a small overshoot) over `moveMs`
     (default 520). The travel is what carries the viewer's eye between two points, so don't set it
     to zero — a teleporting pointer reads as a robot.
+  - **Click the element the line is about**, and nothing else. The zoom lands where you click, so
+    clicking a page heading frames the top of the page and tells the viewer nothing. Click the runtime
+    row, the metric tile, the receipt link — whatever the sentence names.
+
+### Typing (`type` vs `fill`)
+
+`type` types character by character; `fill` pastes instantly. Use `type` for anything the story is
+about — a prompt that materialises in one frame reads as a script pasting text, and progressive typing
+gives the viewer time to read it before the answer arrives. Keep `fill` for setup fields nobody
+watches (a sign-in box, a long YAML blob).
+
+Two things are handled for you, and both are worth knowing because they were bugs:
+
+- **The zoom holds while typing.** DemoTape's zoom is driven by clicks *and keys*. Browsers discard
+  synthetic key events with no virtual keycode, so the visible text must come from the browser — and
+  then no keystroke exists for DemoTape to see, and the camera drifts off the field mid-sentence. The
+  driver reports the activity via `demotape://typing`, reproducing a human's zoom hold.
+- **Aim near the left of the field** (`aimX`, default 0.06). The zoom anchors on the click, so
+  clicking the middle of a wide input frames an empty box and the sentence grows off the left edge.
+
+Assert typed text with `expect: { value: { selector, is } }` — `text=` matches rendered text and
+cannot see an input's value.
 
 ## 5. Rehearse headlessly
 
-Before recording, run the exact steps + assertions in a headless browser (no DemoTape recording).
-This validates selectors, expansions, inputs, and the success signal in seconds. Only record once
-the rehearsal passes. If the app is **stateful** (creating something that then exists), reset it
+**One command:** `node driver.mjs <config> --rehearse`. It runs every step and assertion in a
+headless browser with no recording, no narration and no vision check, and exits non-zero if anything
+fails — so it gates the take. This validates selectors, expansions, inputs, and the success signal in
+seconds. Only record once the rehearsal passes.
+
+Do not hand-write probe scripts for this. If something can't be checked, the gap belongs in the
+driver, not in a throwaway file.
+
+### Demos of apps behind a login
+
+Sign in once into a reusable browser profile, then point the config at it:
+
+```bash
+node driver.mjs signin <url> --profile .profiles/myapp [--email … --password …]
+```
+
+```jsonc
+"userDataDir": ".profiles/myapp",              // resolved relative to the CONFIG file
+"prewarmUrls": ["https://app.example.com/home"] // warm the auth handshake OFF camera
+```
+
+Never type credentials on camera, and never automate a hosted login mid-take. Sessions expire: when a
+prewarm logs `settled at … /sign-in`, re-run `signin`. Prewarming matters because hosted auth bounces
+through a redirect on first navigation — without it the take records a login screen. If the app is **stateful** (creating something that then exists), reset it
 between rehearsal and the real take (restart the in-memory backend) so the demo starts from a clean
 state — otherwise the second run sees a different UI.
 
@@ -135,6 +178,18 @@ region, lays each line at its scene's moment, renders, then verifies:
 On failure it retries (bounded) or, for stateful demos (`maxAttempts: 1`), fails loudly with a
 report rather than retrying into a polluted state. It writes `demo-report.json` beside the video and
 only presents a demo that passed.
+
+**Three outcomes, not two.** Verification is one vision call per scene, so a provider can rate-limit
+it (429). That means the gate *could not run* — which is not the same as the demo being wrong:
+
+| Outcome | Exit | What it means |
+|---|---|---|
+| verified | 0 | assertions and vision both passed |
+| unverified | 2 | something genuinely contradicts the script — fix it |
+| inconclusive | 3 | assertions passed, the gate never ran (e.g. 429) — review by hand |
+
+Never re-record over an inconclusive result: it costs a take and a paid re-synthesis and cannot fix
+anything. Rate limits are retried with backoff and the calls are paced (`DEMOTAPE_VERIFY_GAP_MS`).
 
 ## 8. Hand back
 

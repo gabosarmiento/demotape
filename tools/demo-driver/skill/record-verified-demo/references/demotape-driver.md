@@ -115,7 +115,8 @@ arced, with a small overshoot on long trips.
 ## Run
 
 ```bash
-node driver.mjs demo-kiff.json          # record + voice + verify; writes demo-report.json
+node driver.mjs demo-myapp.local.json    # record + voice + verify; writes demo-report.json
+node driver.mjs demo-myapp.local.json --rehearse   # steps + assertions only, headless, seconds
 ```
 
 Progress logs to `driver.log`. It opens the final `…voiceover.mp4` and exits non-zero if unverified.

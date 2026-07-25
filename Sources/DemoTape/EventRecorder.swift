@@ -184,6 +184,36 @@ final class EventRecorder {
         lock.unlock()
     }
 
+    /// Records typing activity that DemoTape can't observe as real key events.
+    ///
+    /// Needed because an automated demo often types through the browser rather than the OS: Chromium
+    /// discards synthetic key events that carry no virtual keycode, so posting real keystrokes would
+    /// type into whatever window happens to be frontmost (or nowhere) while the field stays empty.
+    /// The visible text therefore has to come from the automation tool — but then no `KeySample`
+    /// exists, and `FocusTimeline` only holds the camera on the focused field *while keys are
+    /// arriving*. Without this the zoom snaps in on the click, then drifts off mid-sentence.
+    ///
+    /// This records the activity only: one sample per character, timestamped on the recorder's own
+    /// clock, with no system events posted. The anchor still comes from the preceding real click, so
+    /// the camera holds exactly where a human's would.
+    func recordTypingActivity(characters: Int, charsPerSecond: Double) {
+        guard characters > 0 else { return }
+        let rate = max(1.0, charsPerSecond)
+        let interval = 1.0 / rate
+        for i in 0..<characters {
+            let delay = Double(i) * interval
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self else { return }
+                let t = ProcessInfo.processInfo.systemUptime - self.startUptime
+                self.lock.lock()
+                // keyCode -1 marks a synthetic marker: it drives the zoom hold, and because it
+                // carries no modifiers it can never render a shortcut badge.
+                self.keys.append(KeySample(t: t, keyCode: -1, chars: "", modifiers: []))
+                self.lock.unlock()
+            }
+        }
+    }
+
     private func recordKey(_ event: NSEvent) {
         let t = ProcessInfo.processInfo.systemUptime - startUptime
         var mods: [String] = []

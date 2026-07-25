@@ -165,19 +165,11 @@ final class AIBriefBuilder {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        var respData: Data?, respErr: Error?, http: HTTPURLResponse?
-        let sema = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: req) { d, r, e in
-            respData = d; respErr = e; http = r as? HTTPURLResponse; sema.signal()
-        }.resume()
-        sema.wait()
-
-        if let respErr = respErr { throw AIBrief.BriefError.network(respErr.localizedDescription) }
-        guard let http = http else { throw AIBrief.BriefError.network("no response") }
+        // Retries 429/5xx — see HTTPRetry. Rate limits are a "come back shortly", not a failure.
+        let (data, http) = try HTTPRetry.send(req, label: "AI brief")
         guard (200..<300).contains(http.statusCode) else {
-            throw AIBrief.BriefError.api("HTTP \(http.statusCode): \((respData.flatMap { String(data: $0, encoding: .utf8) } ?? "").prefix(300))")
+            throw AIBrief.BriefError.api("HTTP \(http.statusCode): \((String(data: data, encoding: .utf8) ?? "").prefix(300))")
         }
-        guard let data = respData else { throw AIBrief.BriefError.decode("empty body") }
         struct ChatResp: Decodable {
             struct Choice: Decodable { struct Msg: Decodable { let content: String }; let message: Msg }
             let choices: [Choice]

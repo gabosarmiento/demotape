@@ -41,7 +41,7 @@ DEMOTAPE_TTS_PROVIDER=OpenAI-compatible \
 DEMOTAPE_TTS_BASEURL=http://localhost:8880/v1 \
 DEMOTAPE_TTS_MODEL=kokoro \
 DEMOTAPE_TTS_VOICE=af_bella \
-  node tools/demo-driver/driver.mjs tools/demo-driver/demo-kiff-aiready.json
+  node tools/demo-driver/driver.mjs tools/demo-driver/demo.example.json
 ```
 
 Also works with **LocalAI** and **openedai-speech** — same contract, different port; just change the

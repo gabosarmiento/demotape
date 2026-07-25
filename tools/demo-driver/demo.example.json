@@ -1,26 +1,59 @@
 {
-  "//": "Scene-synced, self-verifying demo. Each scene: `say` (spoken while it plays), `steps` (Playwright actions), and `expect` (the post-condition that proves the action worked — asserted at record time). After rendering, a vision model also checks each frame matches its line. On any failure the driver retries.",
+  "//": "Scene-synced, self-verifying demo of ANY app. Each scene has `say` (spoken while it plays), `steps` (browser actions), and `expect` (the post-condition that proves the action worked — asserted at record time, so a failed click can't produce a lying video). After rendering, a vision model checks each frame against its line. Rehearse first: `node driver.mjs <config> --rehearse` runs every step and assertion headlessly in seconds.",
+
   "url": "https://playwright.dev/",
+
+  "//capture": "fullScreen records the whole display. Prefer it when the demo switches tabs or shows the menu bar; a cropped rectangle frames a slice of whatever desktop is behind the window, which reads as an accident. `viewport` still positions/sizes the browser window either way.",
+  "fullScreen": false,
   "viewport": { "x": 120, "y": 90, "width": 1280, "height": 800 },
+
+  "//auth": "For an app behind a login: sign in ONCE into a reusable profile, then point userDataDir at it, so no credentials are typed on camera and no hosted login page has to be automated mid-take. Sessions expire — re-run signin when a prewarm lands on a login page.  node driver.mjs signin <url> --profile .profiles/myapp [--email … --password …]",
+  "userDataDir": null,
+
+  "//prewarm": "URLs visited BEFORE recording starts. Hosted auth redirects and cold pages paint late, and on camera that looks like a sign-in screen or a blank flash. Warming them off-camera means the scene that shows a page gets it already loaded and authenticated.",
+  "prewarmUrls": [],
+
+  "//input": "osClick and osType send input through the RUNNING DemoTape app, which holds the Accessibility grant. This is what makes the auto-zoom work: DemoTape zooms on real clicks and holds on the focused field while keys arrive. Browser-level input is invisible to it, so with these off you get a technically-correct video that never zooms. Leave them on.",
+  "osClick": true,
+  "osType": true,
+
+  "//motion": "moveMs is how long the cursor takes to travel (eased, slightly arced, with a small overshoot). The travel is what carries the viewer's eye between two points, so don't set it to zero. typeMs is the mean ms per character for `type` steps.",
+  "moveMs": 520,
+  "typeMs": 55,
+
   "stepPauseMs": 900,
+  "//actionLeadFraction": "How far into a spoken line its click/typing fires, so the words land on the action instead of trailing it.",
+  "actionLeadFraction": 0.7,
+  "tailMs": 1600,
+
+  "//voice": "ElevenLabs voice id; \"\" uses the default. List them with: DemoTape --voices. To change the voice later WITHOUT re-recording: node driver.mjs revoice <recording-folder> <voiceId>",
   "voiceId": "",
-  "showCursor": true,
-  "osClick": false,
+
   "maxAttempts": 2,
   "verify": true,
+
   "scenes": [
     {
       "say": "Okay, let me show you around real quick. This is the Playwright site.",
       "steps": [ { "action": "wait", "ms": 1500 } ]
     },
     {
+      "//": "Click the exact element the line is about: DemoTape zooms where you click, so clicking a page heading puts the zoom on the top of the page and tells the viewer nothing.",
       "say": "First thing I'll do is jump into the docs, so I'll click Get started up here.",
       "steps": [ { "action": "click", "selector": "text=Get started" } ],
       "expect": { "urlContains": "/docs", "visible": "text=Installation" }
     },
     {
-      "say": "And now let me scroll down a bit, so you can see how the guide is laid out. Pretty clean, right?",
-      "steps": [ { "action": "scroll", "y": 700 }, { "action": "wait", "ms": 600 }, { "action": "scroll", "y": 500 } ]
+      "//": "`type` types character by character like a person; `fill` pastes instantly (use it for setup fields nobody watches). `aimX` is where in the field to click — near the left, where the caret and first word are, so the sentence grows INTO frame rather than off its left edge.",
+      "say": "Let me search the docs for locators.",
+      "steps": [
+        { "action": "type", "selector": "input[type=search], .DocSearch-Input", "text": "locators", "aimX": 0.06 }
+      ],
+      "expect": { "value": { "selector": "input[type=search], .DocSearch-Input", "is": "locators" } }
+    },
+    {
+      "say": "And now let me scroll down a bit, so you can see how the guide is laid out.",
+      "steps": [ { "action": "scroll", "y": 700 }, { "action": "wait", "ms": 600 } ]
     },
     {
       "say": "And that's the quick tour. You point, you click, you read — and you're up and running.",

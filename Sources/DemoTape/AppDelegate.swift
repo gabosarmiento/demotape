@@ -543,6 +543,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cursorQueue.async { [weak self] in
                 self?.performControlCursor(x: x, y: y, click: click, glideMs: glideMs)
             }
+        case .type(let text, let cps, let expectedApp):
+            // Serialised with cursor work so a click-then-type sequence can't interleave.
+            cursorQueue.async { [weak self] in
+                self?.performControlTyping(text: text, cps: cps, expectedApp: expectedApp)
+            }
+        case .typingActivity(let chars, let cps):
+            Log.write("control: typing activity \(chars) chars (zoom hold only)")
+            engine.noteTypingActivity(characters: chars, charsPerSecond: cps > 0 ? cps : 14)
         case .openUI(let window, let holdMs):
             openControlWindow(window, holdMs: holdMs)
         case .dumpUI(let app):
@@ -674,6 +682,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp,
                             mouseCursorPosition: pt, mouseButton: .left) {
             up.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Types text as real OS keystrokes into whatever is focused.
+    ///
+    /// Two reasons this lives in the app rather than in the driver. Posting key events needs the
+    /// Accessibility grant, which the installed app has and a shell-launched tool does not. And
+    /// auto-zoom is driven by clicks *and keys* (`FocusTimeline`), so keystrokes our own global
+    /// monitor can't see leave the camera wide open while text appears — which is exactly what
+    /// happened with browser-level synthetic typing.
+    ///
+    /// Rhythm is deliberately uneven, for the same reason the cursor glides rather than warps: a
+    /// metronome reads as a machine. Sentence punctuation gets a longer beat than letters.
+    private func performControlTyping(text: String, cps: Double, expectedApp: String?) {
+        // Refuse to type unless the caller's expected app is frontmost. Keystrokes follow system
+        // focus, so without this check a mis-timed command types into whatever the user is actually
+        // using — an editor, a terminal — which is both destructive and silent, because the keys are
+        // still recorded as if it worked.
+        if let expected = expectedApp?.trimmingCharacters(in: .whitespaces), !expected.isEmpty {
+            let front = NSWorkspace.shared.frontmostApplication
+            let name = front?.localizedName ?? ""
+            let bundle = front?.bundleIdentifier ?? ""
+            let matches = name.localizedCaseInsensitiveContains(expected)
+                || bundle.localizedCaseInsensitiveContains(expected)
+            guard matches else {
+                Log.write("control: REFUSED typing — expected '\(expected)' frontmost, but '\(name)' is. "
+                          + "Nothing was typed.")
+                return
+            }
+        }
+        let perChar = 1.0 / max(4.0, cps > 0 ? cps : 14.0)   // default ≈14 chars/s
+        let source = CGEventSource(stateID: .hidSystemState)
+        Log.write("control: typing \(text.count) chars at \(String(format: "%.1f", 1 / perChar))/s")
+        for ch in text {
+            guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            else { continue }
+            var utf16 = Array(String(ch).utf16)
+            down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+            up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
+            down.post(tap: .cghidEventTap)
+            up.post(tap: .cghidEventTap)
+
+            var delay = perChar * Double.random(in: 0.6...1.5)
+            if ".?!".contains(ch) { delay += perChar * 6 }
+            else if ",;:".contains(ch) { delay += perChar * 3 }
+            else if ch == " " && Double.random(in: 0...1) < 0.08 { delay += perChar * 4 }
+            Thread.sleep(forTimeInterval: delay)
         }
     }
 

@@ -1,0 +1,29 @@
+{
+  "//": "Self-contained check that typing looks and records correctly — no app, no network, no account. It loads an inline page with a single input, types into it, and asserts the field really received the text. Run it after changing anything about input handling.",
+
+  "//why": "Two things must hold in the recording. The text must appear character by character (not materialise in one frame), and DemoTape's zoom must HOLD on the field for the whole sentence. The zoom is driven by clicks and keys, so the driver clicks near the left of the field (where the caret is) and reports typing activity while the browser enters the text. Afterwards, check the recording's .source/*.events.json: `clicks` should be 1 and `keys` should be roughly the character count.",
+
+  "url": "data:text/html,<html><body style='font:16px -apple-system;background:%23f6f7f9;padding:80px'><h1 style='font-size:20px'>Typing probe</h1><p style='color:%236b7280'>The field below should fill in character by character, with the camera held on it.</p><input id='input' style='width:640px;padding:14px 16px;font-size:16px;border:1px solid %23d7dae0;border-radius:8px' placeholder='Type here…'></body></html>",
+
+  "fullScreen": true,
+  "viewport": { "x": 60, "y": 60, "width": 1340, "height": 840 },
+
+  "osClick": true,
+  "osType": true,
+  "moveMs": 520,
+  "typeMs": 70,
+  "verify": false,
+  "maxAttempts": 1,
+
+  "scenes": [
+    {
+      "say": "Checking that the typing lands in the field, and that the camera stays on it.",
+      "steps": [
+        { "action": "waitFor", "selector": "#input" },
+        { "action": "type", "selector": "#input", "text": "the quick brown fox jumps over the lazy dog" },
+        { "action": "wait", "ms": 1500 }
+      ],
+      "expect": { "value": { "selector": "#input", "is": "the quick brown fox jumps over the lazy dog" } }
+    }
+  ]
+}

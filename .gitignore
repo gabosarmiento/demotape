@@ -38,6 +38,22 @@ tools/demo-driver/driver.log
 # so committing the copy would just create a second one that drifts.
 .kiro/
 
+# Browser profiles used to record demos of authenticated apps. Signing in once leaves a
+# live session here, so these hold real credentials/cookies — never commit them.
+tools/demo-driver/.profiles/
+
+# Someone's own demo configs and probes. These name real hosts, tenants, routes, selectors and page
+# copy from the app being demoed — that's the author's product, not this tool's business, and this
+# repo is public. Keep them local; demo.example.json is the reference to copy.
+tools/demo-driver/demo-*.local.json
+tools/demo-driver/*-probe.mjs
+tools/demo-driver/probe.mjs
+
 # Python bytecode from the local TTS shim
 __pycache__/
 *.pyc
+
+# Scratch files used to compose commit/PR bodies (heredocs hang the shell, so these are written
+# to disk first and deleted after).
+.git-commit-msg.tmp
+.gh-notes.tmp

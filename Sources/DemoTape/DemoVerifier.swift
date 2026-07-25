@@ -62,7 +62,19 @@ enum DemoVerifier {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         var results: [Result] = []
+        // Pace the calls. Verification is one vision request PER SCENE, and firing them as fast as
+        // this loop runs is what trips a hosted provider's requests-per-minute limit — an eleven-scene
+        // demo becomes eleven requests in ~20s, on top of whatever a previous run just spent. Nothing
+        // here is latency-sensitive (no user is waiting on scene 7 specifically), so a small gap
+        // between calls avoids the 429 rather than merely recovering from it.
+        //
+        // Override with DEMOTAPE_VERIFY_GAP_MS=0 on a high-tier key, or raise it on a strict one.
+        let gap = (ProcessInfo.processInfo.environment["DEMOTAPE_VERIFY_GAP_MS"]
+                    .flatMap { Double($0) } ?? 1200) / 1000.0
+        var first = true
         for scene in scenes {
+            if !first && gap > 0 { Thread.sleep(forTimeInterval: gap) }
+            first = false
             // `at` is the exact moment to photograph (the caller passes the scene's settled state,
             // after its action has resolved — narration leads the action, so this is near scene end).
             let t = scene.at
@@ -101,13 +113,12 @@ enum DemoVerifier {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        var respData: Data?, respErr: Error?, http: HTTPURLResponse?
-        let sema = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: req) { d, r, e in respData = d; respErr = e; http = r as? HTTPURLResponse; sema.signal() }.resume()
-        sema.wait()
-        if let respErr = respErr { throw AIBrief.BriefError.network(respErr.localizedDescription) }
-        guard let http = http, (200..<300).contains(http.statusCode), let data = respData else {
-            throw AIBrief.BriefError.api("HTTP \(http?.statusCode ?? -1)")
+        // Retries 429/5xx: verification is one call PER SCENE, so a multi-scene demo reliably trips
+        // hosted rate limits. Without this a good take was reported "unverified" purely because the
+        // provider asked us to slow down.
+        let (data, http) = try HTTPRetry.send(req, label: "verify scene")
+        guard (200..<300).contains(http.statusCode) else {
+            throw AIBrief.BriefError.api("HTTP \(http.statusCode)")
         }
         struct ChatResp: Decodable { struct Choice: Decodable { struct Msg: Decodable { let content: String }; let message: Msg }; let choices: [Choice] }
         guard let decoded = try? JSONDecoder().decode(ChatResp.self, from: data),

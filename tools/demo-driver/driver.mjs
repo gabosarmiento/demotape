@@ -52,6 +52,13 @@ function loadConfig() {
   // How long the cursor takes to travel to a target (eased + arced inside the app). Long enough to
   // read as a hand, short enough not to stall the narration.
   cfg.moveMs = cfg.moveMs ?? 520;
+  // Mean ms per character for `type` steps. ~55ms is a brisk but human ~55 wpm; raise it to make the
+  // typing more deliberate, lower it if a long prompt is eating the scene's time budget.
+  cfg.typeMs = cfg.typeMs ?? 55;
+  // Real OS keystrokes by DEFAULT (opt out with "osType": false, or per-step "browserType": true).
+  // Same reasoning as osClick: DemoTape's auto-zoom is driven by clicks and keys, so typing it can't
+  // observe leaves the camera wide while the text appears.
+  cfg.osType = cfg.osType !== false;
   cfg.actionLeadFraction = cfg.actionLeadFraction ?? 0.7;
   cfg.tailMs = cfg.tailMs ?? 1600;   // extra recording after the last line so it's never clipped
   cfg.maxAttempts = cfg.maxAttempts ?? 2;
@@ -59,6 +66,11 @@ function loadConfig() {
   cfg.demotapeBin = cfg.demotapeBin
     ? resolve(cfg.demotapeBin)
     : resolve(__dirname, "..", "..", ".build", "release", "DemoTape");
+  // Resolve profile paths against the CONFIG's directory, not the shell's working directory.
+  // Resolving against the CWD silently creates a NEW empty profile when the driver is run from
+  // somewhere else — which looks exactly like an expired session: the prewarm lands on the login
+  // page and the take records a sign-in screen instead of the app.
+  if (cfg.userDataDir) cfg.userDataDir = resolve(dirname(path), cfg.userDataDir);
   if (!Array.isArray(cfg.scenes) || cfg.scenes.length === 0) {
     const say = cfg.narration || (cfg.narrationFile ? readFileSync(resolve(cfg.narrationFile), "utf8") : "");
     cfg.scenes = [{ say, steps: cfg.steps || [] }];
@@ -103,15 +115,29 @@ function osCursor(cfg, action, x, y, ms) {
   catch (e) { log("cursor failed:", e.message); }
 }
 
-async function elementScreenCenter(page, selector) {
+/**
+ * Screen point for an element. `fx` is the fraction across its width (0.5 = centre).
+ *
+ * Text fields want `fx` near the LEFT edge, not the centre. DemoTape anchors its zoom on the click,
+ * so clicking the middle of a wide input frames the middle of an empty box — and the sentence then
+ * grows leftwards out of shot. Clicking where the text begins is also what a person does: you aim at
+ * the caret, not the geometric centre.
+ */
+async function elementScreenPoint(page, selector, fx = 0.5) {
   try {
     const el = page.locator(selector).first();
     await el.scrollIntoViewIfNeeded({ timeout: 5000 });
     const box = await el.boundingBox();
     if (!box) return null;
     const w = await page.evaluate(() => ({ sx: window.screenX, sy: window.screenY, oh: outerHeight, ih: innerHeight }));
-    return { x: w.sx + box.x + box.width / 2, y: w.sy + (w.oh - w.ih) + box.y + box.height / 2 };
+    // Keep a small inset so the point never sits on the border itself.
+    const offsetX = Math.min(Math.max(box.width * fx, 14), box.width - 14);
+    return { x: w.sx + box.x + offsetX, y: w.sy + (w.oh - w.ih) + box.y + box.height / 2 };
   } catch { return null; }
+}
+
+async function elementScreenCenter(page, selector) {
+  return elementScreenPoint(page, selector, 0.5);
 }
 
 async function moveCursorToSelector(page, cfg, selector) {
@@ -163,6 +189,77 @@ async function playGestures(page, cfg, gestures, windowMs) {
   }
 }
 
+/**
+ * Types text the way a person does, so a demo doesn't look like a script pasting a prompt.
+ *
+ * Real typing isn't a metronome, which is why a fixed per-character delay still reads as synthetic.
+ * Three things make it convincing:
+ *   - jitter per keystroke (people are uneven),
+ *   - a longer pause after sentence punctuation and a shorter one after spaces (you think in words,
+ *     not letters),
+ *   - an occasional brief hesitation mid-sentence.
+ *
+ * Tuned by `typeMs` (mean ms per character, default 55). Set `instant: true` on a step to opt out.
+ */
+async function humanType(page, cfg, step) {
+  const text = step.text ?? "";
+  const el = page.locator(step.selector).first();
+
+  // Land a REAL OS click on the field first: it focuses the input, and it anchors DemoTape's
+  // auto-zoom, so the camera is already on the field before a character appears.
+  //
+  // Aim near the LEFT of the field (where the caret and the first word will be), not its centre.
+  // The zoom holds on this exact point for the whole sentence, so a centred anchor on a wide input
+  // pushes the text off the left edge of the framed shot as it grows.
+  const c = cfg.showCursor
+    ? await elementScreenPoint(page, step.selector, step.aimX ?? 0.06)
+    : null;
+  if (c) { osCursor(cfg, "move", c.x, c.y, cfg.moveMs); await sleep(cfg.moveMs + 160); }
+  if (cfg.osClick && c) osCursor(cfg, "click", c.x, c.y);
+  else await el.click({ timeout: step.timeout ?? 8000 });
+  await el.fill("");                       // start from empty, so re-runs don't append
+  if (step.instant) { await el.fill(text); return; }
+
+  const base = step.typeMs ?? cfg.typeMs ?? 55;
+  await sleep(260);                        // a beat before starting, as if reading the field
+
+  // Type in the BROWSER, but tell DemoTape that typing is happening.
+  //
+  // Two constraints force this split. Browsers discard synthetic key events that carry no virtual
+  // keycode, so posting real OS keystrokes at Chromium enters nothing — and since OS keys go to
+  // whichever window has system focus, they can land in another app entirely while the field stays
+  // empty (which is exactly the "it sends but the text never shows" bug). So the visible text has to
+  // come from Playwright. But then no KeySample exists, and DemoTape's FocusTimeline only holds the
+  // camera on the focused field *while keys are arriving* — so the zoom snapped in on the click and
+  // then drifted off mid-sentence.
+  //
+  // `demotape://typing` records the activity without posting anything: the anchor still comes from
+  // the real OS click just above, so the camera holds on the field for the whole sentence, exactly
+  // as it does when a human types.
+  const punctuation = (text.match(/[.?!,;:]/g) || []).length;
+  const expectedMs = text.length * base + punctuation * base * 4;
+  if (cfg.osType && !step.browserType) {
+    const cps = 1000 / base;
+    const chars = text.length + punctuation * 4;    // pad so the hold covers the pauses too
+    execFileSync("/usr/bin/open",
+                 [`demotape://typing?chars=${chars}&cps=${cps.toFixed(1)}`]);
+  }
+
+  for (const ch of text) {
+    await page.keyboard.type(ch);
+    let d = base * (0.6 + Math.random() * 0.9);
+    if (".?!".includes(ch)) d += base * 6;         // end of a thought
+    else if (",;:—".includes(ch)) d += base * 3;   // a clause break
+    else if (ch === " " && Math.random() < 0.08) d += base * 4;   // brief hesitation
+    await sleep(d);
+  }
+
+  const got = (await el.inputValue().catch(() => "")).trim();
+  if (got !== text.trim()) log(`  typing landed "${got.slice(0, 40)}…" (expected the full line)`);
+  await sleep(340);                        // pause before sending, as if re-reading it
+  return expectedMs;
+}
+
 async function runStep(page, step, cfg) {
   const wait = step.pauseMs ?? cfg.stepPauseMs;
   switch (step.action) {
@@ -174,7 +271,16 @@ async function runStep(page, step, cfg) {
       else await page.click(step.selector, { timeout: step.timeout ?? 8000 });
       break;
     }
-    case "type":
+    // `type` types like a person, character by character. `fill` pastes instantly.
+    //
+    // This matters more than it sounds for a demo: the whole premise is a human talking to an agent,
+    // and a prompt that materialises in one frame reads as a script pasting text, not someone
+    // writing. Progressive typing also gives the viewer time to READ the prompt before the answer
+    // arrives, which is exactly when you want them reading it.
+    //
+    // Use `fill` for setup fields nobody is meant to watch (a sign-in box, a long YAML blob) and
+    // `type` for anything the story is about.
+    case "type": await humanType(page, cfg, step); break;
     case "fill": await moveCursorToSelector(page, cfg, step.selector); await page.fill(step.selector, step.text ?? "", { timeout: step.timeout ?? 8000 }); break;
     case "press": await page.keyboard.press(step.key ?? "Enter"); break;
     case "hover": await moveCursorToSelector(page, cfg, step.selector); await page.hover(step.selector, { timeout: step.timeout ?? 8000 }); break;
@@ -201,6 +307,20 @@ async function checkExpect(page, expect) {
     }
     if (expect.visible) await page.waitForSelector(expect.visible, { state: "visible", timeout: expect.timeout ?? 8000 });
     if (expect.text) await page.waitForSelector(`text=${expect.text}`, { timeout: expect.timeout ?? 8000 });
+    // `text=` matches rendered text, NOT an input's value — asserting a typed prompt needs the
+    // field's value, so typing scenes use `value: { selector, is }`.
+    if (expect.value) {
+      const { selector, is } = expect.value;
+      const want = (is ?? "").trim();
+      const deadline = Date.now() + (expect.timeout ?? 8000);
+      let got = "";
+      while (Date.now() < deadline) {
+        got = (await page.locator(selector).first().inputValue().catch(() => "")).trim();
+        if (got === want) break;
+        await sleep(150);
+      }
+      if (got !== want) return { ok: false, reason: `value of ${selector} is "${got.slice(0, 48)}"` };
+    }
     return { ok: true, reason: "ok" };
   } catch (e) { return { ok: false, reason: (e.message || "assertion failed").split("\n")[0] }; }
 }
@@ -214,15 +334,44 @@ async function runOnce(cfg, scenes) {
     "--no-first-run", "--no-default-browser-check",
   ];
   log("launching Chromium at", `${width}x${height}+${x}+${y}`);
-  const browser = await chromium.launch({ headless: false, args });
-  const context = await browser.newContext({ viewport: null });
-  const page = await context.newPage();
+  // `userDataDir` reuses a PERSISTENT browser profile, which is what makes demos of authenticated
+  // apps possible: sign in once beforehand and the session is already live, so no credentials are
+  // typed on camera and no hosted login page (Clerk, Auth0, …) has to be automated mid-take.
+  let browser = null, context, page;
+  if (cfg.userDataDir) {
+    context = await chromium.launchPersistentContext(resolve(cfg.userDataDir), {
+      headless: false, viewport: null, args,
+    });
+    page = context.pages()[0] || await context.newPage();
+  } else {
+    browser = await chromium.launch({ headless: false, args });
+    context = await browser.newContext({ viewport: null });
+    page = await context.newPage();
+  }
+  // Visit any prewarm URLs BEFORE recording starts. Hosted auth (Clerk, Auth0, …) bounces through a
+  // redirect handshake on first navigation, and a cold page paints late — both land on camera as a
+  // sign-in screen or a blank flash if the take is the first visit. Doing it off-camera means the
+  // scene that shows the page gets it already warm and already authenticated.
+  for (const warm of cfg.prewarmUrls || []) {
+    log("prewarming:", warm);
+    try {
+      await page.goto(warm, { waitUntil: "domcontentloaded", timeout: 45000 });
+      for (let i = 0; i < 30 && page.url().includes("sign-in"); i++) await sleep(500);
+      log("  settled at:", page.url());
+    } catch (e) { log("  prewarm failed (continuing):", e.message); }
+  }
+
   log("navigating:", cfg.url);
   await page.goto(cfg.url, { waitUntil: "domcontentloaded", timeout: 45000 });
   await page.bringToFront();
   await sleep(1800);
 
-  openURL(`demotape://record/start?mode=area&x=${Math.round(x)}&y=${Math.round(y)}&w=${Math.round(width)}&h=${Math.round(height)}&countdown=0`);
+  // Full screen when asked. Cropping to the browser rectangle frames a slice of whatever desktop is
+  // behind it, which reads as an accident; full screen also keeps the menu bar and tab strip in
+  // shot, which matters when the demo switches between two tabs.
+  openURL(cfg.fullScreen
+    ? "demotape://record/start?countdown=0"
+    : `demotape://record/start?mode=area&x=${Math.round(x)}&y=${Math.round(y)}&w=${Math.round(width)}&h=${Math.round(height)}&countdown=0`);
   await waitForState("recording");
   const recordStart = Date.now();
 
@@ -279,7 +428,8 @@ async function runOnce(cfg, scenes) {
 
   if (!aborted) await sleep(cfg.tailMs);   // tail so the final line is never clipped
   openURL("demotape://record/stop");
-  await browser.close();
+  // A persistent profile has no separate browser handle — close the context so the profile flushes.
+  await (browser ? browser.close() : context.close());
   const done = await waitForState("idle", 15 * 60 * 1000);
   const styled = done.lastOutput;
   if (!styled) throw new Error("no output path reported by DemoTape");
@@ -308,6 +458,7 @@ async function runOnce(cfg, scenes) {
 
   // Verify the render semantically (vision model checks each scene's frame vs its line).
   let verify = null;
+  let verifyUnavailable = null;   // set when the gate could not run at all (e.g. a 429)
   if (cfg.verify) {
     const vspec = join(tmpdir(), `dt-verify-${Date.now()}.json`);
     writeFileSync(vspec, JSON.stringify({ scenes: verifyScenes }), "utf8");
@@ -317,14 +468,26 @@ async function runOnce(cfg, scenes) {
     } catch (e) {
       // Exit code 2 = verification failed but produced a report on stdout.
       const out = e.stdout?.toString?.() || "";
-      try { verify = JSON.parse(out); } catch { log("verify unavailable:", e.message); }
+      try { verify = JSON.parse(out); }
+      catch {
+        // No report at all: the gate couldn't RUN. That is not the same as the demo being wrong, and
+        // reporting it as a failure sends people hunting for a bug in a take that was fine. The most
+        // common cause is the provider rate-limiting the per-scene vision calls.
+        const why = `${e.stderr?.toString?.() || ""}${e.message || ""}`;
+        verifyUnavailable = /429|rate limit/i.test(why)
+          ? "provider rate limit (429) — the take is unjudged, not failed"
+          : (why.split("\n")[0] || "verification could not run");
+        log("verify UNAVAILABLE:", verifyUnavailable);
+      }
     }
     if (verify) for (const s of verify.scenes) log(`  verify @${s.at.toFixed(1)}s: ${s.verdict.toUpperCase()} — ${s.reason}`);
   }
 
   const assertionsOk = assertions.every((a) => a.ok);
+  // Three distinct outcomes, not two: verified, contradicted, and unjudged.
   const verifyOk = !cfg.verify || (verify && verify.pass);
-  return { styled, finalPath, assertions, assertionsOk, verify, verifyOk, ok: assertionsOk && verifyOk };
+  return { styled, finalPath, assertions, assertionsOk, verify, verifyOk,
+           verifyUnavailable, ok: assertionsOk && verifyOk };
 }
 
 // Swap the voice on an already-recorded, scene-synced demo — no re-recording. Reuses the saved
@@ -358,10 +521,110 @@ async function revoice(pathArg, voiceId) {
   execFile("/usr/bin/open", [final]);
 }
 
+// Prepare an authenticated browser profile for demos of apps behind a login.
+//   node driver.mjs signin <url> --profile <dir> [--email … --password …]
+//
+// Why this is a first-class command: recording an authenticated app means the session must already
+// exist, because typing credentials on camera is both ugly and unsafe, and hosted login pages
+// (Clerk, Auth0, Okta) are miserable to automate mid-take. Sign in once here, then point a demo
+// config at the same `userDataDir` and the take opens straight into the app. Sessions expire, so
+// re-run this when a prewarm lands on a sign-in page.
+async function signin(url) {
+  const arg = (name, fallback = "") => {
+    const i = process.argv.indexOf(`--${name}`);
+    return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+  };
+  const profile = resolve(arg("profile", "tools/demo-driver/.profiles/default"));
+  const email = arg("email", process.env.DEMO_EMAIL);
+  const password = arg("password", process.env.DEMO_PASSWORD);
+  if (!url) { log("usage: node driver.mjs signin <url> --profile <dir> [--email … --password …]"); process.exit(1); }
+
+  log("profile:", profile);
+  const ctx = await chromium.launchPersistentContext(profile, {
+    headless: false, viewport: null,
+    args: ["--window-position=60,60", "--window-size=1340,860", "--no-first-run", "--no-default-browser-check"],
+  });
+  const page = ctx.pages()[0] || await ctx.newPage();
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await sleep(2500);
+  log("landed:", page.url());
+
+  const target = new URL(url).pathname;
+  const arrived = () => page.url().includes(target) && !/sign-?in|login/i.test(page.url());
+
+  if (!arrived() && email && password) {
+    // Two-step (identifier, then password) is the common hosted-login shape; a single-page form
+    // works too because the password field is simply already present.
+    const id = page.locator("input[name=identifier], input[type=email], input[name=email]").first();
+    if (await id.count()) { await id.fill(email); await page.keyboard.press("Enter"); await sleep(3000); }
+    const pw = page.locator("input[type=password], input[name=password]").first();
+    await pw.waitFor({ timeout: 25000 });
+    await pw.fill(password);
+    await page.keyboard.press("Enter");
+    for (let i = 0; i < 60 && !arrived(); i++) await sleep(1000);
+  } else if (!arrived()) {
+    log("no credentials given — sign in manually in the open window (waiting up to 3 min)…");
+    for (let i = 0; i < 180 && !arrived(); i++) await sleep(1000);
+  }
+
+  log(arrived() ? `SIGNED IN — ${page.url()}` : `NOT SIGNED IN — ${page.url()}`);
+  await ctx.close();                       // closing flushes cookies to the profile
+  if (!arrived()) process.exit(1);
+}
+
+// Rehearse a config headlessly: run every step and assertion with NO recording, no cursor, no
+// narration. This is step 5 of the skill's pipeline, and it exists because a bad selector or a
+// changed flow should cost seconds, not a whole take plus a paid TTS pass. Exits non-zero if any
+// scene's assertion fails, so it can gate a recording.
+//   node driver.mjs <config> --rehearse
+async function rehearse(cfg) {
+  log("REHEARSAL (headless, no recording) —", cfg.scenes.length, "scene(s)");
+  const args = ["--no-first-run", "--no-default-browser-check"];
+  let browser = null, context, page;
+  if (cfg.userDataDir) {
+    context = await chromium.launchPersistentContext(cfg.userDataDir, { headless: true, args });
+    page = context.pages()[0] || await context.newPage();
+  } else {
+    browser = await chromium.launch({ headless: true, args });
+    context = await browser.newContext();
+    page = await context.newPage();
+  }
+  // No recording means no cursor theatre and no OS input. osType MUST be off here: real keystrokes
+  // go to whatever window is focused on the real desktop, which during a headless rehearsal is
+  // whatever the operator happens to be using.
+  cfg = { ...cfg, showCursor: false, osClick: false, osType: false, typeMs: 0 };
+
+  await page.goto(cfg.url, { waitUntil: "domcontentloaded", timeout: 45000 });
+  let failures = 0;
+  for (const [i, sc] of cfg.scenes.entries()) {
+    for (const step of sc.steps || []) {
+      try { await runStep(page, step, cfg); }
+      catch (e) {
+        failures++;
+        log(`scene ${i}: STEP FAILED (${step.action} ${step.selector || step.url || ""}) — ${(e.message || "").split("\n")[0]}`);
+      }
+    }
+    if (sc.expect) {
+      const r = await checkExpect(page, sc.expect);
+      if (!r.ok) failures++;
+      log(`scene ${i}: assert ${r.ok ? "PASS" : "FAIL — " + r.reason}`);
+    } else {
+      log(`scene ${i}: ok (no assertion)`);
+    }
+  }
+  await (browser ? browser.close() : context.close());
+  log(failures ? `REHEARSAL FAILED (${failures} problem(s)) — fix before recording` : "REHEARSAL PASSED — safe to record");
+  if (failures) process.exit(1);
+}
+
 async function main() {
   if (process.argv[2] === "revoice") { await revoice(process.argv[3], process.argv[4]); return; }
+  if (process.argv[2] === "signin") { await signin(process.argv[3]); return; }
   const { cfg, path } = loadConfig();
   log("config:", path, "·", cfg.scenes.length, "scene(s)");
+
+  // Rehearse before the expensive parts: no recording, no TTS, no vision check.
+  if (process.argv.includes("--rehearse")) { await rehearse(cfg); return; }
 
   // Synthesize each scene's line once (reused across retry attempts).
   if (existsSync(cfg.demotapeBin)) {
@@ -407,6 +670,13 @@ async function main() {
     try { result = await runOnce(cfg, cfg.scenes); }
     catch (e) { log("attempt error:", e.message); continue; }
     if (result.ok) { log("PASS — output matches the script"); break; }
+    // An unjudged run is not a failed one. Retrying a take because the provider rate-limited the
+    // vision gate wastes minutes and a paid re-synthesis, and can't fix anything.
+    if (result.assertionsOk && result.verifyUnavailable) {
+      log(`INCONCLUSIVE — every assertion passed, but the vision gate could not run: ${result.verifyUnavailable}`);
+      log("Review the video by hand, or re-run just the gate later.");
+      break;
+    }
     log(`FAIL — assertions:${result.assertionsOk} verify:${result.verifyOk}${attempt < cfg.maxAttempts ? " — retrying" : ""}`);
   }
 
@@ -415,14 +685,20 @@ async function main() {
   // Write a verification report next to the video (the "test report").
   const report = {
     ok: result.ok, assertionsOk: result.assertionsOk, verifyOk: result.verifyOk,
+    // Recorded explicitly so a reader can tell "the gate said no" from "the gate never ran".
+    verifyUnavailable: result.verifyUnavailable ?? null,
     assertions: result.assertions, verify: result.verify, video: result.finalPath,
   };
   const reportPath = join(dirname(result.finalPath), "demo-report.json");
   try { writeFileSync(reportPath, JSON.stringify(report, null, 2)); log("report:", reportPath); } catch {}
 
-  log(result.ok ? "final (verified):" : "final (UNVERIFIED — review):", result.finalPath);
+  const label = result.ok ? "final (verified):"
+    : result.assertionsOk && result.verifyUnavailable ? "final (assertions passed, gate unjudged — review):"
+    : "final (UNVERIFIED — review):";
+  log(label, result.finalPath);
   execFile("/usr/bin/open", [result.finalPath]);
-  process.exit(result.ok ? 0 : 2);
+  // Exit 3 for "unjudged" so a script can tell it apart from a genuine mismatch (2).
+  process.exit(result.ok ? 0 : (result.assertionsOk && result.verifyUnavailable ? 3 : 2));
 }
 
 main().catch((e) => { log("fatal:", e?.message || String(e)); process.exit(1); });

@@ -11,10 +11,10 @@ final class DemoScriptTests: XCTestCase {
 
     func testPromptIncludesIdeaPathDurationAndSteps() {
         let p = DemoScript.kiroPrompt(idea: "Show how the dashboard works",
-                                      projectPath: "/Users/me/kiff-cloud",
+                                      projectPath: "/Users/me/my-app",
                                       targetSeconds: 90, voiceId: "abc123")
         XCTAssertTrue(p.contains("Show how the dashboard works"))
-        XCTAssertTrue(p.contains("/Users/me/kiff-cloud"))
+        XCTAssertTrue(p.contains("/Users/me/my-app"))
         XCTAssertTrue(p.contains("1:30"))
         XCTAssertTrue(p.contains("demo-driver"))
         XCTAssertTrue(p.contains("scenes"))
