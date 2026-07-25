@@ -287,6 +287,26 @@ final class AboutController: NSObject, NSWindowDelegate {
         updateStatus.frame = NSRect(x: leftX, y: y - 80, width: w - 48, height: 30)
         content.addSubview(updateStatus)
 
+        // --- Support: DemoTape costs nothing, so a star is the only ask ---
+        let starSep = NSBox(frame: NSRect(x: leftX, y: 58, width: w - 48, height: 1))
+        starSep.boxType = .separator
+        content.addSubview(starSep)
+
+        // Wraps within the space left of the button (button is 150 wide at the right edge, plus a
+        // 12pt gutter) so the two never collide.
+        let starButtonW: CGFloat = 150
+        let starAsk = NSTextField(wrappingLabelWithString:
+            "Free forever. If it saved you time, a star is the only thanks we ask.")
+        starAsk.font = .systemFont(ofSize: 11)
+        starAsk.textColor = .secondaryLabelColor
+        starAsk.frame = NSRect(x: leftX, y: 16, width: w - leftX - 24 - starButtonW - 12, height: 32)
+        content.addSubview(starAsk)
+
+        let starButton = NSButton(title: "★ Star on GitHub", target: self, action: #selector(starRepo))
+        starButton.bezelStyle = .rounded
+        starButton.frame = NSRect(x: w - 24 - starButtonW, y: 18, width: starButtonW, height: 28)
+        content.addSubview(starButton)
+
         win.contentView = content
         win.center()
         window = win
@@ -377,6 +397,13 @@ final class AboutController: NSObject, NSWindowDelegate {
     @objc private func openLatestRelease() {
         let url = latestReleaseURL ?? URL(string: "https://github.com/\(Self.repo)/releases/latest")!
         NSWorkspace.shared.open(url)
+    }
+
+    /// Opens the repo with GitHub's star action focused, so it's one click once you're there.
+    @objc private func starRepo() {
+        if let url = URL(string: "https://github.com/\(Self.repo)") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func reportIssue() {

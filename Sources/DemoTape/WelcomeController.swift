@@ -128,6 +128,19 @@ final class WelcomeController: NSObject, NSWindowDelegate {
             hint.textColor = .secondaryLabelColor
             hint.frame = NSRect(x: 0, y: y - 26, width: boxW, height: 16)
             permissionsBox.addSubview(hint)
+
+            // Nothing is blocking them now, so this is the polite moment to ask. DemoTape is free;
+            // a star is the only thing we want back.
+            let ask = NSTextField(labelWithString: "DemoTape is free and open source — a star is the only thanks we ask.")
+            ask.font = .systemFont(ofSize: 11)
+            ask.textColor = .secondaryLabelColor
+            ask.frame = NSRect(x: 0, y: y - 62, width: boxW, height: 16)
+            permissionsBox.addSubview(ask)
+
+            let star = NSButton(title: "★ Star on GitHub", target: self, action: #selector(starRepo))
+            star.bezelStyle = .rounded
+            star.frame = NSRect(x: 0, y: y - 96, width: 150, height: 28)
+            permissionsBox.addSubview(star)
             return
         }
 
@@ -194,6 +207,12 @@ final class WelcomeController: NSObject, NSWindowDelegate {
     @objc private func allowAccessibility() {
         if !SystemPermissions.requestAccessibility() && !SystemPermissions.hasAccessibility {
             SystemPermissions.openSettings(.accessibility)
+        }
+    }
+
+    @objc private func starRepo() {
+        if let url = URL(string: "https://github.com/gabosarmiento/demotape") {
+            NSWorkspace.shared.open(url)
         }
     }
 

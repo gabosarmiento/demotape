@@ -11,6 +11,10 @@ It lives in your menu bar, runs fully on your Mac, and needs no account.
 Works on **macOS 12.3+** (Intel or Apple Silicon). A native **Windows 11** port is in the
 [`windows/`](windows/) folder — see [DemoTape on Windows](#demotape-on-windows). Free and open source.
 
+> **DemoTape is free forever — no account, no license, no upsell.** If it saved you time,
+> [**★ star the repo**](https://github.com/gabosarmiento/demotape). That's the only thanks we ask,
+> and it's what helps other people find it.
+
 ---
 
 ## Get DemoTape
@@ -25,18 +29,15 @@ do: grant Screen Recording permission.
 
 **Or download the app.** Grab `DemoTape-<version>.dmg` from
 [Releases](https://github.com/gabosarmiento/demotape/releases/latest) and drag it into
-**Applications**. First launch is blocked by macOS (the app isn't notarized) — right-click
-**DemoTape.app → Open → Open**, or run:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/DemoTape.app
-```
+**Applications**. The DMG is **signed with a Developer ID and notarized by Apple**, so it opens
+normally — no right-click, no quarantine warning, no Terminal workaround.
 
 > Run DemoTape from **/Applications** so macOS remembers your Screen Recording permission.
 
-**First launch:** the first time you record, macOS asks for **Screen Recording** — turn DemoTape
-on, then quit and reopen. Microphone, Camera, and Accessibility are only requested if you use
-those features.
+**First launch:** DemoTape asks for **Screen Recording** — click **Allow**, tick DemoTape in the
+System Settings pane that opens, then use **Quit & Reopen** (macOS only applies this grant on
+relaunch). That's the one thing only you can do, and you only do it once. Microphone, Camera, and
+Accessibility are requested individually, and only if you turn on a feature that needs them.
 
 ---
 
@@ -177,3 +178,9 @@ Details and docs: [`windows/README.md`](windows/README.md) · [feature parity](w
 
 MIT — see [LICENSE](LICENSE). Built by studying (not copying) several excellent open-source
 screen recorders; DemoTape is its own dependency-free implementation.
+
+## Support the project
+
+There's nothing to buy. If DemoTape earned a place in your workflow,
+[**★ star it on GitHub**](https://github.com/gabosarmiento/demotape) — one click, and it's what
+helps the next person find it. Bug reports and pull requests are just as welcome.
