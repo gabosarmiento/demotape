@@ -47,8 +47,9 @@ final class RecordingEngine {
     func prepare() async throws {
         guard !isRecording, !isPrepared else { return }
 
-        if !CGPreflightScreenCaptureAccess() {
-            CGRequestScreenCaptureAccess()
+        if !SystemPermissions.hasScreenRecording {
+            // Latched: won't stack a second lock alert if one was already issued this launch.
+            SystemPermissions.requestScreenRecording()
             throw NSError(domain: "DemoTape", code: 3, userInfo: [NSLocalizedDescriptionKey:
                 "Screen Recording permission is required.\n\nOpen System Preferences > Security & Privacy > Privacy > Screen Recording, enable DemoTape, then quit and reopen the app."])
         }

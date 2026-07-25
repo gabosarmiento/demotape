@@ -47,12 +47,10 @@ final class EventRecorder {
         }
         startUptime = ProcessInfo.processInfo.systemUptime
 
-        // Keystrokes require Accessibility permission. Prompt once if missing.
-        capturedKeystrokes = AXIsProcessTrusted()
-        if !capturedKeystrokes {
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
-        }
+        // Keystrokes require Accessibility permission. Prompt once if missing — latched via
+        // SystemPermissions so we never stack a duplicate lock alert on one the user is answering.
+        capturedKeystrokes = SystemPermissions.hasAccessibility
+        if !capturedKeystrokes { SystemPermissions.requestAccessibility() }
 
         installMonitors()
         startSampling()

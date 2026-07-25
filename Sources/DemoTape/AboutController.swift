@@ -54,10 +54,14 @@ final class AboutController: NSObject, NSWindowDelegate {
                 name: "Screen Recording",
                 detail: "So DemoTape can record your screen.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-                status: { CGPreflightScreenCaptureAccess() ? .granted : .denied },
+                status: { SystemPermissions.hasScreenRecording ? .granted : .denied },
                 request: { done in
                     // Prompts on first ask AND registers the app in the Screen Recording list.
-                    _ = CGRequestScreenCaptureAccess()
+                    // Routed through SystemPermissions so a prompt already issued this launch
+                    // (e.g. from the Welcome window) can't be stacked a second time.
+                    if !SystemPermissions.requestScreenRecording() && !SystemPermissions.hasScreenRecording {
+                        SystemPermissions.openSettings(.screenRecording)
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { done() }
                 },
                 ambiguousDenied: true),
@@ -87,11 +91,12 @@ final class AboutController: NSObject, NSWindowDelegate {
                 name: "Accessibility",
                 detail: "Turn on to show the keys you press as on-screen badges.",
                 settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-                status: { AXIsProcessTrusted() ? .granted : .denied },
+                status: { SystemPermissions.hasAccessibility ? .granted : .denied },
                 request: { done in
                     // Shows the "open Accessibility settings" prompt and registers the app.
-                    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-                    _ = AXIsProcessTrustedWithOptions(opts)
+                    if !SystemPermissions.requestAccessibility() && !SystemPermissions.hasAccessibility {
+                        SystemPermissions.openSettings(.accessibility)
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { done() }
                 },
                 ambiguousDenied: true),
@@ -356,9 +361,14 @@ final class AboutController: NSObject, NSWindowDelegate {
             sender.isEnabled = true
             let now = self.effectiveStatus(for: row.permission)
             self.apply(now, to: row)
-            // If it still isn't granted after asking (needs a manual toggle like Screen
-            // Recording / Accessibility, or the user declined), open Settings to finish there.
-            if case .denied = now, let url = URL(string: row.permission.settingsURL) {
+            // Only open Settings ourselves for the inline-grant permissions (mic/camera), whose
+            // request resolves synchronously in this callback. For Screen Recording / Accessibility
+            // the request fires the system's OWN lock prompt asynchronously and this callback runs
+            // before the user has answered — opening Settings here would race ahead of that prompt
+            // and land on an empty pane. Let the system prompt's "Open System Settings" button do
+            // it instead (it lands on the pane with DemoTape already listed, icon and all).
+            if case .denied = now, !row.permission.ambiguousDenied,
+               let url = URL(string: row.permission.settingsURL) {
                 NSWorkspace.shared.open(url)
             }
         }

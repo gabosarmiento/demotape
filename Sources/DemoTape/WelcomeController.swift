@@ -11,7 +11,10 @@ final class WelcomeController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var onFinish: (() -> Void)?
     private var permissionsBox: NSView!
-    private var refreshTimer: Timer?
+    private var activeObserver: NSObjectProtocol?
+    /// Set once we've issued the Screen Recording prompt. macOS only applies that grant on
+    /// relaunch, so from then on we stop checking and offer "Quit & Reopen" instead.
+    private var awaitingScreenGrant = false
 
     private let w: CGFloat = 620
     private let leftX: CGFloat = 40
@@ -78,7 +81,12 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
 
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        // Refresh on activation only — NEVER on a timer. Polling the capture-access status while
+        // it's still undecided makes the WindowServer queue an extra lock alert per check, which is
+        // exactly what produced the "second and third prompt" behaviour.
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
             self?.rebuildPermissions()
         }
     }
@@ -106,8 +114,8 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         let boxW = permissionsBox.bounds.width
         var y = permissionsBox.bounds.height - 24
 
-        let screenOK = CGPreflightScreenCaptureAccess()
-        let axOK = AXIsProcessTrusted()
+        let screenOK = SystemPermissions.hasScreenRecording
+        let axOK = SystemPermissions.hasAccessibility
 
         if screenOK && axOK {
             let done = NSTextField(labelWithString: "✓ You're all set — permissions granted.")
@@ -124,9 +132,18 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         }
 
         if !screenOK {
-            addPermissionRow(title: "Allow Screen Recording", tag: "required",
-                             detail: "So DemoTape can record your screen.",
-                             buttonTitle: "Allow…", action: #selector(allowScreen), y: &y, boxW: boxW)
+            if awaitingScreenGrant {
+                // We've asked; DemoTape is now listed in System Settings. macOS only applies this
+                // grant on relaunch, so the honest next step is to reopen — one click, done.
+                addPermissionRow(title: "Finish Screen Recording", tag: "one last step",
+                                 detail: "Tick DemoTape in System Settings, then reopen to apply it.",
+                                 buttonTitle: "Quit & Reopen", action: #selector(quitAndReopen),
+                                 y: &y, boxW: boxW)
+            } else {
+                addPermissionRow(title: "Allow Screen Recording", tag: "required",
+                                 detail: "So DemoTape can record your screen.",
+                                 buttonTitle: "Allow…", action: #selector(allowScreen), y: &y, boxW: boxW)
+            }
         }
         if !axOK {
             addPermissionRow(title: "Allow Accessibility", tag: "unlocks",
@@ -160,26 +177,42 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         y -= 52
     }
 
+    /// Fire the system lock alert (single action — see `SystemPermissions`). If we already asked
+    /// this launch the prompt is suppressed to avoid stacking a duplicate, so in that case send the
+    /// user to the pane instead, where DemoTape is now listed and just needs ticking.
     @objc private func allowScreen() {
-        // ONE action: take the user straight to the Screen Recording pane to tick DemoTape. We
-        // don't also fire the CGRequest lock alert — that produced a second, duplicate prompt.
-        // (Screen Recording only applies after the app is quit and reopened — macOS rule.)
-        openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.rebuildPermissions() }
+        // The system lock alert is the single action: its "Open System Settings" button lands on the
+        // pane with DemoTape already listed. If the prompt was suppressed (already asked this
+        // launch) the app IS registered by now, so opening the pane ourselves is safe and useful.
+        let prompted = SystemPermissions.requestScreenRecording()
+        if !prompted && !SystemPermissions.hasScreenRecording {
+            SystemPermissions.openSettings(.screenRecording)
+        }
+        awaitingScreenGrant = true
+        rebuildPermissions()
     }
     @objc private func allowAccessibility() {
-        openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.rebuildPermissions() }
+        if !SystemPermissions.requestAccessibility() && !SystemPermissions.hasAccessibility {
+            SystemPermissions.openSettings(.accessibility)
+        }
     }
 
-    private func openSettings(_ urlString: String) {
-        if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+    /// Screen Recording only takes effect after a relaunch, so do it for the user in one click.
+    @objc private func quitAndReopen() {
+        guard let bundleURL = Bundle.main.bundleURL as URL? else { return }
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.createsNewApplicationInstance = true
+        // Launch the replacement first, then exit, so the user never loses the app.
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: cfg) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 
     @objc private func finish() { window?.close() }
 
     func windowWillClose(_ notification: Notification) {
-        refreshTimer?.invalidate(); refreshTimer = nil
+        if let obs = activeObserver { NotificationCenter.default.removeObserver(obs) }
+        activeObserver = nil
         Settings.didCompleteOnboarding = true
         onFinish?()
         window = nil
