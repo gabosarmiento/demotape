@@ -41,7 +41,17 @@ function loadConfig() {
   cfg.viewport = { x: 100, y: 90, width: 1280, height: 800, ...(cfg.viewport || {}) };
   cfg.stepPauseMs = cfg.stepPauseMs ?? 900;
   cfg.showCursor = cfg.showCursor !== false;
-  cfg.osClick = cfg.osClick === true;
+  // OS-level clicks are now the DEFAULT (opt out with "osClick": false).
+  //
+  // This used to default to off, and that single flag is why earlier demos came out visually flat:
+  // Playwright clicks are synthetic browser events, invisible to DemoTape's global event monitor, so
+  // events.json recorded ZERO clicks and the auto-zoom never fired once — a verified-correct video
+  // that was one motionless shot end to end. Clicks are routed through the running app, which holds
+  // the Accessibility grant, so they register and drive the zoom.
+  cfg.osClick = cfg.osClick !== false;
+  // How long the cursor takes to travel to a target (eased + arced inside the app). Long enough to
+  // read as a hand, short enough not to stall the narration.
+  cfg.moveMs = cfg.moveMs ?? 520;
   cfg.actionLeadFraction = cfg.actionLeadFraction ?? 0.7;
   cfg.tailMs = cfg.tailMs ?? 1600;   // extra recording after the last line so it's never clipped
   cfg.maxAttempts = cfg.maxAttempts ?? 2;
@@ -77,11 +87,18 @@ function measureDuration(file) {
   } catch { return 0; }
 }
 
-function osCursor(cfg, action, x, y) {
+function osCursor(cfg, action, x, y, ms) {
   // Route through the RUNNING installed app (holds the Accessibility grant + is the recording
   // process) so synthetic clicks actually register and trigger auto-zoom. The standalone CLI
   // binary is a separate unsigned executable the user never granted, so its CGEventPost no-ops.
-  const url = `demotape://cursor/${action}?x=${Math.round(x)}&y=${Math.round(y)}`;
+  //
+  // Moves are ANIMATED (cursor/glide with a duration), not warped. A warp reads as a robot on
+  // video and, worse, gives the eye nothing to follow between two points — the travel is what
+  // carries attention. The easing/arc/overshoot is done inside the app, so one URL per move.
+  const glide = action === "move" && ms > 0;
+  const url = glide
+    ? `demotape://cursor/glide?x=${Math.round(x)}&y=${Math.round(y)}&ms=${Math.round(ms)}`
+    : `demotape://cursor/${action}?x=${Math.round(x)}&y=${Math.round(y)}`;
   try { execFileSync("/usr/bin/open", [url]); }
   catch (e) { log("cursor failed:", e.message); }
 }
@@ -100,7 +117,11 @@ async function elementScreenCenter(page, selector) {
 async function moveCursorToSelector(page, cfg, selector) {
   if (!cfg.showCursor || !selector) return null;
   const c = await elementScreenCenter(page, selector);
-  if (c) { osCursor(cfg, "move", c.x, c.y); await sleep(250); }
+  if (c) {
+    osCursor(cfg, "move", c.x, c.y, cfg.moveMs);
+    // Wait out the glide, then a beat to aim — a human lands, settles, then presses.
+    await sleep(cfg.moveMs + 160);
+  }
   return c;
 }
 
@@ -130,8 +151,11 @@ async function playGestures(page, cfg, gestures, windowMs) {
   for (const g of gestures) {
     const p = await gesturePoint(page, cfg, g);
     if (p) {
-      osCursor(cfg, "move", p.x, p.y);
-      await sleep(Math.min(slice * 0.45, 400));   // let the glide land before any click
+      // Give the glide most of its slice so the travel is visible, but never longer than the
+      // gesture's share of the spoken line.
+      const travel = Math.min(cfg.moveMs, Math.max(220, slice * 0.5));
+      osCursor(cfg, "move", p.x, p.y, travel);
+      await sleep(Math.min(slice * 0.45, travel + 160));   // let the glide land before any click
       if (g.click && cfg.osClick) osCursor(cfg, "click", p.x, p.y);
     }
     const rest = slice - Math.min(slice * 0.45, 400);

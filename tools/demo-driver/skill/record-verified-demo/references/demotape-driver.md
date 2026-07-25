@@ -92,11 +92,18 @@ Per-scene override: `"leadFraction": 0.5`.
 
 ### Emphasis clicks → auto-zoom
 
-With `"osClick": true`, `click` steps fire a real OS click (via `--cursor click`) so DemoTape
-auto-zooms the target. Use this on the exact element the line describes. Click **non-navigating**
-elements (headings/labels) for pure emphasis. Requires **Accessibility permission** for the terminal
-running the driver; without it clicks silently no-op. Confirm zoom fired: the recording's
-`.source/*.events.json` should have a non-empty `"clicks"` array.
+`osClick` is **on by default** (opt out with `"osClick": false`, which you almost never want).
+`click` steps fire a real OS click through the *running app* — `demotape://cursor/click` — so the
+click lands in `events.json` and drives the auto-zoom. Because the running app holds the
+Accessibility grant, the terminal needs no permission of its own.
+
+Use it on the exact element the line describes; click **non-navigating** elements (headings, labels)
+for pure emphasis. Confirm the zoom fired: `.source/*.events.json` must have a non-empty `"clicks"`
+array. Earlier demos with `osClick: false` verified perfectly and were still one motionless shot,
+because Playwright's synthetic clicks are invisible to the global event monitor.
+
+Moves are animated over `moveMs` (default 520) via `demotape://cursor/glide` — eased, slightly
+arced, with a small overshoot on long trips.
 
 ### Selector tips
 

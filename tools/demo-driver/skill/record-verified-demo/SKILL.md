@@ -105,10 +105,17 @@ way:
   viewer's eye goes where the words go. Click **non-navigating** elements (headings, labels) for
   pure emphasis; use real navigations for flow. This is the difference between "the page is up" and
   "look *here*."
-  - Requirement: synthetic OS clicks need **Accessibility permission** granted to the terminal/app
-    running the driver (System Settings → Privacy & Security → Accessibility). Without it the clicks
-    silently no-op (no zoom). Verify it worked by checking the recording's `.source/*.events.json`
-    has a non-empty `clicks` array; if it's empty, the grant is missing.
+  - `osClick` is **on by default**, and clicks are routed through the *running DemoTape app* (which
+    holds the Accessibility grant and is the process recording), so the terminal needs no permission
+    of its own. Do not set `"osClick": false` — that was the single flag that made earlier demos
+    visually flat: Playwright clicks are synthetic browser events, invisible to DemoTape's global
+    monitor, so `events.json` recorded **zero** clicks and the auto-zoom never fired. The result was
+    a fully verified video that was one motionless shot end to end.
+  - Always check this before presenting a take: `.source/*.events.json` must have a non-empty
+    `clicks` array. An empty one means no zoom happened, whatever the video looks like in a still.
+  - Cursor moves are animated (eased, slightly arced, with a small overshoot) over `moveMs`
+    (default 520). The travel is what carries the viewer's eye between two points, so don't set it
+    to zero — a teleporting pointer reads as a robot.
 
 ## 5. Rehearse headlessly
 

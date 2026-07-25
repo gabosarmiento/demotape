@@ -5,7 +5,8 @@
   "stepPauseMs": 900,
   "voiceId": "XrExE9yKIg1WjnnlVkGX",
   "showCursor": true,
-  "osClick": false,
+  "osClick": true,
+  "moveMs": 560,
   "maxAttempts": 1,
   "verify": true,
   "scenes": [
