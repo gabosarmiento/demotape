@@ -87,17 +87,24 @@ poll `state:"idle"` → read `lastOutput` (the styled video).
 ### `expect` (record-time assertion — proves the action worked)
 
 `{ "urlContains": "/path" }` · `{ "visible": "<css-or-text-selector>" }` ·
-`{ "text": "some text" }`. On a failed assertion the driver **fail-fasts** (aborts the take and
-retries or reports) instead of recording a broken demo.
+`{ "text": "some text" }` · `{ "value": { "selector": "#input", "is": "…" } }` (an input's value —
+`text=` can't see it). Add `"timeout": 30000` when the state you're asserting takes a while to
+arrive. On a failed assertion the driver **fail-fasts** (aborts the take and retries or reports)
+instead of recording a broken demo.
+
+**Waiting for something slow (an agent replying, a job finishing): use a short `wait` plus a generous
+`expect.timeout`, not a long `wait`.** A fixed wait is dead air when the app is quick and still too
+short when it isn't; the assertion polls and advances the scene the moment the state appears.
 
 ### Timing model (reveal vs commit)
 
-The driver classifies each scene's steps so the visuals sync with the narration:
-- **Reveal** (`goto`, `scroll`, `expand`, `waitFor`, `hover`) run at the **start** of the scene —
-  the page/section is shown while the line is spoken.
-- **Commit** (`click`, `fill`, `type`, `press`) **lead** the narration (fire partway through, by
-  `actionLeadFraction`, default 0.7) — the announced interaction lands where the words point, and a
-  click triggers auto-zoom.
+Each scene is split at its **first commit** — order is preserved on both sides:
+- Steps **before** it (`goto`, `scroll`, `expand`, `waitFor`, `hover`, `wait`) run at the **start** of
+  the scene — the page/section is shown while the line is spoken.
+- Then the lead pause, then the rest in written order. **Commit** steps (`click`, `fill`, `type`,
+  `press`) therefore **lead** the narration (fire partway through, by `actionLeadFraction`, default
+  0.7) — the announced interaction lands where the words point, and a click triggers auto-zoom. A
+  `wait` or `waitFor` written after a click runs after the click, as it reads.
 Per-scene override: `"leadFraction": 0.5`.
 
 ### Emphasis clicks → auto-zoom
