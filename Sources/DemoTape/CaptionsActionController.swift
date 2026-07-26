@@ -117,16 +117,6 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
     /// hands the job over with everything needed to finish it, rather than offering a button that
     /// would quietly produce the wrong thing.
     private func makeAgentHandoff() -> NSView {
-        let box = NSBox()
-        box.boxType = .custom
-        box.fillColor = .quaternaryLabelColor.withAlphaComponent(0.08)
-        box.borderColor = .separatorColor
-        box.cornerRadius = 8
-        box.borderWidth = 1
-        box.titlePosition = .noTitle
-
-        let title = NSTextField(labelWithString: "Or copy this prompt and let your AI assistant write them in")
-        title.font = .systemFont(ofSize: 12, weight: .medium)
         targetLanguagePopup = NSPopUpButton()
         targetLanguagePopup.addItems(withTitles: NarrationLocalization.languages.map(NarrationLocalization.label))
         targetLanguagePopup.target = self
@@ -135,34 +125,13 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
            let idx = NarrationLocalization.languages.firstIndex(where: { $0.code == spoken.code }) {
             targetLanguagePopup.selectItem(at: idx)
         }
-        let titleRow = NSStackView(views: [title, targetLanguagePopup, NSView()])
-        titleRow.orientation = .horizontal
-        titleRow.spacing = 8
-
-        let blurb = NSTextField(wrappingLabelWithString:
-            "It translates every line without touching a single timing, keeps them short enough to read, "
-            + "and burns the result beside this video.")
-        blurb.font = .systemFont(ofSize: 11)
-        blurb.textColor = .secondaryLabelColor
-        copyPromptButton = NSButton(title: "Copy prompt", target: self, action: #selector(copyCaptionPrompt))
-        copyPromptButton.bezelStyle = .rounded
-        let row = NSStackView(views: [blurb, copyPromptButton])
-        row.orientation = .horizontal
-        row.spacing = 12
-        row.alignment = .centerY
-
-        let stack = NSStackView(views: [titleRow, row])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        box.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
-            stack.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -12)
-        ])
+        let box = AgentHandoffBox(
+            headline: "Or let your coding agent write these subtitles in",
+            detail: "It translates every line without touching a single timing, keeps them short enough "
+                  + "to read, and burns the result beside this video.",
+            accessory: targetLanguagePopup,
+            target: self, action: #selector(copyCaptionPrompt))
+        copyPromptButton = box.button
         return box
     }
 

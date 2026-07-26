@@ -12,12 +12,15 @@ final class RecorderBarController: NSObject {
     var onCancel: (() -> Void)?
     var onToggleMic: (() -> Void)?
     var onToggleWebcam: (() -> Void)?
+    /// Tapped the ••• — the app shows its setup popover anchored to that button.
+    var onOpenSetup: ((NSView) -> Void)?
 
     private var panel: KeyablePanel?
     private var recordButton: NSButton!
     private var timerLabel: NSTextField!
     private var micButton: BarHoverButton!
     private var webcamButton: BarHoverButton!
+    private var setupButton: BarHoverButton!
     private var cancelButton: BarHoverButton!
     private var focusables: [NSButton] = []
     private var keyMonitor: Any?
@@ -27,7 +30,7 @@ final class RecorderBarController: NSObject {
     private var previousApp: NSRunningApplication?
     private(set) var isRecording = false
 
-    private let barSize = NSSize(width: 300, height: 42)
+    private let barSize = NSSize(width: 334, height: 42)
 
     // MARK: - Show / hide
 
@@ -171,7 +174,17 @@ final class RecorderBarController: NSObject {
 
         addSeparator(to: blur, x: 244)
 
-        cancelButton = iconButton(action: #selector(tapCancel), x: 262)
+        // The bar had no way into any setting: changing a background or turning on the teleprompter
+        // meant going back to the menu-bar icon. The ••• puts the choices you make just before a take
+        // where the take happens.
+        setupButton = iconButton(action: #selector(tapSetup), x: 256)
+        setupButton.image = symbol("ellipsis", size: 13)
+        setupButton.toolTip = "Recording setup"
+        blur.addSubview(setupButton)
+
+        addSeparator(to: blur, x: 290)
+
+        cancelButton = iconButton(action: #selector(tapCancel), x: 300)
         cancelButton.image = symbol("xmark", size: 12)
         cancelButton.contentTintColor = .secondaryLabelColor
         cancelButton.toolTip = "Cancel recording"
@@ -179,7 +192,7 @@ final class RecorderBarController: NSObject {
 
         panel.contentView = blur
         panel.initialFirstResponder = recordButton
-        focusables = [recordButton, micButton, webcamButton, cancelButton]
+        focusables = [recordButton, micButton, webcamButton, setupButton, cancelButton]
         self.panel = panel
     }
 
@@ -235,6 +248,7 @@ final class RecorderBarController: NSObject {
     @objc private func toggleRecord() { isRecording ? onStop?() : onStart?() }
     @objc private func tapMic() { onToggleMic?() }
     @objc private func tapWebcam() { onToggleWebcam?() }
+    @objc private func tapSetup() { onOpenSetup?(setupButton) }
     @objc private func tapCancel() { onCancel?() }
 }
 

@@ -95,10 +95,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.autoenablesItems = false
 
         // --- Record ---
+        //
+        // Two ways to get a video, side by side, because that is what they are: press Start and record
+        // it yourself, or hand the whole job to a coding agent. The agent path used to sit five
+        // sections down as "Create Demo with AI…", where it read as one more AI toggle next to
+        // Captions and Voiceover — when in fact it's a different actor doing the work: the agent reads
+        // the codebase, scripts the scenes, drives the app, and verifies each scene before handing the
+        // video back. Naming the actor is the whole point of the label.
         startItem.target = self
         stopItem.target = self
         menu.addItem(startItem)
         menu.addItem(stopItem)
+
+        let composeItem = NSMenuItem(title: "Let Your Coding Agent Record a Demo…",
+                                     action: #selector(openDemoComposer), keyEquivalent: "")
+        composeItem.target = self
+        composeItem.image = NSImage(systemSymbolName: "sparkles.rectangle.stack",
+                                    accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+        menu.addItem(composeItem)
         menu.addItem(.separator())
 
         // --- Capture mode ---
@@ -108,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         selectAreaItem.target = self
         menu.addItem(selectAreaItem)
         menu.addItem(.separator())
+        menu.addItem(sectionHeader("Setup"))
 
         // --- Input (submenu: mic / webcam, then webcam settings) ---
         micItem.target = self
@@ -160,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inputMenu.delegate = self
         self.inputMenu = inputMenu
         inputItem.submenu = inputMenu
+        self.inputSubmenu = inputMenu       // the recorder bar's popover drops this same submenu
         menu.addItem(inputItem)
 
         // --- Background (submenu: choose an image, or No Background) ---
@@ -203,20 +220,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(teleprompterItem)
         menu.addItem(.separator())
 
-        // --- Create with AI (generative — makes a new demo, not post-processing a take) ---
-        let composeItem = NSMenuItem(title: "Create Demo with AI…",
-                                     action: #selector(openDemoComposer), keyEquivalent: "")
-        composeItem.target = self
-        menu.addItem(composeItem)
-        menu.addItem(.separator())
-
-        // --- After recording (flat, in-order; AI steps are opt-in, enabled from AI Settings) ---
+        // --- After recording (trim/re-edit first, then the content-adding AI steps, in the
+        // order you'd normally apply them; AI steps are opt-in, enabled from AI Settings) ---
         menu.addItem(sectionHeader("After Recording"))
 
         let tightenItem = NSMenuItem(title: "Auto-Cut…",
                                      action: #selector(openTighten), keyEquivalent: "")
         tightenItem.target = self
         menu.addItem(tightenItem)
+
+        let autoEditItem = NSMenuItem(title: "Auto-Edit…",
+                                      action: #selector(openAutoEdit), keyEquivalent: "")
+        autoEditItem.target = self
+        menu.addItem(autoEditItem)
+
+        menu.addItem(.separator())
 
         let captionsItem = NSMenuItem(title: "Add Captions…",
                                       action: #selector(generateCaptions), keyEquivalent: "")
@@ -234,17 +252,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(avatarItem)
         self.avatarMenuItem = avatarItem
 
-        let briefItem = NSMenuItem(title: "Share Recording for AI…",
-                                   action: #selector(explainToAI), keyEquivalent: "")
-        briefItem.target = self
-        menu.addItem(briefItem)
-        self.briefMenuItem = briefItem
-
-        let autoEditItem = NSMenuItem(title: "Auto-Edit…",
-                                      action: #selector(openAutoEdit), keyEquivalent: "")
-        autoEditItem.target = self
-        menu.addItem(autoEditItem)
-
         menu.addItem(.separator())
 
         let publishItem = NSMenuItem(title: "Web Publish…",
@@ -257,6 +264,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.captionsMenuItem = captionsItem
         self.voiceoverMenuItem = voiceoverItem
         menu.delegate = self
+
+        menu.addItem(.separator())
+
+        // --- AI handoff (a different job from the polish steps above: turns the recording into
+        // a structured bug report/brief for a coding agent, not a step toward a finished video) ---
+        let briefItem = NSMenuItem(title: "Share Recording for AI…",
+                                   action: #selector(explainToAI), keyEquivalent: "")
+        briefItem.target = self
+        menu.addItem(briefItem)
+        self.briefMenuItem = briefItem
 
         menu.addItem(.separator())
 
@@ -1173,18 +1190,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// user can have captions without voiceover (or vice versa).
     private func refreshAIMenuItems() {
         // A local STT server needs no key; hosted providers do.
-        captionsMenuItem?.isEnabled = Settings.captionsEnabled
+        let captionsReady = Settings.captionsEnabled
             && (Keychain.exists(account: Keychain.sttAPIKeyAccount) || Settings.sttKeyOptional)
+        captionsMenuItem?.isEnabled = captionsReady
+        captionsMenuItem?.toolTip = captionsReady ? nil
+            : "Turn on Captions and add an API key in AI Settings…"
+
         // ElevenLabs requires its key; local/custom TTS providers can run keyless.
         let ttsIsEleven = (Voiceover.TTSProvider(name: Settings.ttsProvider) == .elevenLabs)
-        voiceoverMenuItem?.isEnabled = Settings.voiceoverEnabled
+        let voiceoverReady = Settings.voiceoverEnabled
             && (!ttsIsEleven || Keychain.exists(account: Keychain.elevenAPIKeyAccount))
+        voiceoverMenuItem?.isEnabled = voiceoverReady
+        voiceoverMenuItem?.toolTip = voiceoverReady ? nil
+            : "Turn on Voiceover and add an API key in AI Settings…"
+
         // Avatar needs a HeyGen key and a latest voiceover (with its narration sidecar).
-        avatarMenuItem?.isEnabled = Keychain.exists(account: Keychain.heygenAPIKeyAccount)
-            && latestVoiceover() != nil
+        let hasHeygenKey = Keychain.exists(account: Keychain.heygenAPIKeyAccount)
+        let hasVoiceoverTrack = latestVoiceover() != nil
+        avatarMenuItem?.isEnabled = hasHeygenKey && hasVoiceoverTrack
+        avatarMenuItem?.toolTip = !hasHeygenKey
+            ? "Add a HeyGen API key in AI Settings…"
+            : (hasVoiceoverTrack ? nil : "Add Voiceover to this recording first")
+
         // The AI brief uses the OpenAI-compatible key (same one captions use) for both the
         // transcription and the chat model.
-        briefMenuItem?.isEnabled = Keychain.exists(account: Keychain.sttAPIKeyAccount)
+        let briefReady = Keychain.exists(account: Keychain.sttAPIKeyAccount)
+        briefMenuItem?.isEnabled = briefReady
+        briefMenuItem?.toolTip = briefReady ? nil
+            : "Add an API key in AI Settings…"
     }
 
     /// Newest `…voiceover.mp4` whose narration sidecar still exists, across per-recording folders.
@@ -1604,6 +1637,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return CGRect(x: f.minX + rx, y: f.minY + f.height - ryTop - rh, width: rw, height: rh)
     }
 
+    private var recorderSetupPopover: RecorderSetupPopover?
+    /// The menu's Input submenu, reused by the recorder bar's setup popover.
+    private weak var inputSubmenu: NSMenu?
+
+    private func popUpInputMenu(from anchor: NSView) {
+        guard let menu = inputSubmenu else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.height + 6), in: anchor)
+    }
+
+    /// The bar's ••• popover. Every action routes to the SAME method the menu uses, so the two never
+    /// drift apart — the popover is a second door onto the same room, not a second implementation.
+    private func showRecorderSetup(from anchor: NSView) {
+        if recorderSetupPopover == nil {
+            recorderSetupPopover = RecorderSetupPopover(actions: .init(
+                setFullScreen: { [weak self] full in
+                    guard let self = self else { return }
+                    if full { self.selectFullScreen() } else { self.selectArea() }
+                },
+                openComposer: { [weak self] in self?.openDemoComposer() },
+                openBackground: { [weak self] in self?.openBackgroundPicker() },
+                toggleBranding: { [weak self] in self?.toggleBranding() },
+                toggleTeleprompter: { [weak self] in self?.toggleTeleprompter() },
+                toggleAutoZoom: { Settings.autoZoomEnabled = !Settings.autoZoomEnabled },
+                // Audio lives in the menu's Input submenu, so the row drops that same submenu here
+                // rather than a second copy of it that could drift.
+                openAudio: { [weak self] in self?.popUpInputMenu(from: anchor) },
+                openWebcam: { [weak self] in self?.openWebcamSettings() },
+                openAISettings: { [weak self] in self?.openAISettings() }))
+        }
+        if recorderSetupPopover?.isShown == true {
+            recorderSetupPopover?.close()
+        } else {
+            recorderSetupPopover?.show(relativeTo: anchor)
+        }
+    }
+
     private func presentRecorderBar() {
         if recorderBar == nil {
             let bar = RecorderBarController()
@@ -1612,6 +1681,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bar.onCancel = { [weak self] in self?.cancelRecorderBar() }
             bar.onToggleMic = { [weak self] in self?.toggleMic() }
             bar.onToggleWebcam = { [weak self] in self?.toggleWebcam() }
+            bar.onOpenSetup = { [weak self] anchor in self?.showRecorderSetup(from: anchor) }
             recorderBar = bar
         }
         let region = regionScreenRect()

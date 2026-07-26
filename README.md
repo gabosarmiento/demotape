@@ -4,9 +4,10 @@
 
 # DemoTape
 
-Record your screen and DemoTape turns it into a polished product demo — automatic zoom on
-your clicks, a smooth cursor, a webcam bubble, captions, voiceover, even an AI presenter.
-It lives in your menu bar, runs fully on your Mac, and needs no account.
+Two ways to get a product demo: **record it yourself**, or **let your coding agent record it for
+you**. Either way DemoTape does the polish — automatic zoom on your clicks, a smooth cursor, a
+webcam bubble, captions, voiceover, even an AI presenter. It lives in your menu bar, runs fully on
+your Mac, and needs no account.
 
 Works on **macOS 12.3+** (Intel or Apple Silicon). A native **Windows 11** port is in the
 [`windows/`](windows/) folder — see [DemoTape on Windows](#demotape-on-windows). Free and open source.
@@ -14,6 +15,41 @@ Works on **macOS 12.3+** (Intel or Apple Silicon). A native **Windows 11** port 
 > **DemoTape is free forever — no account, no license, no upsell.** If it saved you time,
 > [**★ star the repo**](https://github.com/gabosarmiento/demotape). That's the only thanks we ask,
 > and it's what helps other people find it.
+
+---
+
+## Let your coding agent make the demo
+
+Not "AI polish on your recording" — a different actor doing the work. Your agent installs a skill,
+reads your codebase, writes the script, drives the app, records with a synced voiceover, and
+**verifies each scene against what's on screen** before handing the video back. You don't touch the
+mouse.
+
+**1. Install the skill in your coding agent.** Runs from a clone of this repo:
+
+```bash
+tools/demo-driver/skill/install.sh              # Claude Code (~/.claude/skills)
+tools/demo-driver/skill/install.sh --kiro       # Kiro (this workspace's .kiro/steering)
+tools/demo-driver/skill/install.sh --dir <path> # any other skills directory
+```
+
+**2. Point it at your project** (optional) so the agent understands your app before demoing it.
+
+**3. Tell it what to demo.** In a checkout of your app, just ask:
+
+> Record a verified demo of &lt;feature&gt; in this app.
+
+**4. Get a verified video back.** The agent stands up your local stack, discovers the real flow and
+valid inputs from your schema, rehearses headlessly, then records. Every scene carries an assertion
+that must pass at record time, and a vision check that the frame matches the line spoken over it.
+The result is a `…voiceover.mp4` plus a `demo-report.json` with a per-scene verdict — so a demo that
+would have shown the wrong thing fails loudly instead of shipping.
+
+Afterwards it can add another language, subtitles, or a different voice from the same footage,
+without re-recording. The instructions for all of that live in
+[`tools/demo-driver/skill/record-verified-demo/SKILL.md`](tools/demo-driver/skill/record-verified-demo/SKILL.md).
+
+In the app it's the first thing in the menu: **Let Your Coding Agent Record a Demo…**
 
 ---
 
@@ -41,18 +77,21 @@ Accessibility are requested individually, and only if you turn on a feature that
 
 ---
 
-## Record
+## Record it yourself
 
-Click the menu-bar icon (or press **⇧⌘S**) and pick how you want to capture:
+The manual path: record your screen and DemoTape turns it into a polished product demo. Click the
+menu-bar icon (or press **⇧⌘S**) and pick how you want to capture:
 
 - **Full Screen** or **Select Recording Area** — drag out an area; it stays on screen as a frame
   you can move and resize, and never shows up in the video.
-- A floating **recorder bar** appears with Start/Stop, a timer, and toggles for:
+- A floating **recorder bar** appears with Start/Stop, a timer, mic and webcam toggles, and a
+  **•••** button for everything you'd set just before a take:
   - **Microphone** — your narration.
   - **Webcam** — a draggable, resizable circular bubble.
   - **Background** — frame the recording on a gradient or your own image.
   - **Branding** — drop your logo on top.
   - **Teleprompter** — scroll a script beside the recording so you can read while you record.
+  - **Auto-Zoom** — on by default; turn it off for a static shot.
 
 A **3-2-1 countdown** gives you a beat to get ready. When you press Stop, DemoTape auto-edits a
 polished video (smooth zoom, clean cursor, shortcut badges) and saves it to

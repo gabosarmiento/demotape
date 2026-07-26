@@ -20,7 +20,7 @@ final class VoiceoverActionController: ActionPreviewController {
     private var costLabel: NSTextField!
     private var languageRow: NSStackView!
     private var agentBox: NSView!
-    private var agentTitleLabel: NSTextField!
+    private var agentBoxView: AgentHandoffBox!
     private var copyPromptButton: NSButton!
     private var actionButton: NSButton!
     private var costInlineLabel: NSTextField!
@@ -179,40 +179,13 @@ final class VoiceoverActionController: ActionPreviewController {
     /// the user's own coding agent instead of pretending a button can do it. The prompt names the
     /// files, the command, and the fit rule the agent has to iterate against.
     private func makeAgentHandoff() -> NSView {
-        let box = NSBox()
-        box.boxType = .custom
-        box.fillColor = .quaternaryLabelColor.withAlphaComponent(0.08)
-        box.borderColor = .separatorColor
-        box.cornerRadius = 8
-        box.borderWidth = 1
-        box.titlePosition = .noTitle
-
-        agentTitleLabel = NSTextField(labelWithString: "")
-        agentTitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        let blurb = NSTextField(wrappingLabelWithString:
-            "It reads this demo's script, writes the translation, and checks every line still fits its "
-            + "scene — then makes the new DemoTape beside this one.")
-        blurb.font = .systemFont(ofSize: 11)
-        blurb.textColor = .secondaryLabelColor
-        copyPromptButton = NSButton(title: "Copy prompt", target: self, action: #selector(copyAgentPrompt))
-        copyPromptButton.bezelStyle = .rounded
-        let row = NSStackView(views: [blurb, copyPromptButton])
-        row.orientation = .horizontal
-        row.spacing = 12
-        row.alignment = .centerY
-
-        let stack = NSStackView(views: [agentTitleLabel, row])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        box.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
-            stack.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -12)
-        ])
+        let box = AgentHandoffBox(
+            headline: "",
+            detail: "It reads this demo's script, writes the translation, and checks every line still "
+                  + "fits its scene — then makes the new DemoTape beside this one.",
+            target: self, action: #selector(copyAgentPrompt))
+        agentBoxView = box
+        copyPromptButton = box.button
         return box
     }
 
@@ -275,9 +248,7 @@ final class VoiceoverActionController: ActionPreviewController {
         refreshGenerateTitle()
         actionButton?.title = generateTitle
         if let language = selectedLanguage {
-            agentTitleLabel?.stringValue = "Or copy this prompt and let your AI assistant make the "
-                + "\(language.name) one"
-            copyPromptButton?.title = "Copy prompt"
+            agentBoxView?.headline = "Or let your coding agent make the \(language.name) one"
         }
         costInlineLabel?.stringValue = runCost
         refreshSummary()
