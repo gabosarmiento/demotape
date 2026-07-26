@@ -648,7 +648,12 @@ async function runStep(page, step, cfg) {
         // Opt-in on purpose: retrying blindly would double-fire, and an emphasis click on a heading
         // legitimately changes nothing while a second click on a submit button is a real action.
         if (step.mustAct) {
-          await sleep(step.settleMs ?? 900);
+          // POLL for the navigation rather than checking once. A single check after ~900ms calls a
+          // slow-but-successful click a failure, and the "rescue" click then re-submits the form —
+          // granting an approval twice, sending a message twice. Waiting the full window costs
+          // nothing when the click worked, because the poll exits as soon as the URL changes.
+          const deadline = Date.now() + (step.settleMs ?? 3000);
+          while (page.url() === before && Date.now() < deadline) await sleep(200);
           if (page.url() === before) {
             log(`  os-click did not take effect on ${step.selector} — clicking through the browser`);
             await page.click(step.selector, { timeout: step.timeout ?? 8000 }).catch(() => {});
@@ -848,8 +853,17 @@ async function runOnce(cfg, scenes) {
   let verify = null;
   let verifyUnavailable = null;   // set when the gate could not run at all (e.g. a 429)
   if (cfg.verify) {
-    const vspec = join(tmpdir(), `dt-verify-${Date.now()}.json`);
-    writeFileSync(vspec, JSON.stringify({ scenes: verifyScenes }), "utf8");
+    // Keep the spec BESIDE the recording, not just in a temp file. When the gate can't run (a rate
+    // limit), the honest advice is "re-run just the gate later" — which is useless if the moments it
+    // photographs are gone. These are the SETTLED moments (near the end of each scene, after its
+    // action resolved), not the scene starts in timeline.json: judging a "now I'll type this" line
+    // against the frame from before it was typed fails a take that was fine.
+    const vspec = join(dirname(styled), "verify-scenes.json");
+    try {
+      writeFileSync(vspec, JSON.stringify({ scenes: verifyScenes }, null, 2), "utf8");
+    } catch {
+      writeFileSync(join(tmpdir(), `dt-verify-${Date.now()}.json`), JSON.stringify({ scenes: verifyScenes }), "utf8");
+    }
     try {
       const out = execFileSync(cfg.demotapeBin, ["--verify", finalPath, vspec], { encoding: "utf8" });
       verify = JSON.parse(out);
@@ -866,6 +880,7 @@ async function runOnce(cfg, scenes) {
           ? "provider rate limit (429) — the take is unjudged, not failed"
           : (why.split("\n")[0] || "verification could not run");
         log("verify UNAVAILABLE:", verifyUnavailable);
+        log(`  re-run the gate alone with: ${cfg.demotapeBin} --verify "${finalPath}" "${vspec}"`);
       }
     }
     if (verify) for (const s of verify.scenes) log(`  verify @${s.at.toFixed(1)}s: ${s.verdict.toUpperCase()} — ${s.reason}`);
