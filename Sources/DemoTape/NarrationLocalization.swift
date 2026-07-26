@@ -69,6 +69,17 @@ enum NarrationLocalization {
         return "About \(chars) characters of speech · \(remaining.formatted) credits now, \(after.formatted) after."
     }
 
+    /// The language a file's own name declares, from the variant tag DemoTape writes
+    /// (`…voiceover.fr.mp4` → French). Used to preselect the right language instead of asking the
+    /// user to tell the app something it can already see.
+    static func languageOfFile(_ url: URL) -> Language? {
+        let parts = url.deletingPathExtension().lastPathComponent.split(separator: ".")
+        for part in parts.reversed() {
+            if let match = language(forCode: String(part)) { return match }
+        }
+        return nil
+    }
+
     // MARK: - The agent hand-off
 
     /// The prompt a user pastes into their coding agent to produce this language.
@@ -100,6 +111,54 @@ enum NarrationLocalization {
            drift is under about a second. Only the lines you changed are re-synthesized.
 
         The result is …voiceover.\(language.code).mp4 beside the original, which is left untouched.
+        """
+    }
+
+    /// Where a translated subtitle file should go: the same name with `language`'s code, REPLACING any
+    /// language already in it. Naively appending turned a French `Demo.fr.srt` into `Demo.fr.es.srt`,
+    /// which then reads as neither.
+    static func translatedSRTPath(_ srtPath: String, language: Language) -> String {
+        let url = URL(fileURLWithPath: srtPath)
+        var stem = url.deletingPathExtension().lastPathComponent
+        if let dot = stem.lastIndex(of: "."),
+           self.language(forCode: String(stem[stem.index(after: dot)...])) != nil {
+            stem = String(stem[..<dot])
+        }
+        return url.deletingLastPathComponent()
+            .appendingPathComponent("\(stem).\(language.code).srt").path
+    }
+
+    /// The prompt for CAPTIONS in another language.
+    ///
+    /// Different job from the narration one, and the difference is the constraint: subtitles are read,
+    /// not heard, so the timings are fixed and the text has to fit inside them and inside the frame.
+    /// The app can transcribe what is spoken; turning that into another language is a translation
+    /// task, which is what this hands over.
+    static func captionAgentPrompt(video: URL, srtPath: String, language: Language,
+                                   spokenLanguage: Language? = nil,
+                                   binPath: String = "/Applications/DemoTape.app/Contents/MacOS/DemoTape") -> String {
+        let from = spokenLanguage.map { " The audio is in \($0.name)." } ?? ""
+        let target = translatedSRTPath(srtPath, language: language)
+        return """
+        Write \(language.name) subtitles for a DemoTape video, and burn them in.\(from)
+
+        Video:      \(video.path)
+        Transcript: \(srtPath)
+
+        1. Read that .srt. Each entry has a start time, an end time, and a line of text.
+        2. Translate each entry's TEXT to \(language.name) (\(language.endonym)). Do not change a single
+           timing, do not merge entries, and do not add or remove any — subtitles are read against the
+           picture, so the cue boundaries are fixed.
+        3. Keep product names, identifiers and UI labels exactly as they appear on screen; the interface
+           in the video is not translated.
+        4. Keep it readable: aim for under ~42 characters per line and at most two lines per entry. If a
+           translation won't fit, shorten the wording rather than stretching the timing.
+        5. Save it as:
+           \(target)
+        6. Burn it in:
+           "\(binPath)" --burn "\(video.path)" clean --srt "\(target)"
+
+        That writes a new …captioned.mp4 beside the video. The video and its audio are untouched.
         """
     }
 }

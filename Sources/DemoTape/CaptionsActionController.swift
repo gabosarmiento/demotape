@@ -11,6 +11,11 @@ final class CaptionsActionController: ActionPreviewController {
     private let hadCache: Bool
 
     private var languagePopup: NSPopUpButton!
+    private var targetLanguagePopup: NSPopUpButton!
+    private var transcriptLabel: NSTextField!
+    private var transcribeButton: NSButton!
+    private var copyPromptButton: NSButton!
+    private var agentBox: NSView!
     private var subtitlesDocStack: NSStackView!
     private var cueFields: [NSTextField] = []
 
@@ -43,14 +48,156 @@ final class CaptionsActionController: ActionPreviewController {
     // MARK: - Controls (full-width tab: Language + timed, editable Subtitles)
 
     override func makeControls() -> NSView {
+        let header = makeHeaderRow()
+
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.heightAnchor.constraint(equalToConstant: 240).isActive = true
-
+        tabView.heightAnchor.constraint(equalToConstant: 214).isActive = true
         tabView.addTabViewItem(makeSubtitlesTab())
         tabView.addTabViewItem(makeDesignTab())
-        tabView.addTabViewItem(makeLanguageTab())
-        return tabView
+
+        agentBox = makeAgentHandoff()
+
+        let stack = NSStackView(views: [header, tabView, agentBox])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        [header, tabView, agentBox].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            $0.leadingAnchor.constraint(equalTo: stack.leadingAnchor).isActive = true
+            $0.trailingAnchor.constraint(equalTo: stack.trailingAnchor).isActive = true
+        }
+        refreshHeader()
+        return stack
+    }
+
+    /// What this window is working on, and the one setting that changes the transcript. Both were
+    /// hidden — the language sat in a tab nobody opens, and the transcript's state was only visible as
+    /// an error after pressing Generate.
+    private func makeHeaderRow() -> NSView {
+        transcriptLabel = NSTextField(labelWithString: "")
+        transcriptLabel.font = .systemFont(ofSize: 13, weight: .medium)
+
+        let spokenLabel = NSTextField(labelWithString: "Spoken")
+        spokenLabel.font = .systemFont(ofSize: 13)
+        languagePopup = NSPopUpButton()
+        languagePopup.addItems(withTitles: languages.map { $0.0 })
+        // The file usually says what it is (…voiceover.fr.mp4). Preselect that rather than making the
+        // user tell the app something it can already read off the name.
+        let fileLanguage = NarrationLocalization.languageOfFile(source)
+        let wanted = config.language.isEmpty ? (fileLanguage?.code ?? "") : config.language
+        if let idx = languages.firstIndex(where: { $0.1 == wanted }) {
+            languagePopup.selectItem(at: idx)
+            config.language = wanted
+        }
+        languagePopup.target = self
+        languagePopup.action = #selector(languageChanged)
+        languagePopup.isEnabled = !config.apiKey.isEmpty
+
+        transcribeButton = NSButton(title: "Transcribe", target: self, action: #selector(transcribeTapped))
+        transcribeButton.bezelStyle = .rounded
+
+        let row = NSStackView(views: [transcriptLabel, NSView(), spokenLabel, languagePopup, transcribeButton])
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.alignment = .centerY
+        return row
+    }
+
+    /// Captions in a language the audio isn't in is a translation, which the app doesn't do — so it
+    /// hands the job over with everything needed to finish it, rather than offering a button that
+    /// would quietly produce the wrong thing.
+    private func makeAgentHandoff() -> NSView {
+        let box = NSBox()
+        box.boxType = .custom
+        box.fillColor = .quaternaryLabelColor.withAlphaComponent(0.08)
+        box.borderColor = .separatorColor
+        box.cornerRadius = 8
+        box.borderWidth = 1
+        box.titlePosition = .noTitle
+
+        let title = NSTextField(labelWithString: "Or copy this prompt and let your AI assistant write them in")
+        title.font = .systemFont(ofSize: 12, weight: .medium)
+        targetLanguagePopup = NSPopUpButton()
+        targetLanguagePopup.addItems(withTitles: NarrationLocalization.languages.map(NarrationLocalization.label))
+        targetLanguagePopup.target = self
+        targetLanguagePopup.action = #selector(targetLanguageChanged)
+        if let spoken = NarrationLocalization.languageOfFile(source),
+           let idx = NarrationLocalization.languages.firstIndex(where: { $0.code == spoken.code }) {
+            targetLanguagePopup.selectItem(at: idx)
+        }
+        let titleRow = NSStackView(views: [title, targetLanguagePopup, NSView()])
+        titleRow.orientation = .horizontal
+        titleRow.spacing = 8
+
+        let blurb = NSTextField(wrappingLabelWithString:
+            "It translates every line without touching a single timing, keeps them short enough to read, "
+            + "and burns the result beside this video.")
+        blurb.font = .systemFont(ofSize: 11)
+        blurb.textColor = .secondaryLabelColor
+        copyPromptButton = NSButton(title: "Copy prompt", target: self, action: #selector(copyCaptionPrompt))
+        copyPromptButton.bezelStyle = .rounded
+        let row = NSStackView(views: [blurb, copyPromptButton])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .centerY
+
+        let stack = NSStackView(views: [titleRow, row])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -12)
+        ])
+        return box
+    }
+
+    private var selectedTargetLanguage: NarrationLocalization.Language? {
+        let i = targetLanguagePopup?.indexOfSelectedItem ?? -1
+        return i >= 0 && i < NarrationLocalization.languages.count ? NarrationLocalization.languages[i] : nil
+    }
+
+    @objc private func targetLanguageChanged() { refreshHeader() }
+
+    /// Says where the transcript stands, in words, at the top of the window.
+    private func refreshHeader() {
+        guard transcriptLabel != nil else { return }
+        let spoken = NarrationLocalization.languageOfFile(source)?.name
+        let subject = spoken.map { "\($0) audio" } ?? "this video"
+        transcriptLabel.stringValue = cues.isEmpty
+            ? "No subtitles yet for \(subject)"
+            : "\(cues.count) subtitle lines from \(subject)"
+        transcribeButton?.title = cues.isEmpty ? "Transcribe" : "Transcribe again"
+        if let target = selectedTargetLanguage, let spokenName = spoken, target.name != spokenName {
+            copyPromptButton?.toolTip = "Translate the \(spokenName) subtitles into \(target.name)"
+        }
+    }
+
+    /// Puts the caption-translation prompt on the clipboard.
+    @objc private func copyCaptionPrompt() {
+        guard let target = selectedTargetLanguage else { return }
+        // The prompt points at a real file, so make sure one exists to point at.
+        let paths = SourcePaths(source: source)
+        if !cues.isEmpty {
+            paths.ensureSourceDir()
+            try? Captions.writeSRT(cues, to: paths.srtURL)
+        }
+        guard FileManager.default.fileExists(atPath: paths.srtURL.path) else {
+            setStatus("Transcribe first — the prompt needs the timed lines to translate.", isError: true)
+            return
+        }
+        let prompt = NarrationLocalization.captionAgentPrompt(
+            video: source, srtPath: paths.srtURL.path, language: target,
+            spokenLanguage: NarrationLocalization.languageOfFile(source))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(prompt, forType: .string)
+        setStatus("Copied the \(target.name) subtitle prompt — paste it into your AI assistant.",
+                  isError: false)
     }
 
     // MARK: - Design tab (style preview cards)
@@ -107,43 +254,6 @@ final class CaptionsActionController: ActionPreviewController {
         for card in styleCards { card.isSelected = (card.styleID == style.id) }
         setStatus("Style: \(style.name)\(style.animated ? " (animated)" : ""). Generate preview to apply.",
                   isError: false)
-    }
-
-    private func makeLanguageTab() -> NSTabViewItem {
-        languagePopup = NSPopUpButton()
-        languagePopup.addItems(withTitles: languages.map { $0.0 })
-        if let idx = languages.firstIndex(where: { $0.1 == config.language }) {
-            languagePopup.selectItem(at: idx)
-        }
-        languagePopup.target = self
-        languagePopup.action = #selector(languageChanged)
-        languagePopup.isEnabled = !config.apiKey.isEmpty
-
-        let langLabel = NSTextField(labelWithString: "Language")
-        langLabel.font = .systemFont(ofSize: 13)
-        let hint = NSTextField(labelWithString: "Changing this re-transcribes the audio.")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .secondaryLabelColor
-
-        let row = NSStackView(views: [langLabel, languagePopup])
-        row.orientation = .horizontal
-        row.spacing = 10
-        let stack = NSStackView(views: [row, hint])
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 12
-
-        let container = NSView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor)
-        ])
-        let tab = NSTabViewItem(identifier: "language")
-        tab.label = "Language"
-        tab.view = container
-        return tab
     }
 
     private func makeSubtitlesTab() -> NSTabViewItem {
@@ -218,6 +328,7 @@ final class CaptionsActionController: ActionPreviewController {
     // MARK: - Lifecycle
 
     override func windowDidAppear() {
+        refreshHeader()
         if hadCache {
             rebuildSubtitleRows()
             setStatus("Loaded transcript. Edit the Subtitles tab, then Generate preview.", isError: false)
@@ -234,6 +345,8 @@ final class CaptionsActionController: ActionPreviewController {
         config.language = languages[max(0, languagePopup.indexOfSelectedItem)].1
         transcribe()
     }
+
+    @objc private func transcribeTapped() { transcribe() }
 
     private func transcribe() {
         guard !config.apiKey.isEmpty else {
@@ -252,6 +365,7 @@ final class CaptionsActionController: ActionPreviewController {
                     self.setBusy(false)
                     self.cues = result.cues
                     self.rebuildSubtitleRows()
+                    self.refreshHeader()
                     self.setStatus("Transcribed \(result.cues.count) lines. Edit if needed, then Generate preview.",
                                    isError: false)
                 }
@@ -282,6 +396,7 @@ final class CaptionsActionController: ActionPreviewController {
         try? Captions.writeSRT(cues, to: paths.srtURL)
         try? Captions.writeVTT(cues, to: paths.vttURL)
         rebuildSubtitleRows()
+        refreshHeader()
         setStatus("Subtitles updated. Generate preview to burn them in.", isError: false)
     }
 

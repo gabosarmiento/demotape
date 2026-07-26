@@ -259,3 +259,45 @@ final class NarrationLocalizationTests: XCTestCase {
         XCTAssertTrue(p.contains("voiceover.fr.mp4"))
     }
 }
+
+// MARK: - Captions in another language
+
+final class CaptionLocalizationTests: XCTestCase {
+
+    func testLanguageIsReadOffTheFileName() {
+        let fr = URL(fileURLWithPath: "/m/Demo 1.voiceover.fr.mp4")
+        XCTAssertEqual(NarrationLocalization.languageOfFile(fr)?.name, "French")
+        let plain = URL(fileURLWithPath: "/m/Demo 1.voiceover.mp4")
+        XCTAssertNil(NarrationLocalization.languageOfFile(plain))
+        // A date in the name must not be mistaken for a language tag.
+        XCTAssertNil(NarrationLocalization.languageOfFile(URL(fileURLWithPath: "/m/DemoTape 2026-07-26 at 03.57.05.styled.mp4")))
+    }
+
+    func testCaptionPromptFixesTimingsAndNamesTheBurnCommand() {
+        let es = NarrationLocalization.language(forCode: "es")!
+        let fr = NarrationLocalization.language(forCode: "fr")!
+        let p = NarrationLocalization.captionAgentPrompt(
+            video: URL(fileURLWithPath: "/m/Demo.voiceover.fr.mp4"),
+            srtPath: "/m/.source/Demo.fr.srt", language: es, spokenLanguage: fr)
+        XCTAssertTrue(p.contains("The audio is in French"))
+        XCTAssertTrue(p.contains("Spanish"))
+        XCTAssertTrue(p.contains("Do not change a single"))     // the constraint that matters
+        XCTAssertTrue(p.contains("/m/.source/Demo.es.srt"))     // where to save it
+        XCTAssertTrue(p.contains("--burn"))
+        XCTAssertTrue(p.contains("--srt"))
+    }
+}
+
+extension CaptionLocalizationTests {
+
+    func testTranslatedSRTPathReplacesAnExistingLanguageTag() {
+        let es = NarrationLocalization.language(forCode: "es")!
+        XCTAssertEqual(NarrationLocalization.translatedSRTPath("/m/.source/Demo.fr.srt", language: es),
+                       "/m/.source/Demo.es.srt")
+        XCTAssertEqual(NarrationLocalization.translatedSRTPath("/m/.source/Demo.srt", language: es),
+                       "/m/.source/Demo.es.srt")
+        // A dotted name that isn't a language must survive intact.
+        XCTAssertEqual(NarrationLocalization.translatedSRTPath("/m/.source/DemoTape 2026-07-26 at 03.57.05.srt", language: es),
+                       "/m/.source/DemoTape 2026-07-26 at 03.57.05.es.srt")
+    }
+}

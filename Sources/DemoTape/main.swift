@@ -483,12 +483,26 @@ if let i = args.firstIndex(of: "--voiceover"), args.count > i + 2 {
 // Loads cues from the cached transcript (or a .srt sidecar) and writes <name>.captioned.mp4.
 if let i = args.firstIndex(of: "--burn"), args.count > i + 1 {
     let video = URL(fileURLWithPath: args[i + 1])
-    guard let cues = Captions.loadTranscript(for: video), !cues.isEmpty else {
-        FileHandle.standardError.write("burn error: no transcript/.srt found for \(video.lastPathComponent)\n".data(using: .utf8)!)
+
+    // `--srt <file>` burns THAT subtitle file. Without it the cached transcript wins over any .srt
+    // beside the video, so an edited or translated .srt was silently ignored — the one thing someone
+    // hand-editing subtitles is bound to try.
+    let explicitSRT = args.firstIndex(of: "--srt").flatMap { args.count > $0 + 1 ? args[$0 + 1] : nil }
+    let cues: [CaptionCue]?
+    if let path = explicitSRT {
+        cues = (try? String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)).map(Captions.parseSRT)
+    } else {
+        cues = Captions.loadTranscript(for: video)
+    }
+    guard let cues = cues, !cues.isEmpty else {
+        let what = explicitSRT ?? "transcript/.srt for \(video.lastPathComponent)"
+        FileHandle.standardError.write("burn error: no cues in \(what)\n".data(using: .utf8)!)
         exit(1)
     }
-    let out = video.deletingPathExtension().deletingPathExtension().appendingPathExtension("captioned.mp4")
-    let styleID = args.count > i + 2 ? args[i + 2] : "clean"
+    // Keep any language marker in the name: stripping two extensions turned
+    // "…voiceover.fr.mp4" into "…voiceover.captioned.mp4", so French and Spanish burns collided.
+    let out = SourcePaths(source: video).output(suffix: "captioned")
+    let styleID = args.count > i + 2 && !args[i + 2].hasPrefix("--") ? args[i + 2] : "clean"
     let style = CaptionStyle.byID(styleID)
     do {
         try CaptionBurner().burn(video: video, cues: cues, style: style, to: out)
