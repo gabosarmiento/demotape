@@ -100,7 +100,7 @@ enum DemoControl {
     /// event doesn't reliably reach a status item, so the app performs the click on itself instead,
     /// which needs no screen coordinates at all.
     enum Window: String, Equatable, CaseIterable {
-        case about, publish, composer, settings, welcome, menu
+        case about, publish, composer, settings, welcome, voiceover, menu
     }
 
     /// Parses a `demotape://` control URL into a command. Returns nil for anything unrecognized.

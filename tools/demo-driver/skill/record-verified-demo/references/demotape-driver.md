@@ -28,8 +28,10 @@ poll `state:"idle"` → read `lastOutput` (the styled video).
 - `DemoTape --voices` — list ElevenLabs voice ids + labels.
 - `DemoTape --tts <script.txt> <out.mp3> [voiceId]` — synthesize narration only.
 - `DemoTape --voiceover <video> <script.txt> [voiceId]` — one narration block over a video.
-- `DemoTape --voiceover-timeline <video> <spec.json>` — lay MANY clips at offsets (scene sync).
-  spec: `{"clips":[{"audio":"/a.mp3","at":0.0},{"audio":"/b.mp3","at":6.2}]}`.
+- `DemoTape --voiceover-timeline <video> <spec.json> [--tag es]` — lay MANY clips at offsets (scene
+  sync). spec: `{"clips":[{"audio":"/a.mp3","at":0.0},{"audio":"/b.mp3","at":6.2}]}`.
+  `--tag` writes `…voiceover.es.mp4` instead of replacing the original, and each clip's fit is
+  reported (see "Another language", below).
 - `DemoTape --verify <video> <spec.json>` — vision-check each scene's frame vs its line; exits 0 if
   all pass, 2 otherwise. spec: `{"scenes":[{"at":3.8,"say":"…"}]}`.
   The driver saves the spec it used as **`verify-scenes.json` beside the video**, so a gate that
@@ -167,6 +169,30 @@ node driver.mjs demo-myapp.local.json --rehearse   # steps + assertions only, he
 ```
 
 Progress logs to `driver.log`. It opens the final `…voiceover.mp4` and exits non-zero if unverified.
+
+## Another language (no re-recording)
+
+A finished demo can gain a second narration as a NEW file, leaving the original playable:
+
+```bash
+node driver.mjs narrate "<recording-folder-or-styled.mp4>" lines-es.json [voiceId]
+# lines-es.json:  { "tag": "es", "lines": ["…", "…"] }      one line per scene, same order
+#            or:  { "tag": "es", "scenes": [ { "at": 0, "say": "…" } ] }
+```
+
+Offsets come from the recording's `timeline.json`, so the words change and the timing doesn't. It
+writes `…voiceover.es.mp4` plus `timeline.es.json`.
+
+**The thing that goes wrong: length.** Translated speech runs longer than the English it replaces
+(Spanish and French maybe a fifth longer), and clips are never overlapped — so one long line pushes
+every later line late, which reads as the narration drifting off the picture. The tool prints a fit
+report naming each line that overruns its scene and the total drift. The loop is: generate, shorten
+the flagged lines, generate again, until drift is under about a second. Real numbers from a 14-scene
+demo: 12.4s drift on the first pass (one line 9.2s over), 0.0s after two passes of tightening.
+Each spoken line is cached by (voice, text), so a second pass only pays for the lines you changed.
+
+In the app the same thing lives in **Add Voiceover…** — pick a language, press *Generate new DemoTape
+in <language>*, or copy the prompt and let a coding agent do the translation and the fit loop.
 
 ## Swap the voice later (no re-recording)
 

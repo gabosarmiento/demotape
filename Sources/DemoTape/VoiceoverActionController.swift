@@ -14,6 +14,29 @@ final class VoiceoverActionController: ActionPreviewController {
     private var scriptView: NSTextView!
     private var voicePopup: NSPopUpButton!
     private var previewVoiceButton: NSButton!
+    private var languagePopup: NSPopUpButton!
+    private var modeControl: NSSegmentedControl!
+    private var summaryLabel: NSTextField!
+    private var costLabel: NSTextField!
+    private var languageRow: NSStackView!
+    private var agentBox: NSView!
+    private var agentTitleLabel: NSTextField!
+    private var copyPromptButton: NSButton!
+    private var actionButton: NSButton!
+    private var costInlineLabel: NSTextField!
+    private var scriptTabItem: NSTabViewItem!
+    private var credits: Voiceover.Credits?
+    /// Set after a generate, so the status line can report which lines didn't fit their scene.
+    private var lastFitNote: String?
+
+    /// What this window will do when Generate is pressed. Two genuinely different jobs, so the window
+    /// asks which one rather than inferring it from whether a text field happens to be empty.
+    private enum Mode: Int { case replace = 0, addLanguage = 1 }
+    private var mode: Mode { Mode(rawValue: modeControl?.selectedSegment ?? 0) ?? .replace }
+    private var selectedLanguage: NarrationLocalization.Language? {
+        let i = languagePopup?.indexOfSelectedItem ?? -1
+        return i >= 0 && i < NarrationLocalization.languages.count ? NarrationLocalization.languages[i] : nil
+    }
 
     init(source: URL, apiKey: String) {
         self.apiKey = apiKey
@@ -26,7 +49,73 @@ final class VoiceoverActionController: ActionPreviewController {
 
     // MARK: - Controls (script editor + voice picker)
 
+    /// The window supplies its own action button, under the language picker.
+    override var showsPrimaryButton: Bool { false }
+
+    /// Names the artefact, not the mechanism. "Add French narration" describes a track being attached
+    /// to a file; what the user is actually getting is another DemoTape, in French.
+    override var generateTitle: String {
+        guard mode == .addLanguage else { return "Re-record the narration" }
+        return selectedLanguage.map { "Generate new DemoTape in \($0.name)" } ?? "Generate in another language"
+    }
+
+    @objc private func inlineGenerate() { beginGenerate() }
+
+    override func setBusy(_ busy: Bool) {
+        super.setBusy(busy)
+        actionButton?.isEnabled = !busy
+        copyPromptButton?.isEnabled = !busy
+    }
+
     override func makeControls() -> NSView {
+        // What this demo already is. A narration you're about to change is not a blank slate — the
+        // useful first sentence is "this is what you have", not "type something here".
+        summaryLabel = NSTextField(labelWithString: "")
+        summaryLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        summaryLabel.lineBreakMode = .byTruncatingTail
+        costLabel = NSTextField(labelWithString: "")
+        costLabel.font = .systemFont(ofSize: 11)
+        costLabel.textColor = .secondaryLabelColor
+        costLabel.alignment = .right
+        costLabel.lineBreakMode = .byTruncatingHead
+        let headerRow = NSStackView(views: [summaryLabel, NSView(), costLabel])
+        headerRow.orientation = .horizontal
+        headerRow.spacing = 12
+
+        modeControl = NSSegmentedControl(labels: ["Replace the narrator", "Add a language"],
+                                         trackingMode: .selectOne,
+                                         target: self, action: #selector(modeChanged))
+        modeControl.selectedSegment = 0
+        modeControl.segmentDistribution = .fillEqually
+
+        let form = makeVoiceForm()
+        let tabs = NSTabView()
+        tabs.translatesAutoresizingMaskIntoConstraints = false
+        let narrationItem = NSTabViewItem(identifier: "narration")
+        narrationItem.label = "Narration"
+        narrationItem.view = form
+        scriptTabItem = NSTabViewItem(identifier: "script")
+        scriptTabItem.label = "Script"
+        scriptTabItem.view = makeScriptEditor()
+        tabs.addTabViewItem(narrationItem)
+        tabs.addTabViewItem(scriptTabItem)
+        tabs.heightAnchor.constraint(equalToConstant: 232).isActive = true
+
+        let stack = NSStackView(views: [headerRow, modeControl, tabs])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        [headerRow, modeControl, tabs].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            $0.leadingAnchor.constraint(equalTo: stack.leadingAnchor).isActive = true
+            $0.trailingAnchor.constraint(equalTo: stack.trailingAnchor).isActive = true
+        }
+        updateForMode()
+        return stack
+    }
+
+    /// The Narration tab: voice, language, and the option of handing the translation to an agent.
+    private func makeVoiceForm() -> NSView {
         // Voice row.
         let voiceLabel = NSTextField(labelWithString: "Voice")
         voiceLabel.font = .systemFont(ofSize: 13)
@@ -41,14 +130,106 @@ final class VoiceoverActionController: ActionPreviewController {
         previewVoiceButton.toolTip = "Hear a sample of this voice"
         previewVoiceButton.isEnabled = false
 
+        let voiceRow = NSStackView(views: [voiceLabel, voicePopup, previewVoiceButton, NSView()])
+        voiceRow.orientation = .horizontal
+        voiceRow.spacing = 10
+
+        // Language row — a list, not a text field. The tag becomes the filename (…voiceover.es.mp4),
+        // so typing it freehand invited a mislabelled file for no benefit.
+        let languageLabel = NSTextField(labelWithString: "Language")
+        languageLabel.font = .systemFont(ofSize: 13)
+        languagePopup = NSPopUpButton()
+        languagePopup.addItems(withTitles: NarrationLocalization.languages.map(NarrationLocalization.label))
+        languagePopup.target = self
+        languagePopup.action = #selector(languageChanged)
+        languageRow = NSStackView(views: [languageLabel, languagePopup, NSView()])
+        languageRow.orientation = .horizontal
+        languageRow.spacing = 10
+
+        // The action sits with the choice that decides it, right under the language — not stranded at
+        // the bottom of the window where it reads as unrelated to anything above it.
+        actionButton = NSButton(title: generateTitle, target: self, action: #selector(inlineGenerate))
+        actionButton.bezelStyle = .rounded
+        actionButton.controlSize = .large
+        actionButton.keyEquivalent = "\r"
+        costInlineLabel = NSTextField(labelWithString: "")
+        costInlineLabel.font = .systemFont(ofSize: 11)
+        costInlineLabel.textColor = .secondaryLabelColor
+        let actionRow = NSStackView(views: [actionButton, costInlineLabel, NSView()])
+        actionRow.orientation = .horizontal
+        actionRow.spacing = 10
+        actionRow.alignment = .centerY
+
+        agentBox = makeAgentHandoff()
+
+        let form = NSStackView(views: [voiceRow, languageRow, actionRow, agentBox])
+        form.orientation = .vertical
+        form.alignment = .leading
+        form.spacing = 14
+        form.edgeInsets = NSEdgeInsets(top: 16, left: 14, bottom: 14, right: 14)
+        [voiceRow, languageRow, actionRow, agentBox].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            $0.leadingAnchor.constraint(equalTo: form.leadingAnchor, constant: 14).isActive = true
+            $0.trailingAnchor.constraint(equalTo: form.trailingAnchor, constant: -14).isActive = true
+        }
+        return form
+    }
+
+    /// Translating well is a judgement call, not a lookup — so the window offers to hand the job to
+    /// the user's own coding agent instead of pretending a button can do it. The prompt names the
+    /// files, the command, and the fit rule the agent has to iterate against.
+    private func makeAgentHandoff() -> NSView {
+        let box = NSBox()
+        box.boxType = .custom
+        box.fillColor = .quaternaryLabelColor.withAlphaComponent(0.08)
+        box.borderColor = .separatorColor
+        box.cornerRadius = 8
+        box.borderWidth = 1
+        box.titlePosition = .noTitle
+
+        agentTitleLabel = NSTextField(labelWithString: "")
+        agentTitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        let blurb = NSTextField(wrappingLabelWithString:
+            "It reads this demo's script, writes the translation, and checks every line still fits its "
+            + "scene — then makes the new DemoTape beside this one.")
+        blurb.font = .systemFont(ofSize: 11)
+        blurb.textColor = .secondaryLabelColor
+        copyPromptButton = NSButton(title: "Copy prompt", target: self, action: #selector(copyAgentPrompt))
+        copyPromptButton.bezelStyle = .rounded
+        let row = NSStackView(views: [blurb, copyPromptButton])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.alignment = .centerY
+
+        let stack = NSStackView(views: [agentTitleLabel, row])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -12)
+        ])
+        return box
+    }
+
+    /// The Script tab: the words themselves, out of the way of the everyday choices. A scene-synced
+    /// demo shows each line with the moment it belongs to, which is what makes hand-editing possible.
+    private func makeScriptEditor() -> NSView {
         let fromCaptions = NSButton(title: "Load from captions", target: self, action: #selector(loadFromCaptions))
         fromCaptions.bezelStyle = .rounded
         let loadButton = NSButton(title: "Load Script…", target: self, action: #selector(loadScript))
         loadButton.bezelStyle = .rounded
-        let voiceRow = NSStackView(views: [voiceLabel, voicePopup, previewVoiceButton, NSView(),
-                                           fromCaptions, loadButton])
-        voiceRow.orientation = .horizontal
-        voiceRow.spacing = 10
+        let hint = NSTextField(labelWithString: "")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.stringValue = "A time in brackets keeps each line on its own moment."
+        let toolRow = NSStackView(views: [hint, NSView(), fromCaptions, loadButton])
+        toolRow.orientation = .horizontal
+        toolRow.spacing = 10
 
         // Script editor.
         let scroll = NSScrollView()
@@ -66,18 +247,97 @@ final class VoiceoverActionController: ActionPreviewController {
         scroll.documentView = tv
         scriptView = tv
 
-        let stack = NSStackView(views: [voiceRow, scroll])
+        let stack = NSStackView(views: [toolRow, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
-        voiceRow.translatesAutoresizingMaskIntoConstraints = false
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
+        toolRow.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            voiceRow.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
-            voiceRow.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
-            scroll.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: stack.trailingAnchor)
+            toolRow.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 14),
+            toolRow.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -14),
+            scroll.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 14),
+            scroll.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -14)
         ])
         return stack
+    }
+
+    // MARK: - Mode, language, and the numbers that matter
+
+    @objc private func modeChanged() { updateForMode() }
+    @objc private func languageChanged() { updateForMode() }
+
+    /// Keeps the window honest about what pressing Generate will do.
+    private func updateForMode() {
+        let adding = mode == .addLanguage
+        languageRow?.isHidden = !adding
+        agentBox?.isHidden = !adding
+        refreshGenerateTitle()
+        actionButton?.title = generateTitle
+        if let language = selectedLanguage {
+            agentTitleLabel?.stringValue = "Or copy this prompt and let your AI assistant make the "
+                + "\(language.name) one"
+            copyPromptButton?.title = "Copy prompt"
+        }
+        costInlineLabel?.stringValue = runCost
+        refreshSummary()
+        setStatus(modeHint, isError: false)
+    }
+
+    /// The lines this run will speak. A timed script is per scene; plain prose is one block.
+    private var linesToSpeak: [Voiceover.TimedLine] {
+        let timed = Voiceover.parseTimedScript(scriptView?.string ?? "")
+        if !timed.isEmpty { return timed }
+        return [Voiceover.TimedLine(at: 0, say: scriptView?.string ?? "")]
+    }
+
+    /// What pressing the button costs, next to the button. Speech is billed per character, so this is
+    /// knowable before spending anything — and much more useful before than after.
+    private var runCost: String {
+        let chars = NarrationLocalization.characterCount(of: linesToSpeak)
+        guard chars > 0 else { return "" }
+        return NarrationLocalization.costSummary(characters: chars, remaining: credits?.remaining)
+    }
+
+    private var modeHint: String {
+        if mode == .addLanguage {
+            let name = selectedLanguage?.name ?? "another language"
+            return "Keeps this DemoTape as it is and makes a \(name) one beside it, on the same timings."
+        }
+        return "Speaks the script again on this file, keeping the picture."
+    }
+
+    /// "14 scenes · narrated in English by Matilda · also in Español"
+    private func refreshSummary() {
+        guard summaryLabel != nil else { return }
+        var parts: [String] = []
+        let timed = Voiceover.savedTimedScript(besideVideo: source) ?? []
+        if timed.count > 1 { parts.append("\(timed.count) scenes") }
+        let voiceName = savedVoiceName ?? (voices.isEmpty ? nil : voices[max(0, voicePopup.indexOfSelectedItem)].name)
+        parts.append(voiceName.map { "narrated by \($0)" } ?? "no narration yet")
+        let tags = Voiceover.existingTags(besideVideo: source)
+        if !tags.isEmpty {
+            let named = tags.map { NarrationLocalization.language(forCode: $0).map(\.endonym) ?? $0 }
+            parts.append("also in \(named.joined(separator: ", "))")
+        }
+        summaryLabel.stringValue = parts.joined(separator: " · ")
+        costLabel.stringValue = credits.map { "\($0.summary)" } ?? ""
+    }
+
+    /// The voice the recording was narrated with, when the driver saved it.
+    private var savedVoiceName: String? {
+        guard let id = savedVoiceId else { return nil }
+        return voices.first { $0.id == id }?.name
+    }
+
+    /// Puts the hand-off prompt on the clipboard, ready to paste into a coding agent.
+    @objc private func copyAgentPrompt() {
+        guard let language = selectedLanguage else { return }
+        let dir = source.deletingLastPathComponent().path
+        let prompt = NarrationLocalization.agentPrompt(recordingDir: dir, language: language)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(prompt, forType: .string)
+        setStatus("Copied the \(language.name) prompt — paste it into your coding agent.", isError: false)
     }
 
     // MARK: - Lifecycle
@@ -101,8 +361,8 @@ final class VoiceoverActionController: ActionPreviewController {
         voicePopup.addItem(withTitle: "Server voice: \(voice)")
         voicePopup.isEnabled = false
         previewVoiceButton.isEnabled = false
-        setStatus("Using \(Settings.ttsProvider) at \(Settings.ttsBaseURL). Write your script, then Generate preview.",
-                  isError: false)
+        refreshSummary()
+        setStatus("Using \(Settings.ttsProvider) at \(Settings.ttsBaseURL). \(modeHint)", isError: false)
     }
 
     private func loadVoices() {
@@ -124,27 +384,41 @@ final class VoiceoverActionController: ActionPreviewController {
 
     private func populateVoices(_ list: [Voiceover.Voice], credits: Voiceover.Credits? = nil) {
         voices = list
+        self.credits = credits
         voicePopup.removeAllItems()
         voicePopup.addItems(withTitles: list.map { $0.label })
         voicePopup.isEnabled = true
-        if let idx = list.firstIndex(where: { $0.id == Settings.elevenVoiceId }) {
+        // Prefer the voice this demo was actually narrated with, so "replace the narrator" starts from
+        // the current one rather than whatever was last used somewhere else.
+        let savedId = savedVoiceId
+        if let idx = list.firstIndex(where: { $0.id == savedId })
+            ?? list.firstIndex(where: { $0.id == Settings.elevenVoiceId }) {
             voicePopup.selectItem(at: idx)
         }
         previewVoiceButton.isEnabled = true
-        // Proactively flag an empty/low balance so the user tops up before hitting a wall mid-generate.
+        refreshSummary()
+        // The balance lives in the header; the status line only speaks up when it's a problem.
         if let c = credits, c.remaining == 0 {
-            setStatus("ElevenLabs is out of credits (0 left) — add credits at elevenlabs.io before generating.",
-                      isError: true)
+            setStatus("Out of credits — add some at elevenlabs.io before generating.", isError: true)
         } else if let c = credits, c.remaining < 500 {
-            setStatus("Heads up: ElevenLabs is low (\(c.summary)). Top up at elevenlabs.io if you run out.",
-                      isError: true)
+            setStatus("Low balance (\(c.summary)). \(modeHint)", isError: true)
         } else {
-            let bal = credits.map { " · \($0.summary)" } ?? ""
-            setStatus("\(list.count) voices\(bal). Audition with ▶, write your script, then Generate preview.",
-                      isError: false)
+            setStatus(modeHint, isError: false)
         }
     }
 
+    /// The voice id saved beside the recording by the driver, if any.
+    private var savedVoiceId: String? {
+        let url = source.deletingLastPathComponent().appendingPathComponent("timeline.json")
+        struct Timeline: Decodable { let voiceId: String? }
+        guard let data = try? Data(contentsOf: url),
+              let id = (try? JSONDecoder().decode(Timeline.self, from: data))?.voiceId,
+              !id.isEmpty else { return nil }
+        return id
+    }
+
+    /// What this window is about to do, in one sentence — different for a scene-synced demo, where
+    /// the interesting job is usually adding a second language to a narration that already works.
     // MARK: - Actions
 
     /// Plays the selected voice's sample clip (free — no synthesis, no credits).
@@ -172,7 +446,7 @@ final class VoiceoverActionController: ActionPreviewController {
 
     /// Pulls the script from the current file's captions/transcript on demand.
     @objc private func loadFromCaptions() {
-        let script = Self.prefillScript(for: source)
+        let script = Self.captionsScript(for: source)
         guard !script.isEmpty else {
             setStatus("No captions found for this file — generate captions first, or type a script.",
                       isError: false)
@@ -188,6 +462,7 @@ final class VoiceoverActionController: ActionPreviewController {
         guard scriptView != nil, scriptView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
         scriptView.string = Self.prefillScript(for: source)
+        updateForMode()
     }
 
     // MARK: - Generate (final voiceover file)
@@ -195,6 +470,10 @@ final class VoiceoverActionController: ActionPreviewController {
     override func render(progress: @escaping (Double) -> Void) throws -> URL? {
         let script = scriptView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !script.isEmpty else { return nil }
+
+        // Replacing writes the plain …voiceover.mp4; adding a language writes …voiceover.<code>.mp4 and
+        // leaves the original playable.
+        let tag = mode == .addLanguage ? (selectedLanguage?.code ?? "") : ""
 
         let config: Voiceover.TTSConfig
         if ttsProvider == .elevenLabs {
@@ -213,14 +492,57 @@ final class VoiceoverActionController: ActionPreviewController {
             config = Voiceover.TTSConfig(provider: ttsProvider, baseURL: Settings.ttsBaseURL,
                                          model: Settings.ttsModel, voice: Settings.ttsVoice, apiKey: key)
         }
-        return try Voiceover().generate(video: source, script: script, config: config).videoURL
+        // A timed script (lines prefixed with their offsets) is spoken scene by scene, each line laid
+        // at its own moment. That's what keeps a translation glued to the picture — the words change,
+        // the timing doesn't. Plain prose is still spoken as one block from the start.
+        lastFitNote = nil
+        let timed = Voiceover.parseTimedScript(script)
+        if timed.count > 1 {
+            let result = try Voiceover().generateTimeline(video: source, lines: timed, config: config,
+                                                          tag: tag.isEmpty ? nil : tag,
+                                                          progress: { progress($0 * 0.9) })
+            let long = result.fit.filter { $0.overrun > 0.25 }
+            if !long.isEmpty {
+                let worst = long.max(by: { $0.overrun < $1.overrun })!
+                lastFitNote = "\(long.count) line(s) run longer than their scene "
+                    + String(format: "(worst: line %d by %.1fs)", worst.index + 1, worst.overrun)
+                    + " — the lines after them are pushed later. Shorten them and generate again."
+            }
+            return result.video
+        }
+        return try Voiceover().generate(video: source, script: script, config: config,
+                                        tag: tag.isEmpty ? nil : tag).videoURL
+    }
+
+    /// After a successful generate, say plainly if any line didn't fit — the failure mode of a
+    /// translated narration is drift, and it is invisible unless someone says so.
+    override func renderDidFinish(output: URL) {
+        if let note = lastFitNote {
+            setStatus("Wrote \(output.lastPathComponent). \(note)", isError: true)
+        } else {
+            let tags = Voiceover.existingTags(besideVideo: source)
+            let also = tags.isEmpty ? "" : " Versions beside it: \(tags.joined(separator: ", "))."
+            setStatus("Wrote \(output.lastPathComponent).\(also)", isError: false)
+        }
     }
 
     // MARK: - Prefill
 
+    /// Pre-fills the script, preferring the demo's OWN scene script when the recording has one.
+    ///
+    /// This is what makes "add another language" a five-minute job: the lines that were spoken, with
+    /// the moment each belongs to, ready to be translated in place. Captions are the fallback for a
+    /// recording that wasn't driven scene by scene.
+    static func prefillScript(for video: URL) -> String {
+        if let timed = Voiceover.savedTimedScript(besideVideo: video), timed.count > 1 {
+            return Voiceover.formatTimedScript(timed)
+        }
+        return captionsScript(for: video)
+    }
+
     /// Pre-fills the script from an existing `.srt` sidecar (stripping timings), so a transcribed
     /// narration can be cleaned up and re-voiced. Empty if none exists.
-    static func prefillScript(for video: URL) -> String {
+    static func captionsScript(for video: URL) -> String {
         let candidates = [SourcePaths(source: video).srtURL,
                           video.deletingPathExtension().appendingPathExtension("srt")]   // legacy fallback
         guard let raw = candidates.lazy.compactMap({ try? String(contentsOf: $0, encoding: .utf8) }).first else {

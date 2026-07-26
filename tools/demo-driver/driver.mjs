@@ -18,7 +18,8 @@
 
 import { chromium } from "playwright";
 import { execFile, execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, appendFileSync, statSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, appendFileSync, statSync, readdirSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -933,6 +934,81 @@ async function revoice(pathArg, voiceId) {
   execFile("/usr/bin/open", [final]);
 }
 
+// Add ANOTHER narration to a finished demo — a translation, or just a different script — as a new
+// file, leaving the original alone.  Usage:
+//   node driver.mjs narrate <folder-or-styled.mp4> <lines.json> [voiceId]
+//
+// lines.json: { "tag": "es", "voiceId": "…", "scenes": [ { "at": 0, "say": "…" }, … ] }
+//   or just  { "tag": "es", "lines": ["…", "…"] }   — paired with the saved timeline's offsets.
+//
+// The offsets come from the recording's own timeline.json, so a translation stays glued to the
+// picture without re-recording. It writes `…voiceover.<tag>.mp4` and `timeline.<tag>.json`, and
+// reports any line that runs past its scene: translations are usually LONGER than the English they
+// came from (Spanish and French run maybe a fifth longer), and since clips are never overlapped, one
+// long line drags every following line late. Shorten what it flags and run it again.
+async function narrate(pathArg, linesArg, voiceArg) {
+  const bin = resolve(__dirname, "..", "..", ".build", "release", "DemoTape");
+  if (!pathArg || !linesArg) {
+    log("usage: node driver.mjs narrate <recording-folder-or-styled.mp4> <lines.json> [voiceId]");
+    process.exit(1);
+  }
+  const p = resolve(pathArg);
+  let styled, dir;
+  if (statSync(p).isDirectory()) { dir = p; styled = readdirSync(p).map((f) => join(p, f)).find((f) => f.endsWith(".styled.mp4")); }
+  else { styled = p; dir = dirname(p); }
+  if (!styled || !existsSync(styled)) { log("no styled .mp4 found at", pathArg); process.exit(1); }
+
+  const tlPath = join(dir, "timeline.json");
+  if (!existsSync(tlPath)) { log("no timeline.json beside the video — re-run the driver once to save one."); process.exit(1); }
+  const tl = JSON.parse(readFileSync(tlPath, "utf8"));
+  const script = JSON.parse(readFileSync(resolve(linesArg), "utf8"));
+  const tag = (script.tag || "alt").replace(/[^a-z0-9-]/gi, "");
+  const voiceId = voiceArg || script.voiceId || tl.voiceId || "";
+
+  // Lines may carry their own offsets, or borrow the recording's. Borrowing is the common case: the
+  // whole point is that the new narration lands on the same moments as the original.
+  const scenes = script.scenes
+    ? script.scenes
+    : (script.lines || []).map((say, i) => ({ at: tl.scenes[i]?.at ?? 0, say }));
+  if (!scenes.length) { log("no lines in", linesArg); process.exit(1); }
+  if (script.lines && script.lines.length !== tl.scenes.length) {
+    log(`WARNING: ${script.lines.length} lines for ${tl.scenes.length} scenes — check the pairing`);
+  }
+  log(`narrating ${scenes.length} scene(s) as "${tag}" with voice ${voiceId || "(default)"}`);
+
+  // Cache each spoken line by (voice, text). Getting a translation to FIT is iterative — generate,
+  // read which lines ran long, shorten those, generate again — and without a cache every pass
+  // re-synthesizes all fourteen lines to change two. Keyed on the text, so an edited line is the only
+  // one that costs anything.
+  const cacheDir = join(dir, ".narration-cache");
+  mkdirSync(cacheDir, { recursive: true });
+  const clips = [];
+  let spoken = 0, reused = 0;
+  for (const [i, sc] of scenes.entries()) {
+    const say = (sc.say || "").trim(); if (!say) continue;
+    const key = createHash("sha1").update(`${voiceId}\n${say}`).digest("hex").slice(0, 16);
+    const mp3 = join(cacheDir, `${key}.mp3`);
+    if (existsSync(mp3)) { clips.push({ audio: mp3, at: sc.at }); reused++; continue; }
+    const txt = join(tmpdir(), `dt-${tag}-${i}-${Date.now()}.txt`);
+    writeFileSync(txt, say, "utf8");
+    try {
+      execFileSync(bin, ["--tts", txt, mp3, voiceId], { stdio: "ignore" });
+      clips.push({ audio: mp3, at: sc.at });
+      spoken++;
+    } catch (e) { log(`scene ${i} tts failed:`, e.message); }
+  }
+  log(`  synthesized ${spoken}, reused ${reused} from cache`);
+  const spec = join(tmpdir(), `dt-${tag}-spec-${Date.now()}.json`);
+  writeFileSync(spec, JSON.stringify({ clips }), "utf8");
+  const out = execFileSync(bin, ["--voiceover-timeline", styled, spec, "--tag", tag], { encoding: "utf8" });
+  for (const line of out.split("\n")) if (line.trim()) log("  " + line.trim());
+  const m = out.match(/voiceover:\s*(.+)/); const final = m ? m[1].trim() : styled;
+  writeFileSync(join(dir, `timeline.${tag}.json`),
+    JSON.stringify({ voiceId, tag, styled, scenes }, null, 2));
+  log(`${tag} narration ->`, final);
+  execFile("/usr/bin/open", [final]);
+}
+
 // Prepare an authenticated browser profile for demos of apps behind a login.
 //   node driver.mjs signin <url> --profile <dir> [--email … --password …]
 //
@@ -1031,6 +1107,7 @@ async function rehearse(cfg) {
 
 async function main() {
   if (process.argv[2] === "revoice") { await revoice(process.argv[3], process.argv[4]); return; }
+  if (process.argv[2] === "narrate") { await narrate(process.argv[3], process.argv[4], process.argv[5]); return; }
   if (process.argv[2] === "signin") { await signin(process.argv[3]); return; }
   const { cfg, path } = loadConfig();
   log("config:", path, "·", cfg.scenes.length, "scene(s)");

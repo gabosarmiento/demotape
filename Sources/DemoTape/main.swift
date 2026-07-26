@@ -332,17 +332,33 @@ if let i = args.firstIndex(of: "--verify"), args.count > i + 2 {
     } else { exit(1) }
 }
 
-// Headless scene-synced voiceover:  DemoTape --voiceover-timeline <video> <spec.json>
+// Headless scene-synced voiceover:  DemoTape --voiceover-timeline <video> <spec.json> [--tag <name>]
 // spec.json: {"clips":[{"audio":"/path/a.mp3","at":0.0},{"audio":"/path/b.mp3","at":6.2}]}
 // Lays each clip at its offset so a scripted walkthrough stays in sync with the actions.
+//
+// `--tag es` writes `…voiceover.es.mp4` instead of replacing `…voiceover.mp4`, which is how a second
+// language becomes an additional file rather than a lost original. Each clip's fit is printed, and a
+// clip that runs past the next one's offset is flagged: the mux never overlaps clips, so an overlong
+// line pushes everything after it later — the usual way a translated narration drifts out of sync.
 if let i = args.firstIndex(of: "--voiceover-timeline"), args.count > i + 2 {
     let video = URL(fileURLWithPath: args[i + 1])
     let specURL = URL(fileURLWithPath: args[i + 2])
+    let tag = args.firstIndex(of: "--tag").flatMap { args.count > $0 + 1 ? args[$0 + 1] : nil }
     struct Spec: Decodable { struct Clip: Decodable { let audio: String; let at: Double }; let clips: [Clip] }
     do {
         let spec = try JSONDecoder().decode(Spec.self, from: Data(contentsOf: specURL))
         let clips = spec.clips.map { Voiceover.TimedClip(url: URL(fileURLWithPath: $0.audio), at: $0.at) }
-        let out = try Voiceover().assembleTimeline(video: video, clips: clips)
+        let voiceover = Voiceover()
+        var drift = 0.0
+        for fit in voiceover.timelineFit(video: video, clips: clips) where fit.overrun > 0.05 {
+            drift += fit.overrun
+            print(String(format: "fit warning: clip %d at %.1fs runs %.1fs long — the lines after it "
+                                 + "are pushed later", fit.index, fit.at, fit.overrun))
+        }
+        if drift > 0.05 {
+            print(String(format: "total drift %.1fs — shorten the flagged lines to keep sync", drift))
+        }
+        let out = try voiceover.assembleTimeline(video: video, clips: clips, tag: tag)
         print("voiceover: \(out.path)")
         exit(0)
     } catch {

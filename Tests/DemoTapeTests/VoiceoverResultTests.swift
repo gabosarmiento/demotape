@@ -131,3 +131,131 @@ final class VoiceoverResultTests: XCTestCase {
         return url
     }
 }
+
+// MARK: - Variants and fit
+//
+// A second language must be an additional file, not a replacement, and its lines have to fit the
+// moments they describe — translated narration runs longer than the English it came from, and the mux
+// never overlaps clips, so one long line pushes every later line out of sync.
+
+final class VoiceoverVariantTests: XCTestCase {
+
+    func testTagMakesAVariantFileInsteadOfReplacingTheOriginal() {
+        let styled = URL(fileURLWithPath: "/tmp/Demo 1.styled.mp4")
+        XCTAssertEqual(Voiceover.outputURL(for: styled).lastPathComponent, "Demo 1.voiceover.mp4")
+        XCTAssertEqual(Voiceover.outputURL(for: styled, tag: "es").lastPathComponent, "Demo 1.voiceover.es.mp4")
+        XCTAssertEqual(Voiceover.outputURL(for: styled, tag: "").lastPathComponent, "Demo 1.voiceover.mp4")
+    }
+
+    func testTaggingAnAlreadyVoicedFileDoesNotStackSuffixes() {
+        let voiced = URL(fileURLWithPath: "/tmp/Demo 1.voiceover.mp4")
+        XCTAssertEqual(Voiceover.outputURL(for: voiced, tag: "fr").lastPathComponent, "Demo 1.voiceover.fr.mp4")
+    }
+
+    func testOverrunIsMeasuredAgainstTheNextLine() {
+        // Second line is 8s long but only has 5s of room before the third starts.
+        let over = Voiceover.overruns(offsets: [0, 10, 15], durations: [6, 8, 3], videoDuration: 30)
+        XCTAssertEqual(over[0], 0, accuracy: 0.001)
+        XCTAssertEqual(over[1], 3, accuracy: 0.001)
+        XCTAssertEqual(over[2], 0, accuracy: 0.001)
+    }
+
+    func testLastLineIsMeasuredAgainstTheVideo() {
+        XCTAssertEqual(Voiceover.overruns(offsets: [0], durations: [12], videoDuration: 10)[0], 2, accuracy: 0.001)
+        XCTAssertEqual(Voiceover.overruns(offsets: [0], durations: [8], videoDuration: 10)[0], 0, accuracy: 0.001)
+        // No video duration given: the tail can't be judged, so it isn't.
+        XCTAssertEqual(Voiceover.overruns(offsets: [0], durations: [99])[0], 0, accuracy: 0.001)
+    }
+
+    func testMismatchedInputsReportNothingRatherThanGuess() {
+        XCTAssertTrue(Voiceover.overruns(offsets: [0, 5], durations: [3]).isEmpty)
+    }
+}
+
+// MARK: - Timed scripts
+//
+// The editable form of a scene-synced narration: `[12.4] the line`. It has to survive a round trip
+// through a text editor, because translating a demo means editing exactly this.
+
+final class VoiceoverTimedScriptTests: XCTestCase {
+
+    func testParsesOffsetsAndText() {
+        let lines = Voiceover.parseTimedScript("[0.0] First line\n\n[11.6] Second line")
+        XCTAssertEqual(lines, [Voiceover.TimedLine(at: 0, say: "First line"),
+                               Voiceover.TimedLine(at: 11.6, say: "Second line")])
+    }
+
+    func testUntimedLinesContinueThePreviousOne() {
+        // A wrapped paragraph must not become a new scene at time zero.
+        let lines = Voiceover.parseTimedScript("[3.0] The line keeps\ngoing over two rows")
+        XCTAssertEqual(lines, [Voiceover.TimedLine(at: 3, say: "The line keeps going over two rows")])
+    }
+
+    func testPlainProseIsNotATimedScript() {
+        XCTAssertTrue(Voiceover.parseTimedScript("Just a paragraph of narration.").isEmpty)
+    }
+
+    func testRoundTrip() {
+        let lines = [Voiceover.TimedLine(at: 0, say: "Uno"), Voiceover.TimedLine(at: 7.2, say: "Dos")]
+        XCTAssertEqual(Voiceover.parseTimedScript(Voiceover.formatTimedScript(lines)), lines)
+    }
+
+    func testEmptyLinesAreDropped() {
+        XCTAssertEqual(Voiceover.parseTimedScript("[1.0] \n[2.0] Real").count, 1)
+    }
+}
+
+// MARK: - Localization
+//
+// The picker's data, the cost shown before spending anything, and the prompt handed to a coding
+// agent. All three are read by a person about to make a decision, so they have to be right.
+
+final class NarrationLocalizationTests: XCTestCase {
+
+    func testLanguageCodesAreUniqueAndUsableAsFileTags() {
+        let codes = NarrationLocalization.languages.map(\.code)
+        XCTAssertEqual(Set(codes).count, codes.count)
+        for code in codes {
+            XCTAssertFalse(code.isEmpty)
+            XCTAssertTrue(code.allSatisfy { $0.isLetter && $0.isLowercase }, "bad tag: \(code)")
+        }
+    }
+
+    func testLookupIsCaseInsensitive() {
+        XCTAssertEqual(NarrationLocalization.language(forCode: "ES")?.name, "Spanish")
+        XCTAssertNil(NarrationLocalization.language(forCode: "zz"))
+    }
+
+    func testLabelShowsBothNamesUnlessTheyMatch() {
+        let es = NarrationLocalization.language(forCode: "es")!
+        XCTAssertEqual(NarrationLocalization.label(for: es), "Spanish (Español)")
+        let en = NarrationLocalization.language(forCode: "en")!
+        XCTAssertEqual(NarrationLocalization.label(for: en), "English")
+    }
+
+    func testCostCountsEveryLine() {
+        let lines = [Voiceover.TimedLine(at: 0, say: "abcde"), Voiceover.TimedLine(at: 1, say: "xyz")]
+        XCTAssertEqual(NarrationLocalization.characterCount(of: lines), 8)
+    }
+
+    func testCostSummarySaysWhenARunWontFitTheBalance() {
+        XCTAssertTrue(NarrationLocalization.costSummary(characters: 3000, remaining: 1000)
+                        .contains("more than"))
+        XCTAssertTrue(NarrationLocalization.costSummary(characters: 300, remaining: 1000)
+                        .contains("700"))
+        // Unknown balance: state the cost, claim nothing about what's left.
+        let unknown = NarrationLocalization.costSummary(characters: 300, remaining: nil)
+        XCTAssertFalse(unknown.contains("credits now"))
+    }
+
+    func testAgentPromptCarriesThePathsCommandAndFitRule() {
+        let fr = NarrationLocalization.language(forCode: "fr")!
+        let p = NarrationLocalization.agentPrompt(recordingDir: "/Movies/Demo 1", language: fr)
+        XCTAssertTrue(p.contains("/Movies/Demo 1"))
+        XCTAssertTrue(p.contains("timeline.json"))
+        XCTAssertTrue(p.contains("lines-fr.json"))
+        XCTAssertTrue(p.contains("narrate"))
+        XCTAssertTrue(p.contains("drift"))            // the loop, not just the command
+        XCTAssertTrue(p.contains("voiceover.fr.mp4"))
+    }
+}

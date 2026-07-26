@@ -297,17 +297,103 @@ final class Voiceover {
 
     /// Derives the durable narration path (`…voiceover.narration.m4a`) beside the output for
     /// a given source video, using the same base-name rule as the voiceover output.
-    static func narrationURL(for video: URL) -> URL {
+    static func narrationURL(for video: URL, tag: String? = nil) -> URL {
         let base = video.deletingPathExtension().lastPathComponent
             .replacingOccurrences(of: ".styled", with: "")
-        return video.deletingLastPathComponent().appendingPathComponent("\(base).voiceover.narration.m4a")
+            .replacingOccurrences(of: ".voiceover", with: "")
+        let suffix = (tag?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : ".\($0)" } ?? ""
+        return video.deletingLastPathComponent()
+            .appendingPathComponent("\(base).voiceover\(suffix).narration.m4a")
+    }
+
+    // MARK: - Timed scripts (one narration per scene)
+    //
+    // A demo recorded by the driver is narrated scene by scene, each line laid at its own moment. To
+    // add a second language afterwards you need those moments — otherwise you get one long block of
+    // speech drifting away from the picture. The lines are written with their offsets in front of them
+    // so they can be read, translated and edited as ordinary text:
+    //
+    //     [0.0] Before an AI agent goes anywhere near production, you give it a boundary.
+    //     [11.6] And here's the agent itself — a real runtime, connected through the guard.
+
+    struct TimedLine: Equatable { let at: Double; let say: String }
+
+    /// Parses `[12.4] some text` lines. Untimed text returns nothing, so callers can fall back to
+    /// treating the script as a single block. A line continuing the previous one (no bracket) is
+    /// appended to it, so wrapped paragraphs survive editing.
+    static func parseTimedScript(_ text: String) -> [TimedLine] {
+        var out: [TimedLine] = []
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if line.hasPrefix("["), let close = line.firstIndex(of: "]"),
+               let at = Double(line[line.index(after: line.startIndex)..<close]) {
+                let say = String(line[line.index(after: close)...]).trimmingCharacters(in: .whitespaces)
+                out.append(TimedLine(at: at, say: say))
+            } else if let last = out.popLast() {
+                out.append(TimedLine(at: last.at, say: (last.say + " " + line).trimmingCharacters(in: .whitespaces)))
+            }
+        }
+        return out.filter { !$0.say.isEmpty }
+    }
+
+    /// Renders timed lines back to the editable form above.
+    static func formatTimedScript(_ lines: [TimedLine]) -> String {
+        lines.map { String(format: "[%.1f] %@", $0.at, $0.say) }.joined(separator: "\n\n")
+    }
+
+    /// Reads the scene script the driver saved beside a recording (`timeline.json`), if there is one.
+    static func savedTimedScript(besideVideo video: URL) -> [TimedLine]? {
+        let url = video.deletingLastPathComponent().appendingPathComponent("timeline.json")
+        struct Timeline: Decodable { struct Scene: Decodable { let at: Double; let say: String }; let scenes: [Scene] }
+        guard let data = try? Data(contentsOf: url),
+              let tl = try? JSONDecoder().decode(Timeline.self, from: data), !tl.scenes.isEmpty else { return nil }
+        return tl.scenes.map { TimedLine(at: $0.at, say: $0.say) }
+    }
+
+    /// Variant tags already sitting beside a video, e.g. `["es", "fr"]` — so the UI can say what
+    /// languages this demo already has instead of silently overwriting one.
+    static func existingTags(besideVideo video: URL) -> [String] {
+        let dir = video.deletingLastPathComponent()
+        let base = video.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: ".styled", with: "")
+            .replacingOccurrences(of: ".voiceover", with: "")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        return names.compactMap { name in
+            guard name.hasPrefix("\(base).voiceover."), name.hasSuffix(".mp4") else { return nil }
+            let middle = name.dropFirst("\(base).voiceover.".count).dropLast(".mp4".count)
+            return middle.isEmpty || middle.contains(".") ? nil : String(middle)
+        }.sorted()
     }
 
     /// Derives the voiceover output path (`…voiceover.mp4`) beside the source video.
-    static func outputURL(for video: URL) -> URL {
+    ///
+    /// A `tag` names a VARIANT — `…voiceover.es.mp4` — so a second language is a new file rather than
+    /// a replacement. Without it, adding Spanish would mean losing English, and "keep the original,
+    /// add another" is the normal case: one recording, several narrations.
+    static func outputURL(for video: URL, tag: String? = nil) -> URL {
         let base = video.deletingPathExtension().lastPathComponent
             .replacingOccurrences(of: ".styled", with: "")
-        return video.deletingLastPathComponent().appendingPathComponent("\(base).voiceover.mp4")
+            .replacingOccurrences(of: ".voiceover", with: "")
+        let suffix = (tag?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : ".\($0)" } ?? ""
+        return video.deletingLastPathComponent().appendingPathComponent("\(base).voiceover\(suffix).mp4")
+    }
+
+    /// How each clip fits the room before the next one starts.
+    ///
+    /// This matters most when translating. The mux never overlaps two clips — a clip that runs long
+    /// pushes the next one later — so a Spanish line 30% longer than its English original doesn't
+    /// sound wrong, it silently drags every following line out of sync with the picture. Reporting the
+    /// overrun turns that into something you can fix by shortening the sentence.
+    ///
+    /// `overrun` is seconds past the next clip's offset (0 when it fits). The last clip is measured
+    /// against `videoDuration` when one is given.
+    static func overruns(offsets: [Double], durations: [Double], videoDuration: Double? = nil) -> [Double] {
+        guard offsets.count == durations.count else { return [] }
+        return offsets.indices.map { i in
+            let limit = i + 1 < offsets.count ? offsets[i + 1] : (videoDuration ?? .greatestFiniteMagnitude)
+            return max(0, offsets[i] + durations[i] - limit)
+        }
     }
 
     /// Assembles the final voiceover from an already-synthesized narration audio file (any
@@ -315,9 +401,9 @@ final class Voiceover {
     /// survives for a later avatar step, then muxes it over the video (video passthrough, no
     /// re-encode). The narration audio is intentionally NOT deleted here.
     @discardableResult
-    func assembleVoiceover(video: URL, narrationAudio: URL) throws -> VoiceoverResult {
-        let out = Self.outputURL(for: video)
-        let narration = Self.narrationURL(for: video)
+    func assembleVoiceover(video: URL, narrationAudio: URL, tag: String? = nil) throws -> VoiceoverResult {
+        let out = Self.outputURL(for: video, tag: tag)
+        let narration = Self.narrationURL(for: video, tag: tag)
         try transcodeToM4A(narrationAudio, to: narration)
         try muxNarration(video: video, narration: narration, to: out)
         return VoiceoverResult(videoURL: out, narrationAudioURL: narration)
@@ -330,10 +416,21 @@ final class Voiceover {
     /// walkthrough stays in sync with the on-screen actions (scene N's line begins exactly when
     /// scene N's action does). Video is passthrough. Returns the `…voiceover.mp4`.
     @discardableResult
-    func assembleTimeline(video: URL, clips: [TimedClip]) throws -> URL {
-        let out = Self.outputURL(for: video)
+    func assembleTimeline(video: URL, clips: [TimedClip], tag: String? = nil) throws -> URL {
+        let out = Self.outputURL(for: video, tag: tag)
         try muxTimeline(video: video, clips: clips, to: out)
         return out
+    }
+
+    /// Per-clip fit against the video: `(index, at, duration, overrun)`, sorted by offset. Used to
+    /// report which narration lines are too long for the moment they describe (see `overruns`).
+    func timelineFit(video: URL, clips: [TimedClip]) -> [(index: Int, at: Double, duration: Double, overrun: Double)] {
+        let sorted = clips.enumerated().sorted { $0.element.at < $1.element.at }
+        let offsets = sorted.map { $0.element.at }
+        let durations = sorted.map { AVAsset(url: $0.element.url).duration.seconds }
+        let videoDuration = AVAsset(url: video).duration.seconds
+        let over = Self.overruns(offsets: offsets, durations: durations, videoDuration: videoDuration)
+        return sorted.indices.map { (sorted[$0].offset, offsets[$0], durations[$0], over.isEmpty ? 0 : over[$0]) }
     }
 
     /// Muxes several audio clips at their offsets onto the video's picture (silence in the gaps).
@@ -441,10 +538,35 @@ final class Voiceover {
     /// Full convenience pipeline: script -> speech -> new …voiceover.mp4 (plus durable
     /// …voiceover.narration.m4a) next to the video. Returns both URLs.
     @discardableResult
-    func generate(video: URL, script: String, config: TTSConfig) throws -> VoiceoverResult {
+    func generate(video: URL, script: String, config: TTSConfig, tag: String? = nil) throws -> VoiceoverResult {
         let mp3 = try synthesize(text: script, config: config)
         defer { try? FileManager.default.removeItem(at: mp3) }   // only the temp MP3 is transient
-        return try assembleVoiceover(video: video, narrationAudio: mp3)
+        return try assembleVoiceover(video: video, narrationAudio: mp3, tag: tag)
+    }
+
+    /// Scene-synced generation: one clip per timed line, each laid at its own moment. This is how a
+    /// translation keeps sync — the words change, the timing doesn't.
+    ///
+    /// Returns the video plus the per-line fit, so the caller can tell the user which lines came out
+    /// too long to fit their scene (clips are never overlapped, so an overlong line pushes the rest
+    /// late — the standard way a translated narration drifts).
+    @discardableResult
+    func generateTimeline(video: URL, lines: [TimedLine], config: TTSConfig, tag: String? = nil,
+                          progress: ((Double) -> Void)? = nil)
+    throws -> (video: URL, fit: [(index: Int, at: Double, duration: Double, overrun: Double)]) {
+        guard !lines.isEmpty else { throw VoiceoverError.synthFailed("no lines to speak") }
+        var clips: [TimedClip] = []
+        var temps: [URL] = []
+        defer { temps.forEach { try? FileManager.default.removeItem(at: $0) } }
+        for (i, line) in lines.enumerated() {
+            let mp3 = try synthesize(text: line.say, config: config)
+            temps.append(mp3)
+            clips.append(TimedClip(url: mp3, at: line.at))
+            progress?(Double(i + 1) / Double(lines.count))
+        }
+        let fit = timelineFit(video: video, clips: clips)
+        let out = try assembleTimeline(video: video, clips: clips, tag: tag)
+        return (out, fit)
     }
 
     /// Back-compat convenience: generate via ElevenLabs (the original signature).

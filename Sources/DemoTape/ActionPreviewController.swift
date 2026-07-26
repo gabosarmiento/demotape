@@ -49,6 +49,13 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     /// Called off the main thread; report progress via `progress` (0…1).
     func render(progress: @escaping (Double) -> Void) throws -> URL? { nil }
 
+    /// Title of the primary button. Overridable so a window whose action changes with a mode can say
+    /// what it is about to do — "Replace the narration" reads very differently from "Add Spanish".
+    var generateTitle: String { "Generate preview" }
+
+    /// Re-reads `generateTitle`. Call after changing whatever the title depends on.
+    func refreshGenerateTitle() { generateButton?.title = generateTitle }
+
     /// Message shown when `render` returns nil.
     var nothingMessage: String { "Nothing to generate." }
 
@@ -57,6 +64,10 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
 
     /// Called after the user picks a different source with Change… (subclasses can re-prefill).
     func sourceDidChange() {}
+
+    /// Called on the main thread after a successful generate, with the file written. Subclasses
+    /// override to add something the user needs to know about the result.
+    func renderDidFinish(output: URL) {}
 
     /// Asked on the main thread just before a generate starts. Return false to abort (e.g. the
     /// user declined a paid-operation confirmation). Default allows it.
@@ -126,10 +137,11 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         // Center: controls + generate + progress + result link.
         let controls = makeControls()
 
-        generateButton = NSButton(title: "Generate preview", target: self, action: #selector(generateTapped))
+        generateButton = NSButton(title: generateTitle, target: self, action: #selector(generateTapped))
         generateButton.bezelStyle = .rounded
         generateButton.controlSize = .large
         generateButton.keyEquivalent = "\r"
+        generateButton.isHidden = !showsPrimaryButton
 
         spinner = NSProgressIndicator()
         spinner.style = .spinning
@@ -140,6 +152,12 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         messageLabel.font = .systemFont(ofSize: 11)
         messageLabel.textColor = .secondaryLabelColor
         messageLabel.alignment = .center
+        // Wrap instead of running off the window. Status here carries real information — a credit
+        // balance, which lines are too long — and a single clipped line hides exactly the part that
+        // matters, which is usually at the end.
+        messageLabel.lineBreakMode = .byWordWrapping
+        messageLabel.maximumNumberOfLines = 3
+        messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         resultLink = NSButton(title: "", target: self, action: #selector(revealResult))
         resultLink.isBordered = false
@@ -163,6 +181,11 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         if controlsFillWidth {
             controls.leadingAnchor.constraint(equalTo: controlsHost.leadingAnchor).isActive = true
             controls.trailingAnchor.constraint(equalTo: controlsHost.trailingAnchor).isActive = true
+        }
+
+        if let pending = pendingStatus {   // a status set while the controls were being built
+            setStatus(pending.text, isError: pending.isError)
+            pendingStatus = nil
         }
 
         // Action cluster (centered): the prominent Generate button, progress, and result link.
@@ -199,6 +222,8 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
             // The Generate cluster sits directly below the controls (not jammed at the bottom).
             cluster.topAnchor.constraint(equalTo: controlsHost.bottomAnchor, constant: 24),
             cluster.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            cluster.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, constant: -inset * 2),
+            messageLabel.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, constant: -inset * 4),
             cluster.bottomAnchor.constraint(lessThanOrEqualTo: cancelButton.topAnchor, constant: -14),
 
             cancelButton.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
@@ -251,6 +276,11 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         sourceDidChange()
     }
 
+    /// Starts the action, exactly as pressing the primary button does. Exposed so a window can put its
+    /// call to action where the choice is being made — next to the controls that decide it — instead of
+    /// stranding it at the bottom of the window.
+    func beginGenerate() { generateTapped() }
+
     @objc private func generateTapped() {
         guard confirmBeforeGenerate() else { return }
         isCancelled = false
@@ -272,6 +302,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
                         self.resultLink.title = out.lastPathComponent
                         self.resultRow.isHidden = false
                         self.setStatus("", isError: false)
+                        self.renderDidFinish(output: out)   // subclasses can add a caveat worth reading
                     } else {
                         self.setStatus(self.nothingMessage, isError: false)
                     }
@@ -294,14 +325,28 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     // MARK: - Helpers (available to subclasses)
 
     /// Show a message under the Generate button (progress, hints, or errors).
+    ///
+    /// Safe before the view exists: subclasses build their controls inside `makeControls`, which runs
+    /// BEFORE this label does, so a subclass that reports its initial state there used to take the app
+    /// down with it. The message is held and applied when the label appears.
     func setStatus(_ text: String, isError: Bool) {
-        messageLabel.stringValue = text
-        messageLabel.textColor = isError ? .systemRed : .secondaryLabelColor
+        guard let label = messageLabel else {
+            pendingStatus = (text, isError)
+            return
+        }
+        label.stringValue = text
+        label.textColor = isError ? .systemRed : .secondaryLabelColor
     }
+
+    private var pendingStatus: (text: String, isError: Bool)?
+
+    /// Whether the bottom Generate button is shown. A window that provides its own inline action
+    /// returns false, so the same action isn't offered twice.
+    var showsPrimaryButton: Bool { true }
 
     /// Toggle the working state: disables Generate and spins while true.
     func setBusy(_ busy: Bool) {
-        generateButton.isEnabled = !busy
+        generateButton?.isEnabled = !busy
         if busy { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
     }
 
