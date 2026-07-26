@@ -592,6 +592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .composer: openDemoComposer()
         case .settings: openAISettings()
         case .voiceover: generateVoiceover()
+        case .captions: generateCaptions()
         case .welcome:
             let welcome = WelcomeController()
             welcomeController = welcome

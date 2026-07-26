@@ -90,13 +90,18 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 800),
+        // Fit the screen, not a guessed number. A fixed 800pt window is taller than the usable area on
+        // a 1440x900 display once a subclass adds a row or two, and what falls off the bottom is the
+        // Generate button and the status line — the two things the user needs to see.
+        let usable = (NSScreen.main?.visibleFrame.height ?? 800) - 60
+        let height = min(preferredContentSize.height, usable)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: preferredContentSize.width, height: height),
                               styleMask: [.titled, .closable, .resizable, .miniaturizable],
                               backing: .buffered, defer: false)
         window.title = actionTitle
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.minSize = NSSize(width: 780, height: 680)
+        window.minSize = NSSize(width: 780, height: min(680, height))
         window.contentView = buildContent()
         self.window = window
 
@@ -183,6 +188,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
             controls.trailingAnchor.constraint(equalTo: controlsHost.trailingAnchor).isActive = true
         }
 
+
         if let pending = pendingStatus {   // a status set while the controls were being built
             setStatus(pending.text, isError: pending.isError)
             pendingStatus = nil
@@ -213,7 +219,8 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
             players.topAnchor.constraint(equalTo: sourceNameField.bottomAnchor, constant: 12),
             players.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
             players.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
-            players.heightAnchor.constraint(equalTo: root.heightAnchor, multiplier: 0.42),
+            // A floor, not a fixed size: the previews must never win an argument with the controls.
+            players.heightAnchor.constraint(greaterThanOrEqualTo: root.heightAnchor, multiplier: 0.2),
 
             controlsHost.topAnchor.constraint(equalTo: players.bottomAnchor, constant: 18),
             controlsHost.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
@@ -229,6 +236,12 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
             cancelButton.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
             cancelButton.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -inset)
         ])
+
+        // Preferred, not required: when space is tight the previews shrink rather than the controls and
+        // the action cluster being pushed off the bottom of the window.
+        let preferredPlayers = players.heightAnchor.constraint(equalTo: root.heightAnchor, multiplier: 0.42)
+        preferredPlayers.priority = .defaultLow
+        preferredPlayers.isActive = true
         return root
     }
 
@@ -343,6 +356,10 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     /// Whether the bottom Generate button is shown. A window that provides its own inline action
     /// returns false, so the same action isn't offered twice.
     var showsPrimaryButton: Bool { true }
+
+    /// How much room this window wants. Clamped to the screen when it opens, so asking for more than
+    /// a display can show costs nothing. Subclasses with taller controls raise the height.
+    var preferredContentSize: NSSize { NSSize(width: 900, height: 800) }
 
     /// Toggle the working state: disables Generate and spins while true.
     func setBusy(_ busy: Bool) {

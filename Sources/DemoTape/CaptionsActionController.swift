@@ -4,7 +4,7 @@ import AppKit
 /// it never re-charges), shows the timed, editable lines in a full-width tab under the video, and
 /// lets you pick the language. Generate preview burns the current lines into a final video.
 @available(macOS 12.3, *)
-final class CaptionsActionController: ActionPreviewController {
+final class CaptionsActionController: ActionPreviewController, NSTextFieldDelegate {
 
     private var config: Captions.Config
     private var cues: [CaptionCue]
@@ -18,6 +18,13 @@ final class CaptionsActionController: ActionPreviewController {
     private var agentBox: NSView!
     private var subtitlesDocStack: NSStackView!
     private var cueFields: [NSTextField] = []
+    private var updateButton: NSButton!
+    /// The text each row started with, so "has anything changed?" is answerable rather than assumed.
+    private var originalTexts: [String] = []
+
+    /// The window is taller than the default: a header, tabs, and the agent hand-off don't fit in 800pt,
+    /// and what got pushed off the bottom was the Generate button and the status line.
+    override var preferredContentSize: NSSize { NSSize(width: 900, height: 940) }
 
     // Selected caption look (persisted). Cards in the Design tab set this.
     private static let styleDefaultsKey = "captionStyleID"
@@ -53,8 +60,10 @@ final class CaptionsActionController: ActionPreviewController {
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
         tabView.heightAnchor.constraint(equalToConstant: 214).isActive = true
-        tabView.addTabViewItem(makeSubtitlesTab())
+        // Design first: choosing the look is the common job, and it's what people came here to do.
+        // Editing the transcript line by line is the exception, so it sits behind it.
         tabView.addTabViewItem(makeDesignTab())
+        tabView.addTabViewItem(makeSubtitlesTab())
 
         agentBox = makeAgentHandoff()
 
@@ -281,8 +290,9 @@ final class CaptionsActionController: ActionPreviewController {
             subtitlesDocStack.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor)
         ])
 
-        let updateButton = NSButton(title: "Update subtitles", target: self, action: #selector(updateSubtitles))
+        updateButton = NSButton(title: "Update subtitles", target: self, action: #selector(updateSubtitles))
         updateButton.bezelStyle = .rounded
+        updateButton.isEnabled = false      // nothing edited yet, so nothing to update
 
         let container = NSView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -308,6 +318,7 @@ final class CaptionsActionController: ActionPreviewController {
         guard let doc = subtitlesDocStack else { return }
         doc.arrangedSubviews.forEach { $0.removeFromSuperview() }
         cueFields.removeAll()
+        originalTexts = cues.map { $0.text.replacingOccurrences(of: "\n", with: " ") }
         for cue in cues {
             let time = NSTextField(labelWithString: timecode(cue.start))
             time.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -319,6 +330,7 @@ final class CaptionsActionController: ActionPreviewController {
             let field = NSTextField(string: cue.text.replacingOccurrences(of: "\n", with: " "))
             field.font = .systemFont(ofSize: 12)
             field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            field.delegate = self          // so the Update button can react to an edit
             cueFields.append(field)
 
             let row = NSStackView(views: [time, field])
@@ -328,6 +340,26 @@ final class CaptionsActionController: ActionPreviewController {
             doc.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: doc.widthAnchor, constant: -16).isActive = true
         }
+        refreshUpdateButton()
+    }
+
+    /// How many rows differ from what was transcribed.
+    private var editedLineCount: Int {
+        zip(cueFields, originalTexts).reduce(0) { count, pair in
+            count + (pair.0.stringValue.trimmingCharacters(in: .whitespaces)
+                     == pair.1.trimmingCharacters(in: .whitespaces) ? 0 : 1)
+        }
+    }
+
+    /// The button says whether there is anything to do. A permanently-enabled "Update subtitles" gives
+    /// no signal that an edit was even registered, let alone that it still needs saving.
+    private func refreshUpdateButton() {
+        guard updateButton != nil else { return }
+        let edited = editedLineCount
+        updateButton.isEnabled = edited > 0
+        updateButton.title = edited == 0
+            ? "Update subtitles"
+            : (edited == 1 ? "Update 1 edited line" : "Update \(edited) edited lines")
     }
 
     // MARK: - Lifecycle
@@ -393,7 +425,11 @@ final class CaptionsActionController: ActionPreviewController {
         cues.removeAll { $0.text.isEmpty }
     }
 
+    /// Live edit tracking — the Update button reflects the state of the text as it's typed.
+    func controlTextDidChange(_ obj: Notification) { refreshUpdateButton() }
+
     @objc private func updateSubtitles() {
+        let edited = editedLineCount
         applyEdits()
         Captions.saveTranscript(cues, for: source)
         let paths = SourcePaths(source: source)
@@ -402,7 +438,8 @@ final class CaptionsActionController: ActionPreviewController {
         try? Captions.writeVTT(cues, to: paths.vttURL)
         rebuildSubtitleRows()
         refreshHeader()
-        setStatus("Subtitles updated. Generate preview to burn them in.", isError: false)
+        setStatus("Saved \(edited) edited line\(edited == 1 ? "" : "s"). Generate preview to burn them in.",
+                  isError: false)
     }
 
     // MARK: - Burn (Generate preview → final file)
