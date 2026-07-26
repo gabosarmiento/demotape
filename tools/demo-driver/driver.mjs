@@ -787,14 +787,23 @@ async function runOnce(cfg, scenes) {
     const REVEAL = new Set(["goto", "expand", "waitFor", "hover", "scroll"]);
     const COMMIT = new Set(["click", "fill", "type", "press"]);
     const lead = sc.leadFraction ?? cfg.actionLeadFraction;
-    const hasCommit = steps.some((s) => COMMIT.has(s.action));
-    for (const step of steps) if (REVEAL.has(step.action)) {
-      log("  reveal:", step.action, step.selector || step.url || step.y || "");
+    // Split the scene at its FIRST commit rather than sorting steps into two buckets. Bucketing
+    // dropped every step in neither set — so `wait` never ran, and a scene that says "send this, then
+    // give the agent seventeen seconds to answer" asserted immediately instead. It passed for a while
+    // on luck, because the assertion has its own timeout, and then failed the moment a reply was slow.
+    // Splitting also keeps order, so a `waitFor` AFTER a click waits after the click, as written.
+    const firstCommit = steps.findIndex((s) => COMMIT.has(s.action));
+    const hasCommit = firstCommit >= 0;
+    const before = hasCommit ? steps.slice(0, firstCommit) : steps;
+    const after = hasCommit ? steps.slice(firstCommit) : [];
+    for (const step of before) {
+      log("  reveal:", step.action, step.selector || step.url || step.ms || step.y || "");
       try { await runStep(page, step, cfg); } catch (e) { log("  step failed:", e.message); }
     }
     if (hasCommit) await sleep(Math.max(0, dur * 1000 * lead));
-    for (const step of steps) if (COMMIT.has(step.action)) {
-      log("  commit:", step.action, step.selector || step.text || "");
+    for (const step of after) {
+      log(`  ${COMMIT.has(step.action) ? "commit" : "then"}:`, step.action,
+          step.selector || step.url || step.ms || "");
       try { await runStep(page, step, cfg); } catch (e) { log("  step failed:", e.message); }
     }
     if (hasCommit) { try { await page.waitForLoadState("load", { timeout: 15000 }); } catch {} }
