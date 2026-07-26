@@ -171,7 +171,9 @@ final class CaptionBurner {
         // (wide) video that's ~2 short lines; on mobile it's 1–2 words per line.
         let aspect = size.height > 0 ? size.width / size.height : 1.78
         let maxLines = 2
-        let windowSize = max(1, maxWords * maxLines)
+        // A word-by-word style holds exactly its own count, regardless of aspect: the whole point is
+        // that there is nothing else on screen to read ahead of the voice.
+        let windowSize = style.isWordByWord ? style.wordsAtATime : max(1, maxWords * maxLines)
         let (windowIdx, windowWords) = Self.window(for: t, in: words, size: windowSize)
         guard !windowWords.isEmpty else { cacheKey = ""; return nil }
 
@@ -237,7 +239,7 @@ final class CaptionBurner {
 
     private func drawBlock(words visible: [CaptionWord], style: CaptionStyle,
                            t: Double, videoSize: CGSize, maxWords: Int) -> (CGImage, CGSize)? {
-        let fontSize = max(20, videoSize.height * (style.animated ? 0.062 : 0.05))
+        let fontSize = max(20, videoSize.height * (style.animated ? 0.062 : 0.05) * style.fontScale)
         let font = CTFontCreateWithName(style.fontName as CFString, fontSize, nil)
         let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font)
         let lineHeight = (ascent + descent) * 1.18
@@ -291,7 +293,8 @@ final class CaptionBurner {
 
         let s = NSMutableAttributedString()
         for (i, w) in words.enumerated() {
-            let text = (style.uppercase ? w.text.uppercased() : w.text) + (i < words.count - 1 ? " " : "")
+            let shown = CaptionStyle.displayWord(w.text, wordByWord: style.isWordByWord)
+            let text = (style.uppercase ? shown.uppercased() : shown) + (i < words.count - 1 ? " " : "")
             let color = wordColor(w, style: style, t: t)
             var attrs: [NSAttributedString.Key: Any] = [fnt: font, fg: color.cgColor]
             if style.outline { attrs[strokeC] = style.outlineColor.cgColor; attrs[strokeW] = -8.0 }

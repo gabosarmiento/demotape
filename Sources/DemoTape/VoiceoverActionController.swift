@@ -332,7 +332,12 @@ final class VoiceoverActionController: ActionPreviewController {
 
     /// Puts the hand-off prompt on the clipboard, ready to paste into a coding agent.
     @objc private func copyAgentPrompt() {
-        guard let language = selectedLanguage else { return }
+        // Never return without writing the clipboard: leaving the previous copy in place reads as the
+        // app handing out the wrong prompt, and the user has no way to tell the difference.
+        guard let language = selectedLanguage else {
+            setStatus("Pick a language first.", isError: true)
+            return
+        }
         let dir = source.deletingLastPathComponent().path
         let prompt = NarrationLocalization.agentPrompt(recordingDir: dir, language: language)
         NSPasteboard.general.clearContents()

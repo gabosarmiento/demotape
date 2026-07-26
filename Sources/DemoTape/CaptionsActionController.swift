@@ -181,22 +181,27 @@ final class CaptionsActionController: ActionPreviewController {
     /// Puts the caption-translation prompt on the clipboard.
     @objc private func copyCaptionPrompt() {
         guard let target = selectedTargetLanguage else { return }
-        // The prompt points at a real file, so make sure one exists to point at.
+        // Write the current lines out so the prompt points at a file that matches what's on screen.
         let paths = SourcePaths(source: source)
         if !cues.isEmpty {
             paths.ensureSourceDir()
             try? Captions.writeSRT(cues, to: paths.srtURL)
         }
-        guard FileManager.default.fileExists(atPath: paths.srtURL.path) else {
-            setStatus("Transcribe first — the prompt needs the timed lines to translate.", isError: true)
-            return
-        }
+        // No transcript is not a dead end: the prompt gains a transcribe step. Refusing to copy left
+        // whatever was on the clipboard BEFORE — which looked exactly like the app handing out the
+        // wrong prompt, because the previous copy (a narration prompt, in another language) is what
+        // then got pasted.
+        let hasTranscript = FileManager.default.fileExists(atPath: paths.srtURL.path)
         let prompt = NarrationLocalization.captionAgentPrompt(
             video: source, srtPath: paths.srtURL.path, language: target,
-            spokenLanguage: NarrationLocalization.languageOfFile(source))
+            spokenLanguage: NarrationLocalization.languageOfFile(source),
+            hasTranscript: hasTranscript)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(prompt, forType: .string)
-        setStatus("Copied the \(target.name) subtitle prompt — paste it into your AI assistant.",
+        setStatus(hasTranscript
+                  ? "Copied the \(target.name) subtitle prompt — paste it into your AI assistant."
+                  : "Copied the \(target.name) subtitle prompt. There's no transcript yet, so it starts "
+                    + "by transcribing this video.",
                   isError: false)
     }
 

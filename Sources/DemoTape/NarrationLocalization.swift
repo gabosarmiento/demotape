@@ -134,17 +134,25 @@ enum NarrationLocalization {
     /// not heard, so the timings are fixed and the text has to fit inside them and inside the frame.
     /// The app can transcribe what is spoken; turning that into another language is a translation
     /// task, which is what this hands over.
+    /// - Parameter hasTranscript: when false the prompt starts by transcribing, so the hand-off works
+    ///   on a video nobody has transcribed yet instead of being a dead end.
     static func captionAgentPrompt(video: URL, srtPath: String, language: Language,
-                                   spokenLanguage: Language? = nil,
+                                   spokenLanguage: Language? = nil, hasTranscript: Bool = true,
                                    binPath: String = "/Applications/DemoTape.app/Contents/MacOS/DemoTape") -> String {
         let from = spokenLanguage.map { " The audio is in \($0.name)." } ?? ""
         let target = translatedSRTPath(srtPath, language: language)
+        let transcribeStep = hasTranscript ? "" : """
+
+        0. There is no transcript yet, so make one first (needs the captions key configured in the app):
+           "\(binPath)" --captions "\(video.path)"
+           That writes the .srt below.
+        """
         return """
         Write \(language.name) subtitles for a DemoTape video, and burn them in.\(from)
 
         Video:      \(video.path)
         Transcript: \(srtPath)
-
+        \(transcribeStep)
         1. Read that .srt. Each entry has a start time, an end time, and a line of text.
         2. Translate each entry's TEXT to \(language.name) (\(language.endonym)). Do not change a single
            timing, do not merge entries, and do not add or remove any — subtitles are read against the

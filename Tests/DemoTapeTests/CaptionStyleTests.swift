@@ -6,10 +6,17 @@ final class CaptionStyleTests: XCTestCase {
 
     // MARK: - Catalog
 
-    func testCatalogHasEightStylesFourAnimated() {
-        XCTAssertEqual(CaptionStyle.all.count, 8)
-        XCTAssertEqual(CaptionStyle.all.filter { $0.animated }.count, 4)
-        XCTAssertEqual(CaptionStyle.all.filter { !$0.animated }.count, 4)
+    /// Asserts the shape of the catalog, not its exact size — a count breaks every time a style is
+    /// added, which says nothing about whether the catalog is any good.
+    func testCatalogOffersBothAnimatedAndStaticStyles() {
+        XCTAssertGreaterThanOrEqual(CaptionStyle.all.count, 8)
+        XCTAssertGreaterThanOrEqual(CaptionStyle.all.filter { $0.animated }.count, 4)
+        XCTAssertGreaterThanOrEqual(CaptionStyle.all.filter { !$0.animated }.count, 4)
+        // Every style needs a name to show on its card and a usable font size multiplier.
+        for style in CaptionStyle.all {
+            XCTAssertFalse(style.name.isEmpty, style.id)
+            XCTAssertGreaterThan(style.fontScale, 0, style.id)
+        }
     }
 
     func testCatalogIDsAreUnique() {
@@ -71,5 +78,53 @@ final class CaptionStyleTests: XCTestCase {
             XCTAssertEqual(img.size.width, size.width, accuracy: 0.5, style.id)
             XCTAssertEqual(img.size.height, size.height, accuracy: 0.5, style.id)
         }
+    }
+}
+
+// MARK: - Word-by-word styles
+//
+// The social-video look: a word or two on screen at a time, big, low in the frame. The count is the
+// whole point, so it is pinned here rather than left to the layout code's discretion.
+
+final class WordByWordCaptionStyleTests: XCTestCase {
+
+    func testWordByWordStylesDeclareTheirWordCount() {
+        XCTAssertEqual(CaptionStyle.oneWord.wordsAtATime, 1)
+        XCTAssertEqual(CaptionStyle.wordPair.wordsAtATime, 2)
+        XCTAssertTrue(CaptionStyle.oneWord.isWordByWord)
+        // Phrase styles are unaffected.
+        XCTAssertFalse(CaptionStyle.clean.isWordByWord)
+        XCTAssertEqual(CaptionStyle.clean.wordsAtATime, 0)
+    }
+
+    func testWordByWordStylesAreLargerAndSitLow() {
+        for style in [CaptionStyle.oneWord, CaptionStyle.wordPair] {
+            XCTAssertGreaterThan(style.fontScale, 1.2, "\(style.id) should be noticeably bigger")
+            XCTAssertEqual(style.position, .bottom, "\(style.id) should sit low in the frame")
+        }
+    }
+
+    func testTrailingCommaIsDroppedOnlyWordByWord() {
+        // "PRODUCTION," alone reads as a mistake; in a phrase the comma is doing work.
+        XCTAssertEqual(CaptionStyle.displayWord("production,", wordByWord: true), "production")
+        XCTAssertEqual(CaptionStyle.displayWord("production,", wordByWord: false), "production,")
+        // Sentence-enders carry tone, so they stay.
+        XCTAssertEqual(CaptionStyle.displayWord("Refusé.", wordByWord: true), "Refusé.")
+        XCTAssertEqual(CaptionStyle.displayWord("really?", wordByWord: true), "really?")
+        XCTAssertEqual(CaptionStyle.displayWord("stop!", wordByWord: true), "stop!")
+    }
+
+    func testCatalogIDsStayUniqueAndResolvable() {
+        let ids = CaptionStyle.all.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count)
+        for id in ids { XCTAssertEqual(CaptionStyle.byID(id).id, id) }
+        XCTAssertEqual(CaptionStyle.byID("nope").id, "clean")   // unknown falls back, never crashes
+    }
+
+    func testASingleWordWindowAdvancesWithTime() {
+        let words = (0..<4).map { CaptionWord(text: "w\($0)", start: Double($0), end: Double($0) + 1) }
+        XCTAssertEqual(CaptionBurner.window(for: 0.5, in: words, size: 1).1.map(\.text), ["w0"])
+        XCTAssertEqual(CaptionBurner.window(for: 2.5, in: words, size: 1).1.map(\.text), ["w2"])
+        XCTAssertEqual(CaptionBurner.window(for: 3.9, in: words, size: 1).1.map(\.text), ["w3"])
     }
 }
