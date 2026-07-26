@@ -194,6 +194,28 @@ Each spoken line is cached by (voice, text), so a second pass only pays for the 
 In the app the same thing lives in **Add Voiceover…** — pick a language, press *Generate new DemoTape
 in <language>*, or copy the prompt and let a coding agent do the translation and the fit loop.
 
+## Subtitles
+
+```bash
+DemoTape --captions "<video>"                     # → .source/<base>.srt + .vtt (needs the STT key)
+DemoTape --burn "<video>" <styleID>               # → <base>.captioned.mp4
+DemoTape --burn "<video>" one-word --srt "<file>" # burn a specific (edited/translated) .srt
+```
+
+`--srt` matters: without it the cached `transcript.json` wins over any subtitle file, so an edited or
+translated `.srt` is silently ignored. Transcription returns the language that was **spoken**, so
+captions on `…voiceover.fr.mp4` come out French; another language means translating the `.srt` and
+burning it explicitly. Save it as `<base>.<code>.srt`, replacing any language already in the name.
+
+Style IDs: `one-word`, `word-pair` (one or two big words low in frame, swapped as spoken — the social
+look, punctuation trimmed) · `pop`, `karaoke`, `highlight-yellow`, `highlight-green` (animated phrases)
+· `clean`, `bold`, `minimal`, `boxed` (static phrases) · `mono` (monospaced dark slab, for engineering
+demos). Word timings come from transcription **segments** spread evenly inside each cue, so
+word-by-word styles can drift slightly on a fast or heavily paused line.
+
+The **Captions** window shows the same thing: transcript state and spoken language at the top, the
+styles in Design, and a prompt to hand the translation to an agent.
+
 ## Swap the voice later (no re-recording)
 
 Every recorded demo saves `timeline.json` (scene offsets + lines) beside the video. To change only

@@ -35,6 +35,7 @@ the actual schema; do not paper over it.
 7. **Verify** — assertions (deterministic) + a vision check (semantic); retry or fail loudly.
 8. **Hand back** — the video path, the verification report, and what you'd tighten.
 9. **Revise on request** — change the video from a prompt, usually WITHOUT re-recording.
+10. **Localize** — another narration language, and subtitles, from the same footage.
 
 Do not skip 5 (rehearsal). Recording a broken take wastes minutes and produces slop; a headless
 rehearsal fails in seconds and tells you exactly which selector or input is wrong.
@@ -249,8 +250,8 @@ and the change did **not** happen. Never treat that warning as success.
 - "put it on a background", "add our logo" → `useBackground`, `bgTop`/`bgBottom`, `brandingImage`
 - "make the webcam bigger / move it" → `webcamDiameterFraction`, `webcamCenterX/Y`
 - "different voice" → `revoice` (re-lays the saved `timeline.json` offsets; no re-record)
-- "subtitles in <language>" → `--captions` for the spoken language, or author the cues and `--burn`
-  (transcription returns the language that was *spoken*, so another language means authoring them)
+- "in Spanish / French", "subtitles in <language>" → phase 10 below (`narrate` for the voice,
+  `--captions` + `--burn` for the subtitles). Never re-record for a language.
 - "shorter / tighter" → Auto-Cut (`Tightener`) for silence and pace; if a whole beat must go, that's
   a script change, so re-record
 - "lighter file for the README" → `--publish` (tiers + GIF budget), never a hand-rolled transcode
@@ -265,6 +266,96 @@ and the change did **not** happen. Never treat that warning as success.
 - **Say what you changed** in the handoff, in the user's words ("zoom softened, exported portrait"),
   not as a JSON dump.
 
+## 10. Localize: another language, and subtitles
+
+"Can we get this in Spanish?" is not a re-record. The footage already exists and it is language-free —
+only the narration and the subtitles are in English. **Do this work directly.** The app has a Copy
+prompt button that hands these instructions to a coding agent; if you are that agent, you already have
+them, so run the commands rather than asking the user to paste anything.
+
+Two separate jobs, and they are not interchangeable:
+
+| The user wants… | Produce | With |
+|---|---|---|
+| The demo **spoken** in another language | `…voiceover.<code>.mp4` | `driver.mjs narrate` |
+| **Subtitles**, in the spoken language | `….captioned.mp4` | `--captions` then `--burn` |
+| **Subtitles in a different language** than the audio | `….captioned.mp4` | `--captions`, translate the `.srt`, `--burn … --srt` |
+
+The original is always left playable. A language is an **additional file**, never a replacement — one
+recording, several narrations.
+
+### Narration in another language
+
+```bash
+# 1. Read the lines and their moments (never invent them):
+cat "<recording-folder>/timeline.json"          # { scenes: [ { at, say } ] }
+
+# 2. Translate each line, same order, one per scene, into lines-es.json:
+#    { "tag": "es", "lines": ["…", "…"] }
+# 3. Lay them on the same timings:
+node tools/demo-driver/driver.mjs narrate "<recording-folder>" lines-es.json [voiceId]
+```
+
+**Translating for a demo, not for a document:** keep the first-person voice of someone talking through
+their own product, plain, no marketing. Keep product names, identifiers, and any UI label that appears
+on screen **exactly as it appears** — the interface in the video is not translated, so a translated
+label makes the narration contradict the picture.
+
+**The failure mode is length, and it is silent.** Translated speech runs longer than the English it
+replaces (Spanish and French roughly a fifth longer), and clips are never overlapped — so one long
+line pushes every later line late, and the narration drifts off the picture with nothing reporting an
+error. `narrate` prints a fit report naming each line that overran its scene and the total drift. The
+loop: **generate → shorten the flagged lines → generate again**, until drift is under about a second.
+Aim each line to be no longer than the English original and this usually converges in two passes.
+Lines are cached by (voice, text), so a second pass only pays for what you changed — real numbers from
+a 14-scene demo: 12.4s drift (one line 9.2s over) → 0.0s, with the last pass synthesizing 1 line of 14.
+
+Pick a voice with `DemoTape --voices`. The multilingual model will speak any of these languages in an
+English-trained voice, which is clear but lightly accented; say so, and offer a native voice.
+
+### Subtitles
+
+```bash
+DemoTape --captions "<video>"                  # writes .source/<base>.srt + .vtt (needs the STT key)
+DemoTape --burn "<video>" <styleID>            # burns them in → <base>.captioned.mp4
+DemoTape --burn "<video>" one-word --srt "<path/to/edited-or-translated.srt>"
+```
+
+Transcription returns **what was spoken**, so captions on the French video come out French. For
+subtitles in a *different* language, translate the `.srt` and burn that file explicitly with `--srt`.
+Without `--srt` the cached transcript wins and your edited file is silently ignored.
+
+Translating subtitles has a different constraint than narration: they are **read against the picture**,
+so **do not change a single timing**, do not merge or split entries, and do not add or remove any. Keep
+lines under ~42 characters and at most two lines an entry; if a translation won't fit, shorten the
+wording rather than stretching the cue. Save as `<base>.<code>.srt` — replace any language tag already
+in the name rather than stacking them (`Demo.fr.srt` → `Demo.es.srt`, never `Demo.fr.es.srt`).
+
+**Style is a choice worth making, not a default to accept:**
+
+- `one-word` / `word-pair` — one or two big words low in the frame, swapped as spoken. The social
+  look: readable at thumbnail size and with the sound off. Punctuation is trimmed for these.
+- `pop`, `karaoke`, `highlight-yellow`, `highlight-green` — animated phrase styles.
+- `clean`, `bold`, `minimal`, `boxed` — static phrase styles.
+- `mono` — monospaced on a dark slab, for engineering demos where the screen is already busy.
+
+Note the word timings come from transcription **segments**, spread evenly inside each cue, so
+word-by-word styles track the voice well at normal pace and can drift slightly on a fast or heavily
+paused line.
+
+### Verify it, don't assume it
+
+A translated track is easy to get wrong in ways that look fine in a log. Two cheap checks:
+
+```bash
+DemoTape --captions "<…voiceover.es.mp4>"      # transcribe the RESULT: is it actually Spanish?
+DemoTape --frame "<video>" 42 /tmp/f.png       # look at a frame where a subtitle should be
+```
+
+Confirm a line lands where its scene starts (the transcript's timecode should match the offset in
+`timeline.json`), and that burned subtitles are on screen and readable. Then hand back every file by
+name, say which languages exist, and name the drift you accepted if any.
+
 ## Anti-slop checklist
 
 - [ ] Every narration claim maps to real app behavior (no invented capabilities).
@@ -277,10 +368,14 @@ and the change did **not** happen. Never treat that warning as success.
 - [ ] Attention: an emphasis click zooms the focal element (and `clicks` in events.json is non-empty).
 - [ ] Revisions: presentation notes were re-rendered from a recipe patch, not re-recorded; no
       `unknown key` warning was ignored; the original file still exists.
+- [ ] Localization: no re-record for a language; the original narration still plays; on-screen labels
+      and product names were left untranslated; the fit report shows drift under ~1s; the result was
+      checked (transcribed or looked at), not assumed.
 
 ## References
 
 - `references/demotape-driver.md` — DemoTape control surface, driver config schema, CLI hooks
-  (`--tts`, `--voiceover-timeline`, `--verify`, `--cursor`), voices, and the `revoice` command.
+  (`--tts`, `--voiceover-timeline`, `--verify`, `--frame`, `--cursor`), voices, the `revoice` and
+  `narrate` commands, and the language/fit details behind phase 10.
 - `references/grounding-a-codebase.md` — using a code graph + schema-as-truth to find valid inputs,
   the local-stack bring-up playbook, and progressive-disclosure UI handling.
