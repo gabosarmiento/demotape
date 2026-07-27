@@ -107,6 +107,20 @@ private final class RegionEditView: NSView {
                 NSBezierPath(rect: box).fill()
                 p.stroke()
             }
+
+            // "Drag to move" pill on the top border — because the interior is click-through, this is
+            // the discoverable way to reposition the whole area.
+            let mh = moveHandleRect
+            let pill = NSBezierPath(roundedRect: mh, xRadius: mh.height / 2, yRadius: mh.height / 2)
+            NSColor.black.withAlphaComponent(0.66).setFill(); pill.fill()
+            NSColor.white.withAlphaComponent(0.85).setStroke(); pill.lineWidth = 1; pill.stroke()
+            let label = "Drag to move" as NSString
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.white
+            ]
+            let sz = label.size(withAttributes: attrs)
+            label.draw(at: NSPoint(x: mh.midX - sz.width / 2, y: mh.midY - sz.height / 2), withAttributes: attrs)
         }
     }
 
@@ -155,10 +169,22 @@ private final class RegionEditView: NSView {
 
     // MARK: - Interaction
 
+    /// The "drag to move" pill straddling the top border — the only place a move gesture starts, so
+    /// the whole interior can stay click-through for arranging the app you're about to record.
+    private var moveHandleRect: CGRect {
+        let r = regionLocal.insetBy(dx: -gap, dy: -gap)
+        let w: CGFloat = 108, h: CGFloat = 26
+        return CGRect(x: r.midX - w / 2, y: r.maxY - h / 2, width: w, height: h)
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Only claim clicks in/around the region; let clicks elsewhere pass through.
+        // Claim only the move pill and the border band (resize). The interior — and everything
+        // outside — falls through so you can click/scroll the app you're about to record.
         guard editable else { return nil }
-        return regionLocal.insetBy(dx: -grab, dy: -grab).contains(point) ? self : nil
+        if moveHandleRect.contains(point) { return self }
+        let outer = regionLocal.insetBy(dx: -grab, dy: -grab)
+        let inner = regionLocal.insetBy(dx: grab, dy: grab)
+        return (outer.contains(point) && !inner.contains(point)) ? self : nil
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -182,6 +208,7 @@ private final class RegionEditView: NSView {
     override func mouseUp(with event: NSEvent) { dragZone = .none }
 
     private func zone(at p: NSPoint) -> Zone {
+        if moveHandleRect.contains(p) { return .move }   // the pill moves the whole region
         let r = regionLocal, g = grab
         guard r.insetBy(dx: -g, dy: -g).contains(p) else { return .none }
         let nl = abs(p.x - r.minX) <= g, nr = abs(p.x - r.maxX) <= g
@@ -190,7 +217,7 @@ private final class RegionEditView: NSView {
         if nl && nb { return .bl }; if nr && nb { return .br }
         if nl { return .left }; if nr { return .right }
         if nt { return .top }; if nb { return .bottom }
-        return r.contains(p) ? .move : .none
+        return .none   // interior is click-through now (move via the pill), so no drag here
     }
 
     private func apply(zone: Zone, dx: CGFloat, dy: CGFloat, to o: CGRect) -> CGRect {

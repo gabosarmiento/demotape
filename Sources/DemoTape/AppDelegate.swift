@@ -1738,8 +1738,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentRecorderBar()
     }
 
-    @objc private func selectArea() {
+    @objc private func selectArea() { beginAreaSelection(forcePicker: true) }
+
+    /// Enter area mode. `forcePicker` runs the full drag/preset picker (the menu's "Select Recording
+    /// Area…"); without it, an already-chosen area is simply reopened editable — so flipping the
+    /// ellipsis segment back to "Select Area" doesn't blow away the region you just framed.
+    private func beginAreaSelection(forcePicker: Bool) {
         webcamOnly = false
+        if !forcePicker, Settings.useRegion, Settings.regionW > 0.01, Settings.regionH > 0.01 {
+            updateCaptureModeChecks()
+            presentRecorderBar()
+            return
+        }
         let selector = RegionSelector()
         regionSelector = selector
         selector.selectArea { [weak self] ok in
@@ -1795,7 +1805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             recorderSetupPopover = RecorderSetupPopover(actions: .init(
                 setFullScreen: { [weak self] full in
                     guard let self = self else { return }
-                    if full { self.selectFullScreen() } else { self.selectArea() }
+                    if full { self.selectFullScreen() } else { self.beginAreaSelection(forcePicker: false) }
                 },
                 setWebcamOnly: { [weak self] in self?.recordWebcamOnly() },
                 isWebcamOnly: { [weak self] in self?.webcamOnly ?? false },

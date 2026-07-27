@@ -36,6 +36,13 @@ final class RecorderSetupPopover: NSObject {
     private var autoZoomSwitch: NSSwitch!
     private var mirrorSwitch: NSSwitch!
 
+    // Rows hidden in webcam-only mode (they only apply to a styled screen recording).
+    private var agentCardRow: NSView!
+    private var backgroundRow: NSView!
+    private var brandingRow: NSView!
+    private var autoZoomRow: NSView!
+    private var webcamRow: NSView!
+
     init(actions: Actions) {
         self.actions = actions
         super.init()
@@ -55,12 +62,22 @@ final class RecorderSetupPopover: NSObject {
     /// Re-reads Settings so the popover always shows the truth, including changes made from the menu.
     func refresh() {
         guard modeControl != nil else { return }
-        modeControl.selectedSegment = actions.isWebcamOnly() ? 2 : (Settings.useRegion ? 1 : 0)
+        let webcamOnly = actions.isWebcamOnly()
+        modeControl.selectedSegment = webcamOnly ? 2 : (Settings.useRegion ? 1 : 0)
         backgroundValue.stringValue = Settings.framedBackground ? Self.backgroundLabel() : "Off"
         brandingSwitch.state = Settings.brandingEnabled ? .on : .off
         teleprompterSwitch.state = Settings.teleprompterEnabled ? .on : .off
         autoZoomSwitch.state = Settings.autoZoomEnabled ? .on : .off
         mirrorSwitch.state = Settings.mirrorCamera ? .on : .off
+
+        // Webcam-only records the raw camera (no styled compositing), so the screen-recording
+        // options don't apply — hide them and leave just what's relevant: mirror, teleprompter,
+        // and the mic/audio path. Mic + camera are always included in this mode.
+        agentCardRow.isHidden = webcamOnly
+        backgroundRow.isHidden = webcamOnly
+        brandingRow.isHidden = webcamOnly
+        autoZoomRow.isHidden = webcamOnly
+        webcamRow.isHidden = webcamOnly
     }
 
     /// A readable name for the chosen background file ("Gradient Wave 01"), not its filename.
@@ -89,25 +106,28 @@ final class RecorderSetupPopover: NSObject {
         content.addArrangedSubview(modeControl)
 
         // The agent path, as a card: two ways to get a video, and this one isn't a setting.
-        content.addArrangedSubview(agentCard())
+        agentCardRow = agentCard()
+        content.addArrangedSubview(agentCardRow)
 
         content.addArrangedSubview(header("Recording setup"))
         backgroundValue = NSTextField(labelWithString: "")
         backgroundValue.font = .systemFont(ofSize: 12)
         backgroundValue.textColor = .secondaryLabelColor
-        content.addArrangedSubview(disclosureRow(icon: "photo", title: "Background",
-                                                 value: backgroundValue,
-                                                 action: #selector(tapBackground)))
+        backgroundRow = disclosureRow(icon: "photo", title: "Background",
+                                      value: backgroundValue, action: #selector(tapBackground))
+        content.addArrangedSubview(backgroundRow)
         brandingSwitch = NSSwitch()
         brandingSwitch.target = self; brandingSwitch.action = #selector(tapBranding)
-        content.addArrangedSubview(switchRow(icon: "signature", title: "Branding", control: brandingSwitch))
+        brandingRow = switchRow(icon: "signature", title: "Branding", control: brandingSwitch)
+        content.addArrangedSubview(brandingRow)
         teleprompterSwitch = NSSwitch()
         teleprompterSwitch.target = self; teleprompterSwitch.action = #selector(tapTeleprompter)
         content.addArrangedSubview(switchRow(icon: "text.alignleft", title: "Teleprompter",
                                              control: teleprompterSwitch))
         autoZoomSwitch = NSSwitch()
         autoZoomSwitch.target = self; autoZoomSwitch.action = #selector(tapAutoZoom)
-        content.addArrangedSubview(switchRow(icon: "viewfinder", title: "Auto-Zoom", control: autoZoomSwitch))
+        autoZoomRow = switchRow(icon: "viewfinder", title: "Auto-Zoom", control: autoZoomSwitch)
+        content.addArrangedSubview(autoZoomRow)
         mirrorSwitch = NSSwitch()
         mirrorSwitch.target = self; mirrorSwitch.action = #selector(tapMirror)
         content.addArrangedSubview(switchRow(icon: "arrow.left.and.right.righttriangle.left.righttriangle.right",
@@ -116,8 +136,9 @@ final class RecorderSetupPopover: NSObject {
         content.addArrangedSubview(spacer(4))
         content.addArrangedSubview(disclosureRow(icon: "mic", title: "Microphone & audio settings…",
                                                  value: nil, action: #selector(tapAudio)))
-        content.addArrangedSubview(disclosureRow(icon: "video", title: "Webcam settings…",
-                                                 value: nil, action: #selector(tapWebcam)))
+        webcamRow = disclosureRow(icon: "video", title: "Webcam settings…",
+                                  value: nil, action: #selector(tapWebcam))
+        content.addArrangedSubview(webcamRow)
         content.addArrangedSubview(spacer(4))
         content.addArrangedSubview(disclosureRow(icon: "gearshape", title: "AI Settings…",
                                                  value: nil, action: #selector(tapAISettings)))
