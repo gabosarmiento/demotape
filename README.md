@@ -15,10 +15,18 @@ Runs on **macOS 12.3+** (Intel or Apple Silicon) — including older Macs like M
 This demo was made by a coding agent — scripted, recorded, narrated and verified — then sped up and
 captioned, all from prompts:
 
-<video src="https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4" controls width="100%"></video>
+[![Watch the demo](media/demo-poster.jpg)](https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4)
 
-If the player doesn't load,
-[watch the demo here](https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4).
+▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4)
+
+<!--
+  To play INLINE (like DeepFilterNet's README), GitHub needs an "attachment" URL, which is only
+  minted by uploading through the web UI — a release-download or raw URL will NOT render a player.
+  One-time step: edit this README on github.com, drag demotape-demo.mp4 into the editor, and GitHub
+  inserts a line like  https://github.com/gabosarmiento/demotape/assets/<id>/<uuid>  — replace the
+  poster block above with that bare URL on its own line and the player embeds directly.
+-->
+
 
 ---
 
