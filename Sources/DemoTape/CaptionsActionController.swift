@@ -337,11 +337,16 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
         refreshHeader()
         if hadCache {
             rebuildSubtitleRows()
-            setStatus("Loaded transcript. Edit the Subtitles tab, then Generate preview.", isError: false)
-        } else if !config.apiKey.isEmpty {
-            transcribe()
-        } else {
+            setStatus("Loaded the saved transcript — no API call. Pick a look, or edit the lines.",
+                      isError: false)
+        } else if config.apiKey.isEmpty && !Settings.sttKeyOptional {
             setStatus("Add your captions key in AI Settings to transcribe.", isError: true)
+        } else {
+            // Deliberately NOT automatic. Transcription costs money per open, and opening a window is
+            // not the same as asking for it — especially since this window opens on the newest recording,
+            // which may not be the file you meant.
+            setStatus("Press Transcribe to read the audio of this file (uses your captions API).",
+                      isError: false)
         }
     }
 
@@ -396,6 +401,28 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
 
     /// Live edit tracking — the Update button reflects the state of the text as it's typed.
     func controlTextDidChange(_ obj: Notification) { refreshUpdateButton() }
+
+    /// Switching files must look for THAT file's saved transcript.
+    ///
+    /// This window opens on the newest recording, so picking another file with Change… was the normal
+    /// path — and it kept the previous file's lines while offering to transcribe again, which is how a
+    /// transcript that was already saved got paid for twice. Every language variant caches separately
+    /// (`<base>.es.transcript.json`), so the right one is usually already on disk.
+    override func sourceDidChange() {
+        cues = Captions.loadTranscript(for: source) ?? []
+        // A language in the filename is a better guess than auto-detect.
+        if let language = NarrationLocalization.languageOfFile(source),
+           let idx = languages.firstIndex(where: { $0.1 == language.code }) {
+            config.language = language.code
+            languagePopup?.selectItem(at: idx)
+        }
+        rebuildSubtitleRows()
+        refreshHeader()
+        setStatus(cues.isEmpty
+                  ? "No saved transcript for this file — press Transcribe to read its audio."
+                  : "Loaded \(cues.count) saved lines for this file — no API call.",
+                  isError: false)
+    }
 
     @objc private func updateSubtitles() {
         let edited = editedLineCount

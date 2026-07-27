@@ -128,3 +128,49 @@ final class WordByWordCaptionStyleTests: XCTestCase {
         XCTAssertEqual(CaptionBurner.window(for: 3.9, in: words, size: 1).1.map(\.text), ["w3"])
     }
 }
+
+// MARK: - Synthesized word timings
+//
+// Transcripts give per-cue timings, not per-word, so word-by-word styles depend on this estimate. The
+// bug it fixes: a cue that runs to the next utterance includes the pause, and spreading words evenly
+// across it put the last word on screen seconds after it was spoken.
+
+final class SynthesizedWordTimingTests: XCTestCase {
+
+    func testWordsArePackedAtTheStartOfAnOverlongCue() {
+        // "y el CTO lo aprobó." — 19 characters of speech on a 10.8s cue.
+        let words = CaptionBurner.synthesizeWords(text: "y el CTO lo aprobó.", start: 0, end: 10.8)
+        XCTAssertEqual(words.count, 5)
+        // All of it said in roughly the first couple of seconds, not stretched over ten.
+        XCTAssertLessThan(words.last!.end, 3.0)
+        XCTAssertEqual(words.first!.start, 0, accuracy: 0.001)
+    }
+
+    func testEvenSpreadWhenTheSpeechFillsTheCue() {
+        // A short cue for a lot of words: it can only use the time it has.
+        let text = "this cue is completely full of spoken words already"
+        let words = CaptionBurner.synthesizeWords(text: text, start: 5, end: 8)
+        XCTAssertEqual(words.last!.end, 8, accuracy: 0.05)
+        XCTAssertEqual(words.first!.start, 5, accuracy: 0.001)
+    }
+
+    func testLongerWordsGetLongerOnScreen() {
+        let words = CaptionBurner.synthesizeWords(text: "a extraordinarily", start: 0, end: 10)
+        let first = words[0].end - words[0].start
+        let second = words[1].end - words[1].start
+        XCTAssertGreaterThan(second, first * 3, "share should follow word length")
+    }
+
+    func testTimingsAreOrderedAndInsideTheCue() {
+        let words = CaptionBurner.synthesizeWords(text: "one two three four", start: 2, end: 4)
+        for (a, b) in zip(words, words.dropFirst()) {
+            XCTAssertLessThanOrEqual(a.end, b.start + 0.001)
+        }
+        XCTAssertGreaterThanOrEqual(words.first!.start, 2)
+        XCTAssertLessThanOrEqual(words.last!.end, 4.001)
+    }
+
+    func testEmptyTextProducesNoWords() {
+        XCTAssertTrue(CaptionBurner.synthesizeWords(text: "   ", start: 0, end: 1).isEmpty)
+    }
+}

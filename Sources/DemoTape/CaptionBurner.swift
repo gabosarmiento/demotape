@@ -226,12 +226,35 @@ final class CaptionBurner {
     /// evenly across the cue so animation still works on older transcripts.
     private func wordsForCue(_ cue: CaptionCue) -> [CaptionWord] {
         if let w = cue.words, !w.isEmpty { return w }
-        let toks = cue.text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
-        guard !toks.isEmpty else { return [] }
-        let dur = max(0.01, cue.end - cue.start)
-        let per = dur / Double(toks.count)
-        return toks.enumerated().map {
-            CaptionWord(text: $1, start: cue.start + Double($0) * per, end: cue.start + Double($0 + 1) * per)
+        return Self.synthesizeWords(text: cue.text, start: cue.start, end: cue.end)
+    }
+
+    /// Word timings for a cue that has none, from the text itself.
+    ///
+    /// Spreading words evenly across the whole cue is wrong whenever a cue is longer than the speech in
+    /// it — which is common, because a transcript cue often runs to the next utterance and includes the
+    /// pause. A real example: "y el CTO lo aprobó." on a 10.8s cue put each word on screen for 2.2s, so
+    /// the last word arrived four seconds after it was spoken and read as missing entirely.
+    ///
+    /// So: estimate how long the words actually take to say, pack them at the START of the cue at that
+    /// rate, and give each word a share proportional to its length. When the speech does fill the cue,
+    /// this is the old even spread.
+    static func synthesizeWords(text: String, start: Double, end: Double,
+                                charactersPerSecond: Double = 14) -> [CaptionWord] {
+        let tokens = text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        guard !tokens.isEmpty else { return [] }
+        let cueDuration = max(0.01, end - start)
+        let counts = tokens.map { Double(max(1, $0.count)) }
+        let totalChars = counts.reduce(0, +)
+        // Never longer than the cue, and never so fast that a word flashes by.
+        let spoken = min(cueDuration, max(totalChars / charactersPerSecond,
+                                          Double(tokens.count) * 0.18))
+        var t = start
+        return zip(tokens, counts).map { token, chars in
+            let share = spoken * (chars / totalChars)
+            let word = CaptionWord(text: token, start: t, end: min(end, t + share))
+            t += share
+            return word
         }
     }
 

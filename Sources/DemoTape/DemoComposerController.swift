@@ -16,9 +16,9 @@ final class DemoComposerController: NSObject, NSWindowDelegate {
     private let installCmd = "tools/demo-driver/skill/install.sh"
     private let exampleInstruction = "Record a verified demo of <feature> in this app."
 
-    private let agents = ["Cursor", "Claude Code", "Copilot", "Gemini", "Windsurf", "Kiro"]
-    private let w: CGFloat = 560
-    private let h: CGFloat = 540
+    private let w: CGFloat = 580
+    // Room for step 4's wrapped sentence and the footer below it, which the old height clipped.
+    private let h: CGFloat = 580
 
     func show(defaultProjectPath: String = "", onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -136,24 +136,34 @@ final class DemoComposerController: NSObject, NSWindowDelegate {
         let prefix = NSTextField(labelWithString: "Works with")
         prefix.font = font
         prefix.textColor = .tertiaryLabelColor
-        prefix.frame = NSRect(x: 24 + 22, y: y - 16, width: 62, height: 14)
+        prefix.frame = NSRect(x: 24 + 22, y: y - 17, width: 62, height: 14)
         view.addSubview(prefix)
         var x: CGFloat = 24 + 22 + 62
-        for name in agents {
+        // Each agent's own mark, not just its name: a row of grey text claimed compatibility, the marks
+        // show it, and they're recognised before the words are read.
+        for agent in AgentBrandIcon.allCases {
+            let name = agent.label
             let tw = name.size(withAttributes: [.font: font]).width
-            let cw = tw + 16
+            let iconSize: CGFloat = 12
+            let cw = tw + iconSize + 22
             if x + cw > w - 20 { break }   // don't overflow the window
-            let chip = NSTextField(labelWithString: name)
-            chip.font = font
-            chip.textColor = .secondaryLabelColor
-            chip.alignment = .center
-            chip.drawsBackground = false
-            chip.isBezeled = false
+            let chip = NSView(frame: NSRect(x: x, y: y - 20, width: cw, height: 20))
             chip.wantsLayer = true
             chip.layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.12).cgColor
-            chip.layer?.cornerRadius = 7
-            chip.layer?.masksToBounds = true
-            chip.frame = NSRect(x: x, y: y - 18, width: cw, height: 18)
+            chip.layer?.cornerRadius = 8
+            chip.layer?.cornerCurve = .continuous
+
+            let mark = NSImageView(frame: NSRect(x: 7, y: (20 - iconSize) / 2, width: iconSize, height: iconSize))
+            mark.image = agent.image(size: iconSize, color: .secondaryLabelColor)
+            mark.contentTintColor = .secondaryLabelColor      // for the symbol-backed fallbacks
+            chip.addSubview(mark)
+
+            let label = NSTextField(labelWithString: name)
+            label.font = font
+            label.textColor = .secondaryLabelColor
+            label.frame = NSRect(x: 7 + iconSize + 5, y: 3, width: tw + 2, height: 14)
+            chip.addSubview(label)
+
             view.addSubview(chip)
             x += cw + 6
         }
@@ -170,14 +180,16 @@ final class DemoComposerController: NSObject, NSWindowDelegate {
         t.font = .systemFont(ofSize: 13, weight: .semibold)
         t.frame = NSRect(x: 24 + 22, y: y - 18, width: w - 24 - 22 - 24, height: 18)
         view.addSubview(t)
-        let d = NSTextField(labelWithString: detailText)
+        // Measure the detail instead of assuming one line: step 4's sentence wraps, and a fixed 18pt
+        // box cropped its second line clean off — the last thing the window says, half missing.
+        let d = NSTextField(wrappingLabelWithString: detailText)
         d.font = .systemFont(ofSize: 11)
         d.textColor = .secondaryLabelColor
-        d.lineBreakMode = .byWordWrapping
-        d.usesSingleLineMode = false
-        d.frame = NSRect(x: 24 + 22, y: y - 38, width: w - 24 - 22 - 24, height: 18)
+        let textWidth = w - 24 - 22 - 24
+        let needed = ceil(d.sizeThatFits(NSSize(width: textWidth, height: .greatestFiniteMagnitude)).height)
+        d.frame = NSRect(x: 24 + 22, y: y - 20 - needed, width: textWidth, height: needed)
         view.addSubview(d)
-        return y - 44
+        return y - 26 - needed
     }
 
     private func linkButton(_ title: String, action: Selector) -> NSButton {

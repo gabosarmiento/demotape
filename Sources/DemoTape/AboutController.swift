@@ -206,7 +206,9 @@ final class AboutController: NSObject, NSWindowDelegate {
         ver.frame = NSRect(x: leftX + 88, y: h - 74, width: w - leftX - 88 - 24, height: 18)
         content.addSubview(ver)
 
-        let tagline = NSTextField(labelWithString: "Local-first screen recorder for macOS")
+        // Says what it's for, not what it is. "Screen recorder" is the category DemoTape competes in;
+        // handing the recording to a coding agent is the reason to pick it.
+        let tagline = NSTextField(labelWithString: "Make product demos agentically, on your Mac")
         tagline.font = .systemFont(ofSize: 11)
         tagline.textColor = .secondaryLabelColor
         tagline.frame = NSRect(x: leftX + 88, y: h - 94, width: w - leftX - 88 - 24, height: 16)

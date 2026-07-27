@@ -1,7 +1,8 @@
 import AppKit
 import AVFoundation
 
-// DemoTape — a lightweight, local-first screen recorder for macOS 12+ (Intel & Apple Silicon).
+// DemoTape — make product demos agentically on macOS 12+ (Intel & Apple Silicon): record them
+// yourself, or let a coding agent script, narrate and verify the whole thing. Local-first either way.
 // Phase 1: menu-bar app that records the main display to an H.264 .mov file.
 //
 // Note: MenuBarExtra (SwiftUI) requires macOS 13, so the menu bar is built with
