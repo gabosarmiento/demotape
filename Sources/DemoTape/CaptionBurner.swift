@@ -44,7 +44,10 @@ final class CaptionBurner {
         let size = vTrack.naturalSize
         let aspect = size.height > 0 ? size.width / size.height : 1.78
         let maxWords = style.maxWordsPerLine(forAspect: aspect)
-        let sorted = cues.sorted { $0.start < $1.start }
+        // Reconcile first: word timings can be missing the last word(s) of a cue, and drawing
+        // straight from them drops those words. This restores the full text and extends each cue to
+        // cover it.
+        let sorted = Captions.reconcile(cues)
         let totalSeconds = max(0.1, CMTimeGetSeconds(asset.duration))
 
         let reader = try AVAssetReader(asset: asset)
@@ -109,10 +112,15 @@ final class CaptionBurner {
             DispatchQueue.global(qos: .userInitiated).async {
                 while ar.status == .reading {
                     if writer.status != .writing { break }
-                    guard let sb = out.copyNextSampleBuffer() else { break }
-                    while !ain.isReadyForMoreMediaData { if writer.status != .writing { break }; usleep(1000) }
-                    if writer.status != .writing { break }
-                    ain.append(sb)
+                    // Same reason as the video loop: drain each audio buffer so PCM samples don't pile up.
+                    let more = autoreleasepool { () -> Bool in
+                        guard let sb = out.copyNextSampleBuffer() else { return false }
+                        while !ain.isReadyForMoreMediaData { if writer.status != .writing { break }; usleep(1000) }
+                        if writer.status != .writing { return false }
+                        ain.append(sb)
+                        return true
+                    }
+                    if !more { break }
                 }
                 ain.markAsFinished()
                 audioGroup.leave()
@@ -124,27 +132,38 @@ final class CaptionBurner {
         vIn.requestMediaDataWhenReady(on: queue) { [self] in
             while vIn.isReadyForMoreMediaData {
                 if writer.status != .writing { done.signal(); return }
-                guard let sample = vOut.copyNextSampleBuffer() else { vIn.markAsFinished(); done.signal(); return }
-                guard let pb = CMSampleBufferGetImageBuffer(sample) else { continue }
-                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-                let t = CMTimeGetSeconds(pts)
-                var image = CIImage(cvImageBuffer: pb)
+                // Each frame in its OWN pool. This loop can run for the whole video in a single call,
+                // and every iteration makes a CIImage, a pixel buffer, and (on a caption change) a
+                // CGImage — all autoreleased. Without draining per frame they pile up across thousands
+                // of frames into gigabytes, the Mac swaps, and a long clip takes minutes and can take
+                // the machine down with it. Draining here keeps memory flat.
+                var keepGoing = true
+                autoreleasepool {
+                    guard let sample = vOut.copyNextSampleBuffer() else {
+                        vIn.markAsFinished(); done.signal(); keepGoing = false; return
+                    }
+                    guard let pb = CMSampleBufferGetImageBuffer(sample) else { return }
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+                    let t = CMTimeGetSeconds(pts)
+                    var image = CIImage(cvImageBuffer: pb)
 
-                if let (overlay, origin) = captionOverlay(at: t, cues: sorted, style: style,
-                                                          size: size, maxWords: maxWords) {
-                    image = overlay.transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
-                        .composited(over: image)
+                    if let (overlay, origin) = captionOverlay(at: t, cues: sorted, style: style,
+                                                              size: size, maxWords: maxWords) {
+                        image = overlay.transformed(by: CGAffineTransform(translationX: origin.x, y: origin.y))
+                            .composited(over: image)
+                    }
+
+                    guard let pool = adaptor.pixelBufferPool else { return }
+                    var outBuf: CVPixelBuffer?
+                    CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuf)
+                    guard let outBuf = outBuf else { return }
+                    ciContext.render(image, to: outBuf,
+                                     bounds: CGRect(x: 0, y: 0, width: size.width, height: size.height),
+                                     colorSpace: colorSpace)
+                    adaptor.append(outBuf, withPresentationTime: pts)
+                    if let progress = progress { progress(min(0.99, max(0, t / totalSeconds))) }
                 }
-
-                guard let pool = adaptor.pixelBufferPool else { continue }
-                var outBuf: CVPixelBuffer?
-                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &outBuf)
-                guard let outBuf = outBuf else { continue }
-                ciContext.render(image, to: outBuf,
-                                 bounds: CGRect(x: 0, y: 0, width: size.width, height: size.height),
-                                 colorSpace: colorSpace)
-                adaptor.append(outBuf, withPresentationTime: pts)
-                if let progress = progress { progress(min(0.99, max(0, t / totalSeconds))) }
+                if !keepGoing { return }
             }
         }
         done.wait()

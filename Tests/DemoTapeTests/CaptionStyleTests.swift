@@ -281,3 +281,53 @@ final class TranscriptCacheKeyTests: XCTestCase {
         XCTAssertNotEqual(key("Demo.voiceover.es.mp4"), key("Demo.voiceover.fr.mp4"))
     }
 }
+
+// MARK: - Reconciling incomplete word timings
+//
+// Whisper's word list is sometimes SHORTER than the segment text — it drops the last word or two even
+// though they were spoken. Drawing word-by-word from that list loses them. `reconcile` restores them.
+
+final class ReconcileWordsTests: XCTestCase {
+
+    func testDroppedTrailingWordIsRestoredAndTimed() {
+        // The real cue 0: text ends "…give it a boundary." but timings stop at "a".
+        let timed = [
+            CaptionWord(text: "you", start: 3.08, end: 3.20),
+            CaptionWord(text: "give", start: 3.20, end: 3.34),
+            CaptionWord(text: "it", start: 3.34, end: 3.44),
+            CaptionWord(text: "a", start: 3.44, end: 3.98)
+        ]
+        let cue = CaptionCue(start: 3.0, end: 3.98, text: "you give it a boundary.", words: timed)
+        let out = Captions.reconcileCue(cue, nextStart: 5.0)
+        XCTAssertEqual(out.words?.count, 5, "the dropped 'boundary.' should be added back")
+        XCTAssertEqual(out.words?.last?.text, "boundary.")
+        // It gets a real interval, after "a", and the cue is extended to include it.
+        let last = out.words!.last!
+        XCTAssertGreaterThan(last.end, last.start)
+        XCTAssertGreaterThan(out.end, 3.98)
+        XCTAssertLessThanOrEqual(out.end, 5.0)          // never past the next cue
+    }
+
+    func testCompleteTimingsAreLeftAloneButCueStillCoversThem() {
+        let timed = [CaptionWord(text: "one", start: 0, end: 0.5),
+                     CaptionWord(text: "two", start: 0.5, end: 1.2)]
+        let cue = CaptionCue(start: 0, end: 1.0, text: "one two", words: timed)  // end shorter than words
+        let out = Captions.reconcileCue(cue, nextStart: 10)
+        XCTAssertEqual(out.words?.count, 2)
+        XCTAssertGreaterThanOrEqual(out.end, 1.2)       // extended to cover the last word
+    }
+
+    func testTailNeverOverlapsTheNextCue() {
+        let timed = [CaptionWord(text: "a", start: 0, end: 0.5)]
+        let cue = CaptionCue(start: 0, end: 0.5, text: "a whole lot more words here", words: timed)
+        let out = Captions.reconcileCue(cue, nextStart: 1.0)
+        XCTAssertLessThanOrEqual(out.end, 1.0)
+        XCTAssertEqual(out.words?.last?.text, "here")
+    }
+
+    func testNoWordTimingsIsUntouched() {
+        let cue = CaptionCue(start: 0, end: 2, text: "plain text", words: nil)
+        let out = Captions.reconcileCue(cue, nextStart: 10)
+        XCTAssertNil(out.words)                          // synthesis still happens later, in the burner
+    }
+}

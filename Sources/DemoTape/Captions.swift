@@ -150,6 +150,58 @@ final class Captions {
         return h * 3600 + m * 60 + sec
     }
 
+    /// Makes each cue's word timings cover its full text.
+    ///
+    /// Whisper's word list can be SHORTER than the segment text — it routinely drops the last word or
+    /// two ("…you give it a" for text "…you give it a boundary."), even though the word was spoken.
+    /// Anything drawn word-by-word from `words` then silently loses that word. Here the missing tail is
+    /// re-attached: leading tokens keep their real timing, the dropped trailing tokens are timed into
+    /// the gap before the next cue (where they were actually said), and the cue's end is extended to
+    /// cover them — clamped to the next cue so two captions never overlap.
+    static func reconcile(_ cues: [CaptionCue]) -> [CaptionCue] {
+        let sorted = cues.sorted { $0.start < $1.start }
+        return sorted.enumerated().map { i, cue in
+            let nextStart = i + 1 < sorted.count ? sorted[i + 1].start : .greatestFiniteMagnitude
+            return reconcileCue(cue, nextStart: nextStart)
+        }
+    }
+
+    static func reconcileCue(_ cue: CaptionCue, nextStart: Double) -> CaptionCue {
+        let tokens = cue.text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        let timed = cue.words ?? []
+        // No per-word timing at all: leave it: the burner synthesizes across the full cue. Only cues
+        // that HAVE timings but are missing their tail need repair here.
+        guard !tokens.isEmpty, !timed.isEmpty else { return cue }
+
+        // Timing already covers every token: keep it, only make sure the cue lasts as long as its words.
+        if timed.count >= tokens.count {
+            let end = min(max(cue.end, timed.last?.end ?? cue.end), nextStart)
+            return CaptionCue(start: cue.start, end: end, text: cue.text, words: cue.words)
+        }
+
+        // Incomplete. Leading tokens keep their timing (text taken from the segment so it's exact);
+        // the dropped tail is spread through the gap up to the next cue.
+        var words = (0..<timed.count).map {
+            CaptionWord(text: $0 < tokens.count ? tokens[$0] : timed[$0].text,
+                        start: timed[$0].start, end: timed[$0].end)
+        }
+        let missing = tokens[timed.count...].joined(separator: " ")
+        let lastEnd = timed.last?.end ?? cue.start
+        // Give the tail real time, but don't let it linger far into the gap.
+        let tailEnd = min(nextStart, lastEnd + Double(tokens.count - timed.count) * 0.6 + 0.4)
+        words += synthesizeWords(text: missing, start: lastEnd, end: max(tailEnd, lastEnd + 0.01))
+        let end = min(max(cue.end, words.last?.end ?? cue.end), nextStart)
+        return CaptionCue(start: cue.start, end: end, text: cue.text, words: words)
+    }
+
+    /// Splits text into words with even, speaking-rate timings across `[start, end]` — the fallback
+    /// when a cue has no word timings at all, and the timer for a reconciled tail.
+    static func synthesizeWords(text: String, start: Double, end: Double,
+                                charactersPerSecond: Double = 14, minWordDuration: Double = 0) -> [CaptionWord] {
+        CaptionBurner.synthesizeWords(text: text, start: start, end: end,
+                                      charactersPerSecond: charactersPerSecond, minWordDuration: minWordDuration)
+    }
+
     /// Saves/updates the cached transcript.
     static func saveTranscript(_ cues: [CaptionCue], for video: URL) {
         guard let data = try? JSONEncoder().encode(cues) else { return }
