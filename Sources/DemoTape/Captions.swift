@@ -84,29 +84,33 @@ final class Captions {
 
     // MARK: - Transcript cache (idempotency)
 
-    /// Path of the cached transcript sidecar for a video (`.source/<base>.transcript.json`).
-    static func transcriptURL(for video: URL) -> URL { SourcePaths(source: video).transcriptURL }
+    /// Path of the cached transcript for a video, keyed to the EXACT file.
+    ///
+    /// A transcript's cue times only fit the audio timeline they were made from. The recording's
+    /// shared `.source/<base>...` key strips `.tight` and `.voiceover`, so a sped-up Auto-Cut and its
+    /// original — or a video and its re-voiced version — collapsed to one transcript, and captioning
+    /// the derivative reused the original's times: every cue landed in the wrong place. Keying by the
+    /// file's own stem keeps each timeline's transcript to itself, which is also exactly the rule the
+    /// user wants: a different file gets transcribed, not reused.
+    static func transcriptURL(for video: URL) -> URL {
+        let stem = video.deletingPathExtension().lastPathComponent
+        return SourcePaths(source: video).sourceDir.appendingPathComponent("\(stem).transcript.json")
+    }
 
-    /// Legacy sibling path (pre-folder layout), checked as a fallback so a not-yet-migrated
-    /// recording never gets re-transcribed (and re-charged).
+    /// Legacy sibling path (pre-folder layout), per-file, checked so a not-yet-migrated recording
+    /// isn't re-transcribed (and re-charged).
     private static func legacyTranscriptURL(for video: URL) -> URL {
         video.deletingPathExtension().appendingPathExtension("transcript.json")
     }
 
-    /// Loads the cached transcript if present, so captions/voiceover reuse it instead of
-    /// paying for another transcription. Falls back to a legacy sibling or a `.srt` sidecar.
+    /// Loads the cached transcript for THIS file if present. No cross-derivative fallback: reusing a
+    /// transcript from a differently-timed file is the bug this avoids, so a file with no cache of its
+    /// own is re-transcribed rather than shown someone else's cue times.
     static func loadTranscript(for video: URL) -> [CaptionCue]? {
         for url in [transcriptURL(for: video), legacyTranscriptURL(for: video)] {
             if let data = try? Data(contentsOf: url),
                let cues = try? JSONDecoder().decode([CaptionCue].self, from: data) {
                 return cues
-            }
-        }
-        let paths = SourcePaths(source: video)
-        for srt in [paths.srtURL, video.deletingPathExtension().appendingPathExtension("srt")] {
-            if let text = try? String(contentsOf: srt, encoding: .utf8) {
-                let cues = parseSRT(text)
-                if !cues.isEmpty { return cues }
             }
         }
         return nil

@@ -1,225 +1,112 @@
-<p align="center">
-  <img src="Resources/cover-github.jpg" alt="DemoTape" width="100%">
-</p>
-
 # DemoTape
 
-Two ways to get a product demo: **record it yourself**, or **let your coding agent record it for
-you**. Either way DemoTape does the polish — automatic zoom on your clicks, a smooth cursor, a
-webcam bubble, captions, voiceover, even an AI presenter. It lives in your menu bar, runs fully on
-your Mac, and needs no account.
+**Make product demos agentically, on your Mac.** Describe a feature and let your coding agent do the
+whole thing — read the codebase, script the scenes, drive the app, record, narrate, and verify each
+scene before handing back the video. Or record it yourself and let DemoTape polish it. Local-first,
+no account, free and open source.
 
-Works on **macOS 12.3+** (Intel or Apple Silicon). A native **Windows 11** port is in the
-[`windows/`](windows/) folder — see [DemoTape on Windows](#demotape-on-windows). Free and open source.
+Runs on **macOS 12.3+** (Intel or Apple Silicon) — including older Macs like Monterey 12.7.6.
 
-> **DemoTape is free forever — no account, no license, no upsell.** If it saved you time,
-> [**★ star the repo**](https://github.com/gabosarmiento/demotape). That's the only thanks we ask,
-> and it's what helps other people find it.
+> Free forever — no account, no license, no upsell. If it saved you time,
+> [**★ star the repo**](https://github.com/gabosarmiento/demotape).
 
 ---
 
-## Let your coding agent make the demo
+## What "agentically" means here
 
-Not "AI polish on your recording" — a different actor doing the work. Your agent installs a skill,
-reads your codebase, writes the script, drives the app, records with a synced voiceover, and
-**verifies each scene against what's on screen** before handing the video back. You don't touch the
-mouse.
+A real run, start to finish, driven entirely by prompts:
 
-**1. Install the skill in your coding agent.** Runs from a clone of this repo:
+1. **Understand the app.** The agent read a codebase (KIFF, an AI-governance platform), installed the
+   skill, and worked out what was worth showing and how to reach it.
+2. **Script and record.** It stood up the local stack, wrote the scenes, drove the browser, and
+   recorded — narration synced to each action.
+3. **Verify.** Every scene was checked against what was actually on screen; a take that showed the
+   wrong thing fails loudly instead of shipping.
+4. **Polish, by prompt.** Sped up to 1.25×, captions burned in, then the whole thing re-voiced in
+   **Spanish** and **French** — same footage, new narration and subtitles, no re-recording.
+
+All of that from plain instructions. That's the difference from "AI polish on a screen recording":
+a different actor does the work, and it proves the result before you see it.
+
+**Get started:**
 
 ```bash
 tools/demo-driver/skill/install.sh              # Claude Code (~/.claude/skills)
-tools/demo-driver/skill/install.sh --kiro       # Kiro (this workspace's .kiro/steering)
+tools/demo-driver/skill/install.sh --kiro       # Kiro (this workspace)
 tools/demo-driver/skill/install.sh --dir <path> # any other skills directory
 ```
 
-**2. Point it at your project** (optional) so the agent understands your app before demoing it.
-
-**3. Tell it what to demo.** In a checkout of your app, just ask:
+Then, in a checkout of your app, ask your agent:
 
 > Record a verified demo of &lt;feature&gt; in this app.
 
-**4. Get a verified video back.** The agent stands up your local stack, discovers the real flow and
-valid inputs from your schema, rehearses headlessly, then records. Every scene carries an assertion
-that must pass at record time, and a vision check that the frame matches the line spoken over it.
-The result is a `…voiceover.mp4` plus a `demo-report.json` with a per-scene verdict — so a demo that
-would have shown the wrong thing fails loudly instead of shipping.
+You get a `…voiceover.mp4` and a `demo-report.json` with a per-scene verdict. The full playbook is in
+[`SKILL.md`](tools/demo-driver/skill/record-verified-demo/SKILL.md). In the app it's the first menu
+item: **Let Your Coding Agent Record a Demo…**
 
-Afterwards it can add another language, subtitles, or a different voice from the same footage,
-without re-recording. The instructions for all of that live in
-[`tools/demo-driver/skill/record-verified-demo/SKILL.md`](tools/demo-driver/skill/record-verified-demo/SKILL.md).
+---
 
-In the app it's the first thing in the menu: **Let Your Coding Agent Record a Demo…**
+## Or record it yourself
+
+Click the menu-bar icon (**⇧⌘S**), pick **Full Screen** or an area, and a floating bar appears:
+Start/Stop, a timer, mic and webcam toggles, and a **•••** for what you set before a take —
+background, branding, teleprompter, auto-zoom. Press Stop and DemoTape auto-edits a polished video
+(smooth zoom, clean cursor) into `~/Movies/DemoTape/`.
+
+Then, under **After Recording**, each step opens a source→result window with a **Generate preview**:
+
+- **Auto-Cut / Auto-Edit** — trim silences and tighten pace, or re-edit with a paced look. Local.
+- **Captions** — transcribe, edit the lines, burn them in. Includes word-by-word social styles.
+- **Voiceover** — turn a script into narration; add another **language** on the same timings.
+- **Avatar** — a photorealistic presenter that lip-syncs to your voiceover (cloud, shows cost first).
+- **Web Publish** — lightweight MP4 tiers, a poster, an embed snippet, and a GIF.
+
+Captions, Voiceover, and Avatar can also hand the job to your coding agent with **Copy prompt for
+your agent**.
 
 ---
 
 ## Get DemoTape
 
-**Easiest — let your coding agent set it up.** Clone the repo, open it in Claude Code / Codex /
-Kiro, and say:
-
-> Set up and install DemoTape by following the "Agent-assisted setup" runbook in AGENTS.md.
-
-It builds and installs a version matched to your Mac, then tells you the one thing only you can
-do: grant Screen Recording permission.
-
-**Or download the app.** Grab `DemoTape-<version>.dmg` from
+**Download.** Grab `DemoTape-<version>.dmg` from
 [Releases](https://github.com/gabosarmiento/demotape/releases/latest) and drag it into
-**Applications**. The DMG is **signed with a Developer ID and notarized by Apple**, so it opens
-normally — no right-click, no quarantine warning, no Terminal workaround.
+**Applications**. It's Developer-ID signed and notarized, so it opens normally. Run it from
+**/Applications** so macOS remembers Screen Recording permission.
 
-> Run DemoTape from **/Applications** so macOS remembers your Screen Recording permission.
-
-**First launch:** DemoTape asks for **Screen Recording** — click **Allow**, tick DemoTape in the
-System Settings pane that opens, then use **Quit & Reopen** (macOS only applies this grant on
-relaunch). That's the one thing only you can do, and you only do it once. Microphone, Camera, and
-Accessibility are requested individually, and only if you turn on a feature that needs them.
-
----
-
-## Record it yourself
-
-The manual path: record your screen and DemoTape turns it into a polished product demo. Click the
-menu-bar icon (or press **⇧⌘S**) and pick how you want to capture:
-
-- **Full Screen** or **Select Recording Area** — drag out an area; it stays on screen as a frame
-  you can move and resize, and never shows up in the video.
-- A floating **recorder bar** appears with Start/Stop, a timer, mic and webcam toggles, and a
-  **•••** button for everything you'd set just before a take:
-  - **Microphone** — your narration.
-  - **Webcam** — a draggable, resizable circular bubble.
-  - **Background** — frame the recording on a gradient or your own image.
-  - **Branding** — drop your logo on top.
-  - **Teleprompter** — scroll a script beside the recording so you can read while you record.
-  - **Auto-Zoom** — on by default; turn it off for a static shot.
-
-A **3-2-1 countdown** gives you a beat to get ready. When you press Stop, DemoTape auto-edits a
-polished video (smooth zoom, clean cursor, shortcut badges) and saves it to
-`~/Movies/DemoTape/`.
-
----
-
-## Polish it
-
-Everything after recording lives under **After Recording** in the menu. Each one opens a simple
-window: your **source** video on the left, the **result** on the right. Tweak the settings, click
-**Generate preview**, watch the result, and the finished file is saved with a **Reveal in Finder**
-link. Every window has a **Change…** button if you want to work on a different clip.
-
-### ✂️ Auto Cut and Speed
-Trims silent gaps and can speed the clip up while keeping your voice natural. Great for making a
-demo feel tight and snappy. Fully local.
-
-### 💬 Captions
-Transcribes your narration automatically, shows the lines with their timestamps so you can fix
-any wording, then burns them into the video. Pick the language in its tab. (Transcribed once and
-remembered, so re-opening never costs you again.) Use OpenAI/Groq with a key, or the
-**Local (OpenAI-compatible)** provider to transcribe **free and offline** against your own Whisper
-server — see [`tools/tts-shim`](tools/tts-shim).
-
-### 🎙️ Voiceover
-Turn a script into narration. The script pre-fills from your captions and the narration is laid
-over the video — best for screen-only demos. Pick your engine in **AI Settings → Voiceover**:
-- **[ElevenLabs](https://elevenlabs.io)** (paid, hosted) — preview any voice with one click.
-- **Run it locally, free** — point at any OpenAI-compatible TTS server (e.g.
-  [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) in Docker). No key, no network egress.
-  See [`tools/tts-shim`](tools/tts-shim) for a one-command setup and a template for wrapping your
-  own model (Chatterbox, Qwen3-TTS, …).
-
-### 🧑 Avatar Presenter
-Turn your voiceover into a photorealistic presenter that lip-syncs to it and sits in your webcam
-bubble. Upload a **photo** or pick a library avatar. Because it's rendered in the cloud by
-[HeyGen](https://heygen.com) and costs credits, DemoTape shows a clear **cost estimate and asks
-you to confirm** first. Best for short clips.
-
-### 🎬 Apply Template
-Re-edit the video with a paced "look" — Clean, Keynote, Commercial, and more — for intros,
-transitions, and rhythm.
-
-### 🌐 Web Publish
-Export lightweight, fast-loading MP4s for the web, plus a poster, a responsive `<video>` snippet,
-and an optional animated GIF for your README.
-
----
-
-## Where your files go
-
-Everything lands next to your recording in `~/Movies/DemoTape/`:
-
-| File | What it is |
-|---|---|
-| `…styled.mp4` | Your auto-edited recording |
-| `…tight.mp4` | Silence-cut / sped-up version |
-| `…captioned.mp4` | With captions burned in |
-| `…voiceover.mp4` | With AI narration |
-| `…avatar.mp4` | With the AI presenter in the webcam bubble |
-| `…-web/` | Web-ready MP4s + poster + embed snippet |
-
-Change where recordings are saved from **Recording Folder → Change Output Directory…**.
-
----
-
-## AI features are optional and private
-
-DemoTape is **local by default**. Captions, Voiceover, and Avatar are **opt-in** and use **your
-own API keys** (stored in the macOS Keychain, never on disk). Turn them on in
-**AI Features → AI Settings…**, where you can paste and test each key.
-
-When AI is off, DemoTape makes **no network calls at all**. When it's on, only what a step needs
-is sent to the provider you chose — captions send the audio, voiceover sends the script, the
-avatar sends the narration (and your photo, if you upload one). **Your screen recording is never
-uploaded.**
-
----
-
-## Build from source
+**Build from source.**
 
 ```bash
-./create-identity.sh    # one-time: stable signing identity (keeps permissions across rebuilds)
+./create-identity.sh    # one-time signing identity (keeps permissions across rebuilds)
 ./build-app.sh release  # build, sign, install to /Applications
-open /Applications/DemoTape.app
 ```
 
-No Xcode project and no third-party dependencies — just Apple frameworks and `swift build`.
-Contributors and AI agents: see [`AGENTS.md`](AGENTS.md) for build/verify steps and constraints.
+No Xcode project, no third-party dependencies — Apple frameworks and `swift build`. See
+[`AGENTS.md`](AGENTS.md) for build/verify steps.
 
-> `swift build` fails with `no such module 'PackageDescription'`? Your Command Line Tools are
-> corrupted (common after a macOS upgrade). Reinstall with `xcode-select --install`, or install
-> full Xcode and run `sudo xcode-select -s /Applications/Xcode.app`.
+**First launch** asks for **Screen Recording**: click Allow, tick DemoTape in System Settings, then
+Quit & Reopen (macOS applies it on relaunch). Mic, Camera, and Accessibility are asked for only when
+a feature needs them.
 
 ---
 
-## DemoTape on Windows
+## Private by default
 
-There's a native **Windows 11** port in [`windows/`](windows/), built with **C# · .NET 8 ·
-WinUI 3 · Windows App SDK** — same idea (record → auto-styled demo → lightweight web MP4s),
-local-first, no accounts.
+DemoTape makes **no network calls** unless you turn on an AI step. Those are opt-in and use **your
+own API keys** (stored in the macOS Keychain), or a local OpenAI-compatible server for free, offline
+captions and voiceover — see [`tools/tts-shim`](tools/tts-shim). Only what a step needs is sent:
+captions send the audio, voiceover the script. **Your screen recording is never uploaded.**
 
-It mirrors the macOS features: capture + auto-styled render, region/background framing, webcam
-PiP, captions, voiceover, avatar presenter, noise suppression, enhance voice, auto-cut, web
-publish, teleprompter, and branding. The business logic (Domain / Services / ViewModels) is
-pure `.NET` and unit-tested; only the app shell needs the Windows toolchain.
+---
 
-```powershell
-cd windows
-dotnet test tests/DemoTape.Tests/DemoTape.Tests.csproj -c Release   # logic (only the .NET 8 SDK)
-dotnet run --project src/App/DemoTape.App.csproj -c Release         # full app (Windows App SDK)
-```
+## Windows
 
-Details and docs: [`windows/README.md`](windows/README.md) · [feature parity](windows/docs/FEATURE-PARITY.md)
-· [build](windows/docs/BUILD.md) · [user guide](windows/docs/USER-GUIDE.md).
-
-> The Windows port is catching up to the macOS app; the newest AI‑director work lands there next.
+A **work-in-progress** Windows 11 port lives in [`windows/`](windows/) (C# · .NET 8 · WinUI 3). Today
+it does traditional screen recording and the auto-styled render; the AI-director, captions, voiceover
+and avatar features are macOS-only for now. See [`windows/README.md`](windows/README.md).
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Built by studying (not copying) several excellent open-source
-screen recorders; DemoTape is its own dependency-free implementation.
-
-## Support the project
-
-There's nothing to buy. If DemoTape earned a place in your workflow,
-[**★ star it on GitHub**](https://github.com/gabosarmiento/demotape) — one click, and it's what
-helps the next person find it. Bug reports and pull requests are just as welcome.
+MIT — see [LICENSE](LICENSE). A dependency-free implementation of its own; built by studying, not
+copying, other open-source recorders. Bug reports and pull requests welcome.

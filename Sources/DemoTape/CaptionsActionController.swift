@@ -65,19 +65,24 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
         tabView.addTabViewItem(makeDesignTab())
         tabView.addTabViewItem(makeSubtitlesTab())
 
-        agentBox = makeAgentHandoff()
-
-        let stack = NSStackView(views: [header, tabView, agentBox])
+        let stack = NSStackView(views: [header, tabView])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
-        [header, tabView, agentBox].forEach {
+        [header, tabView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             $0.leadingAnchor.constraint(equalTo: stack.leadingAnchor).isActive = true
             $0.trailingAnchor.constraint(equalTo: stack.trailingAnchor).isActive = true
         }
         refreshHeader()
         return stack
+    }
+
+    /// The agent hand-off sits BELOW Generate: burning them here is the primary action; handing the
+    /// translation to an agent is the secondary path, and its position should say so.
+    override func makeBelowActionAccessory() -> NSView? {
+        agentBox = makeAgentHandoff()
+        return agentBox
     }
 
     /// What this window is working on, and the one setting that changes the transcript. Both were
@@ -121,8 +126,13 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
         targetLanguagePopup.addItems(withTitles: NarrationLocalization.languages.map(NarrationLocalization.label))
         targetLanguagePopup.target = self
         targetLanguagePopup.action = #selector(targetLanguageChanged)
-        if let spoken = NarrationLocalization.languageOfFile(source),
-           let idx = NarrationLocalization.languages.firstIndex(where: { $0.code == spoken.code }) {
+        // Default to a language OTHER than the one already spoken — translating Spanish audio into
+        // Spanish subtitles is pointless, and defaulting to the spoken language (as it did) looked
+        // like a bug. Prefer English; if the audio is English, offer Spanish.
+        let spokenCode = NarrationLocalization.languageOfFile(source)?.code
+        let preferred = spokenCode == "en" ? "es" : "en"
+        if let idx = NarrationLocalization.languages.firstIndex(where: { $0.code == preferred })
+            ?? NarrationLocalization.languages.firstIndex(where: { $0.code != spokenCode }) {
             targetLanguagePopup.selectItem(at: idx)
         }
         let box = AgentHandoffBox(
@@ -445,7 +455,7 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
         guard !cues.isEmpty else { return nil }
         Captions.saveTranscript(cues, for: source)
         let out = SourcePaths(source: source).output(suffix: "captioned")
-        try CaptionBurner().burn(video: source, cues: cues, style: selectedStyle, to: out)
+        try CaptionBurner().burn(video: source, cues: cues, style: selectedStyle, to: out, progress: progress)
         return out
     }
 

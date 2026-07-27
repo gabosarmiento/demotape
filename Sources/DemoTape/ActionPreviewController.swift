@@ -25,6 +25,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     private var resultBadge: NSTextField!
     private var generateButton: NSButton!
     private var spinner: NSProgressIndicator!
+    private var progressBar: NSProgressIndicator!
     private var messageLabel: NSTextField!
     private var resultRow: NSStackView!
     private var resultLink: NSButton!
@@ -68,6 +69,10 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     /// Called on the main thread after a successful generate, with the file written. Subclasses
     /// override to add something the user needs to know about the result.
     func renderDidFinish(output: URL) {}
+
+    /// A view placed BELOW the primary action, for a secondary path (e.g. handing the job to an
+    /// agent). Nil by default. Built once, during layout.
+    func makeBelowActionAccessory() -> NSView? { nil }
 
     /// Asked on the main thread just before a generate starts. Return false to abort (e.g. the
     /// user declined a paid-operation confirmation). Default allows it.
@@ -153,6 +158,17 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
 
+        // A determinate bar for work that reports progress (a caption burn steps through frames). A
+        // spinner says "something is happening"; a bar says "how much is left", which is what the user
+        // asked for while a preview renders.
+        progressBar = NSProgressIndicator()
+        progressBar.style = .bar
+        progressBar.isIndeterminate = false
+        progressBar.minValue = 0
+        progressBar.maxValue = 1
+        progressBar.isHidden = true
+        progressBar.controlSize = .small
+
         messageLabel = NSTextField(labelWithString: "")
         messageLabel.font = .systemFont(ofSize: 11)
         messageLabel.textColor = .secondaryLabelColor
@@ -195,18 +211,34 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         }
 
         // Action cluster (centered): the prominent Generate button, progress, and result link.
-        let cluster = NSStackView(views: [generateButton, spinner, messageLabel, resultRow])
+        let cluster = NSStackView(views: [generateButton, spinner, progressBar, messageLabel, resultRow])
         cluster.orientation = .vertical
         cluster.alignment = .centerX
         cluster.spacing = 12
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        progressBar.widthAnchor.constraint(equalToConstant: 260).isActive = true
+
+        // Anything a subclass wants BELOW the primary action (e.g. an "or hand it to your agent" panel
+        // that reads as a secondary path, not the main one). Nil by default.
+        let belowAction = makeBelowActionAccessory()
 
         // Footer: Cancel bottom-left.
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelTapped))
         cancelButton.bezelStyle = .rounded
 
-        [sourceNameField, changeButton, players, controlsHost, cluster, cancelButton].forEach {
+        var views: [NSView] = [sourceNameField, changeButton, players, controlsHost, cluster, cancelButton]
+        if let belowAction = belowAction { views.append(belowAction) }
+        views.forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview($0)
+        }
+        if let belowAction = belowAction {
+            NSLayoutConstraint.activate([
+                belowAction.topAnchor.constraint(equalTo: cluster.bottomAnchor, constant: 14),
+                belowAction.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
+                belowAction.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
+                belowAction.bottomAnchor.constraint(lessThanOrEqualTo: cancelButton.topAnchor, constant: -14)
+            ])
         }
 
         NSLayoutConstraint.activate([
@@ -299,11 +331,16 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         isCancelled = false
         setBusy(true)
         resultRow.isHidden = true
+        progressBar.doubleValue = 0
+        progressBar.isHidden = false
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             do {
                 let out = try self.render { p in
-                    DispatchQueue.main.async { self.setStatus("Rendering… \(Int(p * 100))%", isError: false) }
+                    DispatchQueue.main.async {
+                        self.progressBar.doubleValue = p
+                        self.setStatus("Rendering… \(Int(p * 100))%", isError: false)
+                    }
                 }
                 DispatchQueue.main.async {
                     self.setBusy(false)
@@ -364,7 +401,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     /// Toggle the working state: disables Generate and spins while true.
     func setBusy(_ busy: Bool) {
         generateButton?.isEnabled = !busy
-        if busy { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        if busy { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil); progressBar?.isHidden = true }
     }
 
     private func reloadSource() {
