@@ -58,6 +58,9 @@ final class SecureKeyField: NSView, NSTextFieldDelegate {
         }
         common(secureField)
         common(plainField)
+        // No completion/AutoFill dropdown over the field — an API key isn't something to autocomplete.
+        secureField.isAutomaticTextCompletionEnabled = false
+        plainField.isAutomaticTextCompletionEnabled = false
         plainField.isHidden = true
         secureField.delegate = self
         plainField.delegate = self

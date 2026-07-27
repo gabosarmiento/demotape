@@ -65,6 +65,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Notifier.shared.refreshAuthorization()
     }
 
+    /// Clicking the Dock icon (or reopening) when nothing is on screen must DO something. DemoTape is
+    /// a menu-bar app, but it shows a Dock icon whenever a window is open, so a user naturally clicks
+    /// it — and with no window and the menu bar easy to miss, it felt dead. Show the recorder bar, the
+    /// same thing choosing a capture mode does, so there's always a visible way in.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if hasVisibleWindows { return true }
+        if recorderBar?.isRecording == true { return true }   // don't disturb an active recording
+        selectFullScreen()   // presents the recorder bar in full-screen capture mode
+        return true
+    }
+
     private func startApp() {
         // Keep the mic toggle honest: if it was left "on" but macOS doesn't grant mic access, show
         // it off until the user re-enables it (which re-requests permission).

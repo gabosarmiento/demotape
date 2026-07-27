@@ -81,6 +81,7 @@ final class AISettingsController: NSObject, NSWindowDelegate {
     private var heygenTestResult: NSTextField!
 
     private var statusLabel: NSTextField!
+    private var saveButton: NSButton!
 
     private let w: CGFloat = 540
     private let tabW: CGFloat = 500     // inner width of a tab's content view
@@ -134,6 +135,7 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         save.keyEquivalent = "\r"
         save.frame = NSRect(x: w - 124, y: 14, width: 96, height: 32)
         content.addSubview(save)
+        saveButton = save
 
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(closeWindow))
         cancel.bezelStyle = .rounded
@@ -155,11 +157,14 @@ final class AISettingsController: NSObject, NSWindowDelegate {
 
         NSApp.activate(ignoringOtherApps: true)
         window.center()
-        // Don't auto-focus a text field, so the first click on Save/Cancel isn't swallowed
-        // by that field ending its editing session.
-        window.initialFirstResponder = nil
+        // Focus the Save BUTTON, not a text field. With no first responder AppKit falls back to the
+        // first key view — the secure API-key field — and macOS then pops its "Passwords…" AutoFill
+        // over the Test button (only where a matching key is already saved, which is why it hit the
+        // Captions tab and not the others). A button as first responder means no secure field is
+        // focused on open, so AutoFill stays quiet until the user actually clicks the field.
+        window.initialFirstResponder = save
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(nil)
+        window.makeFirstResponder(save)
     }
 
     // MARK: - Tabs
