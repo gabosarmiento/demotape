@@ -163,7 +163,7 @@ final class CaptionBurner {
             cacheKey = ""; return nil
         }
         let cue = cues[idx]
-        let words = wordsForCue(cue)
+        let words = wordsForCue(cue, style: style)
         guard !words.isEmpty else { cacheKey = ""; return nil }
 
         // Never dump a whole cue over the frame. Split the cue into small windows that hold at
@@ -224,36 +224,47 @@ final class CaptionBurner {
 
     /// Per-cue words with timing — real word timestamps when present, otherwise synthesized
     /// evenly across the cue so animation still works on older transcripts.
-    private func wordsForCue(_ cue: CaptionCue) -> [CaptionWord] {
+    private func wordsForCue(_ cue: CaptionCue, style: CaptionStyle) -> [CaptionWord] {
         if let w = cue.words, !w.isEmpty { return w }
-        return Self.synthesizeWords(text: cue.text, start: cue.start, end: cue.end)
+        // Word-by-word styles show one or two words at a time, so a word that flashes for two frames
+        // is simply gone. They need a readable floor per word; phrase styles show the whole line, so
+        // the exact per-word timing only moves a highlight and needs no floor.
+        let floor = style.isWordByWord ? Self.wordByWordMinSeconds : 0
+        return Self.synthesizeWords(text: cue.text, start: cue.start, end: cue.end, minWordDuration: floor)
     }
+
+    /// The shortest a single word stays on screen in a word-by-word style — long enough to read one
+    /// word, short enough to keep pace. Below this, words were being skipped.
+    static let wordByWordMinSeconds: Double = 0.42
 
     /// Word timings for a cue that has none, from the text itself.
     ///
-    /// Spreading words evenly across the whole cue is wrong whenever a cue is longer than the speech in
-    /// it — which is common, because a transcript cue often runs to the next utterance and includes the
-    /// pause. A real example: "y el CTO lo aprobó." on a 10.8s cue put each word on screen for 2.2s, so
-    /// the last word arrived four seconds after it was spoken and read as missing entirely.
+    /// Two failure modes to avoid, learned in that order:
+    ///   - Spreading words evenly across the whole cue is wrong when the cue is longer than the speech
+    ///     (transcript cues often run to the next utterance, pause included): "y el CTO lo aprobó." on a
+    ///     10.8s cue gave each word 2.2s, so the last word landed four seconds late and read as missing.
+    ///   - Packing at the speaking rate alone then makes SHORT words flash — "y" for 0.07s is two frames,
+    ///     gone before it's read, which is exactly what breaks word-by-word styles.
     ///
-    /// So: estimate how long the words actually take to say, pack them at the START of the cue at that
-    /// rate, and give each word a share proportional to its length. When the speech does fill the cue,
-    /// this is the old even spread.
+    /// So: each word gets the LONGER of its speaking time and `minWordDuration`, laid end to end from
+    /// the cue's start (tracking the voice, not the trailing silence). If that runs past the cue, scale
+    /// to fit — the only case a word can't get its floor is a cue genuinely too short for its words.
     static func synthesizeWords(text: String, start: Double, end: Double,
-                                charactersPerSecond: Double = 14) -> [CaptionWord] {
+                                charactersPerSecond: Double = 14,
+                                minWordDuration: Double = 0) -> [CaptionWord] {
         let tokens = text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
         guard !tokens.isEmpty else { return [] }
         let cueDuration = max(0.01, end - start)
-        let counts = tokens.map { Double(max(1, $0.count)) }
-        let totalChars = counts.reduce(0, +)
-        // Never longer than the cue, and never so fast that a word flashes by.
-        let spoken = min(cueDuration, max(totalChars / charactersPerSecond,
-                                          Double(tokens.count) * 0.18))
+        var durations = tokens.map { max(minWordDuration, Double(max(1, $0.count)) / charactersPerSecond) }
+        let total = durations.reduce(0, +)
+        if total > cueDuration {                       // too many words for the time — best-effort even-ish
+            let scale = cueDuration / total
+            durations = durations.map { $0 * scale }
+        }
         var t = start
-        return zip(tokens, counts).map { token, chars in
-            let share = spoken * (chars / totalChars)
-            let word = CaptionWord(text: token, start: t, end: min(end, t + share))
-            t += share
+        return zip(tokens, durations).map { token, d in
+            let word = CaptionWord(text: token, start: t, end: min(end, t + d))
+            t += d
             return word
         }
     }

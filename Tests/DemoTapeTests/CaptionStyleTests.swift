@@ -138,11 +138,32 @@ final class WordByWordCaptionStyleTests: XCTestCase {
 final class SynthesizedWordTimingTests: XCTestCase {
 
     func testWordsArePackedAtTheStartOfAnOverlongCue() {
-        // "y el CTO lo aprobó." — 19 characters of speech on a 10.8s cue.
+        // "y el CTO lo aprobó." — 19 characters of speech on a 10.8s cue, no readable floor.
         let words = CaptionBurner.synthesizeWords(text: "y el CTO lo aprobó.", start: 0, end: 10.8)
         XCTAssertEqual(words.count, 5)
         // All of it said in roughly the first couple of seconds, not stretched over ten.
         XCTAssertLessThan(words.last!.end, 3.0)
+        XCTAssertEqual(words.first!.start, 0, accuracy: 0.001)
+    }
+
+    func testWordByWordFloorKeepsShortWordsOnScreenLongEnough() {
+        // The bug: without a floor "y" (1 char) shows for 0.07s — two frames — and reads as dropped.
+        let floor = CaptionBurner.wordByWordMinSeconds
+        let words = CaptionBurner.synthesizeWords(text: "y el CTO lo aprobó.", start: 0, end: 10.8,
+                                                  minWordDuration: floor)
+        for w in words {
+            XCTAssertGreaterThanOrEqual(w.end - w.start, floor - 0.001, "\(w.text) too brief")
+        }
+        // Still tracks the voice: everything shown in the first few seconds, then the last word lingers
+        // through the cue's silent tail (handled by the window fallthrough, not here).
+        XCTAssertLessThan(words.last!.start, 3.0)
+    }
+
+    func testFloorScalesDownOnlyWhenTheCueIsGenuinelyTooShort() {
+        // Five words with a 0.42 floor want 2.1s; a 1s cue can't give it, so they scale to fit.
+        let words = CaptionBurner.synthesizeWords(text: "one two three four five", start: 0, end: 1.0,
+                                                  minWordDuration: 0.42)
+        XCTAssertEqual(words.last!.end, 1.0, accuracy: 0.02)
         XCTAssertEqual(words.first!.start, 0, accuracy: 0.001)
     }
 

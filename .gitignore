@@ -56,3 +56,9 @@ __pycache__/
 # to disk first and deleted after).
 .git-commit-msg.tmp
 .gh-notes.tmp
+
+# graphify code-graph output + caches (generated; not part of the app)
+graphify-out/
+Sources/graphify-out/
+.graphify_*.json
+.graphify_*.txt
