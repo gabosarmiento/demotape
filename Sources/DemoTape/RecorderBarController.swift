@@ -120,6 +120,16 @@ final class RecorderBarController: NSObject {
         webcamButton.toolTip = on ? "Webcam (on)" : "Webcam (off)"
     }
 
+    /// In webcam-only mode the camera IS the recording, so a webcam on/off toggle makes no sense —
+    /// hide it (and drop it from the Tab loop) so the bar reads as "camera, mic, go".
+    func setWebcamToggleHidden(_ hidden: Bool) {
+        guard webcamButton != nil else { return }
+        webcamButton.isHidden = hidden
+        focusables = hidden
+            ? [recordButton, micButton, setupButton, cancelButton]
+            : [recordButton, micButton, webcamButton, setupButton, cancelButton]
+    }
+
     // MARK: - Build
 
     private func symbol(_ name: String, size: CGFloat) -> NSImage? {

@@ -14,6 +14,8 @@ final class RecorderSetupPopover: NSObject {
     /// stays a view and the behaviour stays in one place (`AppDelegate`).
     struct Actions {
         var setFullScreen: (Bool) -> Void
+        var setWebcamOnly: () -> Void
+        var isWebcamOnly: () -> Bool
         var openComposer: () -> Void
         var openBackground: () -> Void
         var toggleBranding: () -> Void
@@ -53,7 +55,7 @@ final class RecorderSetupPopover: NSObject {
     /// Re-reads Settings so the popover always shows the truth, including changes made from the menu.
     func refresh() {
         guard modeControl != nil else { return }
-        modeControl.selectedSegment = Settings.useRegion ? 1 : 0
+        modeControl.selectedSegment = actions.isWebcamOnly() ? 2 : (Settings.useRegion ? 1 : 0)
         backgroundValue.stringValue = Settings.framedBackground ? Self.backgroundLabel() : "Off"
         brandingSwitch.state = Settings.brandingEnabled ? .on : .off
         teleprompterSwitch.state = Settings.teleprompterEnabled ? .on : .off
@@ -80,7 +82,7 @@ final class RecorderSetupPopover: NSObject {
         content.spacing = 8
         content.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
 
-        modeControl = NSSegmentedControl(labels: ["Full Screen", "Select Area"],
+        modeControl = NSSegmentedControl(labels: ["Full Screen", "Select Area", "Webcam Only"],
                                          trackingMode: .selectOne,
                                          target: self, action: #selector(modeChanged))
         modeControl.segmentDistribution = .fillEqually
@@ -257,7 +259,11 @@ final class RecorderSetupPopover: NSObject {
     // it first, so the popover isn't left floating over the window it just opened.
 
     @objc private func modeChanged() {
-        actions.setFullScreen(modeControl.selectedSegment == 0)
+        switch modeControl.selectedSegment {
+        case 2:  actions.setWebcamOnly()
+        case 1:  actions.setFullScreen(false)
+        default: actions.setFullScreen(true)
+        }
         refresh()
     }
     @objc private func tapComposer() { close(); actions.openComposer() }

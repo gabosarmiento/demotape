@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let renderHUD = RenderHUD()
     private var regionOverlay: RegionOverlay?
     private var webcamPreview: WebcamPreviewOverlay?
+    /// Full-screen live camera preview shown before a webcam-only take (instead of the PiP bubble).
+    private var webcamStage: WebcamStageOverlay?
     /// Optional neural denoiser: active only if a Core ML model is bundled; otherwise the boosted
     /// on-device DSP reducer handles Smart Noise Suppression.
     private let speechEnhancer = CoreMLSpeechEnhancer()
@@ -1795,6 +1797,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let self = self else { return }
                     if full { self.selectFullScreen() } else { self.selectArea() }
                 },
+                setWebcamOnly: { [weak self] in self?.recordWebcamOnly() },
+                isWebcamOnly: { [weak self] in self?.webcamOnly ?? false },
                 openComposer: { [weak self] in self?.openDemoComposer() },
                 openBackground: { [weak self] in self?.openBackgroundPicker() },
                 toggleBranding: { [weak self] in self?.toggleBranding() },
@@ -1844,17 +1848,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             regionOverlay?.hide()
         }
-        recorderBar?.show(anchorRegion: region,
+        recorderBar?.show(anchorRegion: webcamOnly ? nil : region,
                           micOn: Settings.captureMicrophone, webcamOn: Settings.captureWebcam)
+        recorderBar?.setWebcamToggleHidden(webcamOnly)
         refreshWebcamPreview()
     }
 
     /// Shows/hides the live camera bubble anchored in the recording area while preparing. Hidden
     /// during recording so it's never captured (the webcam is composited in afterward).
     private func refreshWebcamPreview() {
-        // Show the live self-view while idle when the webcam bubble is on, OR in webcam-only mode
-        // (where the camera IS the recording, so a self-view matters even without the PiP toggle).
-        guard state == .idle, recorderBar != nil, (Settings.captureWebcam || webcamOnly) else {
+        // Webcam-only is its own thing: a big, near-full-screen live preview so it's obvious the
+        // camera IS the whole video — not the small PiP bubble used for screen recordings.
+        if webcamOnly {
+            webcamPreview?.hide()
+            guard state == .idle, recorderBar != nil else { webcamStage?.hide(); return }
+            if webcamStage == nil { webcamStage = WebcamStageOverlay() }
+            webcamStage?.show()
+            webcamStage?.setMirrored(Settings.mirrorCamera)
+            return
+        }
+        webcamStage?.hide()
+        // Otherwise show the PiP bubble while idle when the webcam is on, so you can frame the pip.
+        guard state == .idle, recorderBar != nil, Settings.captureWebcam else {
             webcamPreview?.hide(); return
         }
         if webcamPreview == nil { webcamPreview = WebcamPreviewOverlay() }
@@ -1881,6 +1896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recorderBar?.hide()
         regionOverlay?.hide()
         webcamPreview?.hide()
+        webcamStage?.hide()
     }
 
     /// Keep the floating bar/border in sync with the recording state. For full-screen
@@ -1896,6 +1912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .countdown:
             webcamPreview?.hide()   // never let the live bubble land in the capture
+            webcamStage?.hide()     // the full-screen preview gives way to the actual take
             // Webcam-only captures the camera, not the screen — so keep the bar (and its Stop) on
             // screen and skip all the region/hide logic that a screen capture needs.
             if webcamOnly { break }

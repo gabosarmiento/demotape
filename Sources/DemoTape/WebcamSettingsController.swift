@@ -114,7 +114,9 @@ final class WebcamSettingsController: NSObject {
         let mirror = NSButton(checkboxWithTitle: "Mirror camera",
                               target: self, action: #selector(self.toggleMirror(_:)))
         mirror.state = Settings.mirrorCamera ? .on : .off
-        mirror.contentTintColor = .white
+        // Force dark-mode rendering so the checkbox box (and its check) are light and legible on the
+        // dark card — the default follows the system appearance and vanished on a light theme.
+        mirror.appearance = NSAppearance(named: .darkAqua)
         mirror.attributedTitle = NSAttributedString(string: "Mirror camera", attributes: [
             .foregroundColor: NSColor.white,
             .font: NSFont.systemFont(ofSize: 13, weight: .medium)
@@ -550,5 +552,105 @@ private final class PassthroughView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let c = interactive, c.frame.insetBy(dx: -8, dy: -8).contains(point) else { return nil }
         return super.hitTest(point)
+    }
+}
+
+// MARK: - Full-screen webcam stage (webcam-only capture mode)
+
+/// A large, near-full-screen live camera preview shown before a **webcam-only** recording. Unlike the
+/// small PiP bubble, this fills the screen so it's unmistakable that the camera *is* the whole video —
+/// no screen behind it. It's non-interactive (the recorder bar floats above it) and hidden the moment
+/// recording begins. Mirroring matches Settings.mirrorCamera so it's WYSIWYG.
+@available(macOS 12.3, *)
+final class WebcamStageOverlay {
+    private var panel: NSPanel?
+    private var session: AVCaptureSession?
+    private weak var previewLayer: AVCaptureVideoPreviewLayer?
+    private var stageLayer: CALayer?
+
+    var isVisible: Bool { panel != nil }
+
+    func setMirrored(_ on: Bool) {
+        guard let conn = previewLayer?.connection, conn.isVideoMirroringSupported else { return }
+        conn.automaticallyAdjustsVideoMirroring = false
+        conn.isVideoMirrored = on
+    }
+
+    func show() {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        guard let screen = NSScreen.main else { return }
+        if panel != nil { return }
+        guard let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device) else { return }
+
+        let session = AVCaptureSession()
+        session.sessionPreset = .high
+        if session.canAddInput(input) { session.addInput(input) }
+        let preview = AVCaptureVideoPreviewLayer(session: session)
+        preview.videoGravity = .resizeAspectFill
+        if let conn = preview.connection, conn.isVideoMirroringSupported {
+            conn.automaticallyAdjustsVideoMirroring = false
+            conn.isVideoMirrored = Settings.mirrorCamera
+        }
+        previewLayer = preview
+        session.startRunning()
+
+        let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.level = .floating
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true          // the recorder bar (higher level) handles all clicks
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+
+        let content = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
+
+        // A big rounded 16:9 stage centred on screen (the camera's native aspect), filled by the feed.
+        let bounds = content.bounds
+        let maxW = bounds.width * 0.86, maxH = bounds.height * 0.82
+        var stageW = maxW, stageH = stageW * 9.0 / 16.0
+        if stageH > maxH { stageH = maxH; stageW = stageH * 16.0 / 9.0 }
+        let stage = CALayer()
+        stage.frame = NSRect(x: (bounds.width - stageW) / 2, y: (bounds.height - stageH) / 2 + 20,
+                             width: stageW, height: stageH)
+        stage.cornerRadius = 20
+        stage.cornerCurve = .continuous
+        stage.masksToBounds = true
+        stage.borderWidth = 2
+        stage.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
+        preview.frame = stage.bounds
+        stage.addSublayer(preview)
+        content.layer?.addSublayer(stage)
+        stageLayer = stage
+
+        // Caption pill so the mode is legible at a glance.
+        let pill = NSTextField(labelWithString: "Webcam only  ·  press Start to record just your camera")
+        pill.font = .systemFont(ofSize: 14, weight: .medium)
+        pill.textColor = NSColor.white.withAlphaComponent(0.9)
+        pill.alignment = .center
+        pill.sizeToFit()
+        let pw = pill.frame.width + 36, ph: CGFloat = 34
+        let host = NSView(frame: NSRect(x: (bounds.width - pw) / 2,
+                                        y: stage.frame.minY - ph - 16, width: pw, height: ph))
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        host.layer?.cornerRadius = ph / 2
+        pill.frame = NSRect(x: 18, y: (ph - pill.frame.height) / 2, width: pw - 36, height: pill.frame.height)
+        host.addSubview(pill)
+        content.addSubview(host)
+
+        panel.contentView = content
+        self.panel = panel
+        self.session = session
+        panel.orderFrontRegardless()
+    }
+
+    func hide() {
+        session?.stopRunning(); session = nil
+        panel?.orderOut(nil); panel = nil
+        stageLayer = nil
     }
 }
