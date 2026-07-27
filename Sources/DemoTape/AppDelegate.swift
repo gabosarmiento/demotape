@@ -1447,11 +1447,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var teleprompterController: TeleprompterSettingsController?
     @objc private func openTeleprompterSettings() {
+        // Already open? Don't stack a second window behind the first (which reads as "Cancel does
+        // nothing" — you close the top one and another is still there). Just bring it forward.
+        if teleprompterController != nil { NSApp.activate(ignoringOtherApps: true); return }
+        // The live camera preview floats above normal windows and would hide this editor. Put it
+        // away while the settings are open; refreshWebcamPreview() brings it back on close.
+        webcamStage?.hide()
+        webcamPreview?.hide()
         let controller = TeleprompterSettingsController()
         teleprompterController = controller
         controller.show(onClose: { [weak self] in
             self?.teleprompterToggleItem.state = Settings.teleprompterEnabled ? .on : .off
             self?.teleprompterController = nil
+            self?.refreshWebcamPreview()   // restore the self-view if we were in webcam/PiP mode
         })
     }
 
@@ -1771,6 +1779,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func beginAreaSelection(forcePicker: Bool) {
         webcamOnly = false
         regionLocked = false
+        webcamStage?.hide()      // switching away from webcam-only: drop the camera immediately,
+        webcamPreview?.hide()    // not after the area is picked
         if !forcePicker, Settings.useRegion, Settings.regionW > 0.01, Settings.regionH > 0.01 {
             updateCaptureModeChecks()
             presentRecorderBar()

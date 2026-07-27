@@ -17,6 +17,10 @@ final class RegionOverlay {
 
     private var window: NSWindow?
     private var view: RegionEditView?
+    /// A tiny always-interactive panel holding the "Unlock" button, shown while locked. The big
+    /// region window goes fully click-through when locked, so this small panel is the one thing that
+    /// still catches a click — guaranteeing you can reach the app beneath everywhere else.
+    private var unlockPanel: NSPanel?
 
     /// `region` is in screen coordinates (bottom-left origin).
     func show(region: CGRect, editable: Bool) {
@@ -43,19 +47,69 @@ final class RegionOverlay {
         window?.ignoresMouseEvents = !editable
         view?.editable = editable
         view?.needsDisplay = true
+        if !editable { hideUnlockPanel() }   // recording: no unlock affordance
         if let v = view { window?.invalidateCursorRects(for: v) }
     }
 
-    /// Lock the framed area in place: the overlay stops intercepting move/resize (so you can click
-    /// and scroll the app beneath) while still drawing the accepted region, and a small pill lets you
-    /// unlock to adjust again. Only meaningful while idle (`editable`).
+    /// Lock the framed area in place: the big overlay goes fully click-through (so you can click,
+    /// scroll and type in the app beneath everywhere) while still drawing the accepted green region,
+    /// and a small "Unlock" panel lets you adjust again. Only meaningful while idle (`editable`).
     func setLocked(_ locked: Bool) {
         view?.locked = locked
-        window?.ignoresMouseEvents = false   // keep the (un)lock pill clickable either way
+        if locked {
+            window?.ignoresMouseEvents = true          // everything falls through to the app beneath
+            showUnlockPanel()
+        } else {
+            window?.ignoresMouseEvents = false         // move/resize the region again
+            hideUnlockPanel()
+        }
         view?.needsDisplay = true
     }
 
-    func hide() { window?.orderOut(nil); window = nil; view = nil }
+    /// Position the small unlock panel straddling the top border of the (locked) region.
+    private func showUnlockPanel() {
+        guard let v = view else { return }
+        let r = v.regionLocal.insetBy(dx: -4, dy: -4)
+        let w: CGFloat = 132, h: CGFloat = 30
+        let x = r.midX + v.screenOrigin.x - w / 2
+        let y = r.maxY + v.screenOrigin.y - h / 2
+        let panel = unlockPanel ?? {
+            let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.hasShadow = false
+            // Above the region overlay AND the recorder bar (floating+1) so it's always reachable.
+            p.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 2)
+            p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+            content.wantsLayer = true
+            content.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.95).cgColor
+            content.layer?.cornerRadius = h / 2
+            content.layer?.cornerCurve = .continuous
+            let btn = ClosureButton(title: "🔓  Unlock") { [weak self] in self?.onToggleLock?() }
+            btn.isBordered = false
+            btn.wantsLayer = true
+            btn.frame = content.bounds
+            btn.attributedTitle = NSAttributedString(string: "🔓  Unlock", attributes: [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 12, weight: .semibold)
+            ])
+            content.addSubview(btn)
+            p.contentView = content
+            unlockPanel = p
+            return p
+        }()
+        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        panel.orderFrontRegardless()
+    }
+
+    private func hideUnlockPanel() { unlockPanel?.orderOut(nil); unlockPanel = nil }
+
+    func hide() {
+        hideUnlockPanel()
+        window?.orderOut(nil); window = nil; view = nil
+    }
 
     private func makeWindow(screen: NSScreen) -> NSWindow {
         let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -116,31 +170,28 @@ private final class RegionEditView: NSView {
             path.stroke()
         }
 
-        guard editable else { return }
+        // Locked: just the green frame — the separate "Unlock" panel is the only live control, so the
+        // whole overlay is click-through to the app beneath. Nothing more to draw here.
+        guard editable, !locked else { return }
 
-        if locked {
-            drawPill(lockPillRect, text: "🔓  Unlock", accent: true)
-        } else {
-            // Small solid corner handles.
-            let s: CGFloat = 8
-            for c in [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
-                      CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY)] {
-                let box = CGRect(x: c.x - s/2, y: c.y - s/2, width: s, height: s)
-                NSColor.white.setFill(); box.fill(using: .sourceOver)
-                NSBezierPath(rect: box).fill()
-                NSColor.black.withAlphaComponent(0.5).setStroke()
-                NSBezierPath(rect: box).stroke()
-            }
-            drawPill(movePillRect, text: "Drag to move", accent: false)
-            drawPill(lockPillRect, text: "🔒  Lock", accent: false)
+        // Small solid corner handles.
+        let s: CGFloat = 8
+        for c in [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
+                  CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY)] {
+            let box = CGRect(x: c.x - s/2, y: c.y - s/2, width: s, height: s)
+            NSColor.white.setFill(); box.fill(using: .sourceOver)
+            NSBezierPath(rect: box).fill()
+            NSColor.black.withAlphaComponent(0.5).setStroke()
+            NSBezierPath(rect: box).stroke()
         }
+        drawPill(movePillRect, text: "Drag to move")
+        drawPill(lockPillRect, text: "🔒  Lock")
     }
 
-    /// Draws a rounded control pill with centered text. `accent` fills green (the unlock affordance).
-    private func drawPill(_ rect: CGRect, text: String, accent: Bool) {
+    /// Draws a rounded dark control pill with centered text.
+    private func drawPill(_ rect: CGRect, text: String) {
         let pill = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
-        (accent ? NSColor.systemGreen.withAlphaComponent(0.92)
-                : NSColor.black.withAlphaComponent(0.66)).setFill()
+        NSColor.black.withAlphaComponent(0.66).setFill()
         pill.fill()
         NSColor.white.withAlphaComponent(0.85).setStroke(); pill.lineWidth = 1; pill.stroke()
         let label = text as NSString
@@ -312,4 +363,19 @@ private final class RegionEditView: NSView {
         r.size.height = min(r.size.height, bounds.height - r.origin.y)
         return r
     }
+}
+
+/// A borderless button that runs a closure — used for the small floating "Unlock" panel.
+private final class ClosureButton: NSButton {
+    private let handler: () -> Void
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(frame: .zero)
+        self.title = title
+        self.target = self
+        self.action = #selector(fire)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func fire() { handler() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 }

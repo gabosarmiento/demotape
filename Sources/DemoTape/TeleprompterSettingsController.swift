@@ -41,6 +41,9 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
         window.title = "Teleprompter"
         window.isReleasedWhenClosed = false
         window.delegate = self
+        // Sit above the floating recorder bar / any live camera preview so the editor is always
+        // visible and its buttons (Cancel/Save) are clickable.
+        window.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 3)
         let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
 
         // Tab switcher.
