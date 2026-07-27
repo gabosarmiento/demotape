@@ -25,7 +25,6 @@ final class RecorderSetupPopover: NSObject {
         var toggleTeleprompter: () -> Void
         var toggleAutoZoom: () -> Void
         var toggleMirror: () -> Void
-        var openAudio: () -> Void
         var openWebcam: () -> Void
         var openAISettings: () -> Void
     }
@@ -48,7 +47,6 @@ final class RecorderSetupPopover: NSObject {
     private var brandingRow: NSView!
     private var autoZoomRow: NSView!
     private var webcamRow: NSView!
-    private var audioRow: NSView!
     private var aiSettingsRow: NSView!
     private var lockRow: NSView!                 // Select-Area only
     private var teleprompterSettingsRow: NSView! // only while the teleprompter is on
@@ -93,10 +91,11 @@ final class RecorderSetupPopover: NSObject {
         brandingRow.isHidden = webcamOnly
         autoZoomRow.isHidden = webcamOnly
         webcamRow.isHidden = webcamOnly
-        audioRow.isHidden = webcamOnly            // replaced by the two direct toggles below
         aiSettingsRow.isHidden = webcamOnly
-        enhanceAudioRow.isHidden = !webcamOnly
-        noiseSuppressionRow.isHidden = !webcamOnly
+        // Enhance audio + noise suppression apply to every capture (styled render or webcam-only),
+        // so they're always available.
+        enhanceAudioRow.isHidden = false
+        noiseSuppressionRow.isHidden = false
 
         // Lock only makes sense for a framed area (not full screen, not webcam-only).
         lockRow.isHidden = webcamOnly || !Settings.useRegion
@@ -168,10 +167,7 @@ final class RecorderSetupPopover: NSObject {
                                              title: "Mirror camera", control: mirrorSwitch))
 
         content.addArrangedSubview(spacer(4))
-        audioRow = disclosureRow(icon: "mic", title: "Microphone & audio settings…",
-                                 value: nil, action: #selector(tapAudio))
-        content.addArrangedSubview(audioRow)
-        // Webcam-only exposes the two mic clean-up toggles directly (there's no audio submenu here).
+        // The two mic clean-up toggles live directly in the bar's setup (all modes) — no submenu.
         enhanceAudioSwitch = NSSwitch()
         enhanceAudioSwitch.target = self; enhanceAudioSwitch.action = #selector(tapEnhanceAudio)
         enhanceAudioRow = switchRow(icon: "waveform", title: "Enhance audio", control: enhanceAudioSwitch)
@@ -343,7 +339,6 @@ final class RecorderSetupPopover: NSObject {
     @objc private func tapTeleprompter() { actions.toggleTeleprompter(); refresh() }
     @objc private func tapAutoZoom() { actions.toggleAutoZoom(); refresh() }
     @objc private func tapMirror() { actions.toggleMirror(); refresh() }
-    @objc private func tapAudio() { close(); actions.openAudio() }
     @objc private func tapWebcam() { close(); actions.openWebcam() }
     @objc private func tapAISettings() { close(); actions.openAISettings() }
 }

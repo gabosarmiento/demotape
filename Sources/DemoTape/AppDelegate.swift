@@ -1858,9 +1858,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Settings.mirrorCamera.toggle()
                     self?.refreshWebcamPreview()   // mirror the live self-view to match
                 },
-                // Audio lives in the menu's Input submenu, so the row drops that same submenu here
-                // rather than a second copy of it that could drift.
-                openAudio: { [weak self] in self?.popUpInputMenu(from: anchor) },
                 openWebcam: { [weak self] in self?.openWebcamSettings() },
                 openAISettings: { [weak self] in self?.openAISettings() }))
         }
@@ -1882,7 +1879,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bar.onOpenSetup = { [weak self] anchor in self?.showRecorderSetup(from: anchor) }
             recorderBar = bar
         }
-        let region = regionScreenRect()
+        // Webcam-only records the camera, not the screen — never show the area selection then, even
+        // if a region is still remembered from a previous screen recording.
+        let region = webcamOnly ? nil : regionScreenRect()
         if let region = region {
             if regionOverlay == nil {
                 let overlay = RegionOverlay()
