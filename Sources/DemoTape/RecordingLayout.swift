@@ -69,6 +69,36 @@ enum RecordingLayout {
         Log.write("RecordingLayout: migrated \(plan.count) item(s) into per-recording folders")
     }
 
+    /// Removes orphaned atomic-write temp files left in the output tree.
+    ///
+    /// When AVFoundation writes a video it writes to a sibling named `<name>.mp4.sb-<hex>-<random>`
+    /// and atomically renames it to the real file only when the write finishes. If the process is
+    /// killed mid-write, that temp — a near-complete copy, ~100 MB — is orphaned and never cleaned up,
+    /// so a few crashed renders quietly cost gigabytes. These are never valid output, so sweep them at
+    /// launch, when nothing is being written. Best-effort and quiet.
+    @discardableResult
+    static func sweepOrphanedTempFiles() -> Int {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: Paths.outputDirectory,
+                                         includingPropertiesForKeys: [.fileSizeKey],
+                                         options: []) else { return 0 }
+        var freed: Int64 = 0, count = 0
+        for case let url as URL in walker where isOrphanedTempName(url.lastPathComponent) {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            if (try? fm.removeItem(at: url)) != nil { freed += Int64(size); count += 1 }
+        }
+        if count > 0 {
+            Log.write("RecordingLayout: removed \(count) orphaned temp file(s), freed \(freed / 1_000_000) MB")
+        }
+        return count
+    }
+
+    /// Whether a filename is an atomic-write temp (`…mp4.sb-<hex>-<random>`) safe to delete. Kept
+    /// deliberately narrow — it must never match a real output — and unit-tested for exactly that.
+    static func isOrphanedTempName(_ name: String) -> Bool {
+        name.contains(".sb-")
+    }
+
     // MARK: - Discovery
 
     /// Recording folders under the output directory (excludes `.demotape` and hidden entries).

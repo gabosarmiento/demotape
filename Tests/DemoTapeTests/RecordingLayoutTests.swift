@@ -54,3 +54,24 @@ final class RecordingLayoutTests: XCTestCase {
         XCTAssertTrue(plan.isEmpty)
     }
 }
+
+// MARK: - Orphaned temp-file detection
+//
+// The launch sweep deletes AVFoundation's leftover atomic-write temps. The predicate must catch those
+// and NEVER a real output, since it drives a delete.
+
+final class OrphanedTempNameTests: XCTestCase {
+
+    func testMatchesAtomicWriteTemps() {
+        XCTAssertTrue(RecordingLayout.isOrphanedTempName("Demo 2026-07-26 at 03.57.05.captioned.mp4.sb-a19e01c2-zmUpGX"))
+        XCTAssertTrue(RecordingLayout.isOrphanedTempName("demo-720p.mp4.sb-bff50c00-qsR3Jd"))
+    }
+
+    func testNeverMatchesRealOutputs() {
+        for name in ["Demo.styled.mp4", "Demo.captioned.mp4", "Demo.es.tight.mp4",
+                     "Demo.voiceover.fr.mp4", "recipe.json", "timeline.json", "Demo.mov",
+                     "Demo.events.json", "poster.jpg", "demo.gif"] {
+            XCTAssertFalse(RecordingLayout.isOrphanedTempName(name), "would wrongly delete \(name)")
+        }
+    }
+}

@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         installMainMenu()
         RecordingLayout.migrateFlatRecordings()   // group any older flat recordings into folders
+        RecordingLayout.sweepOrphanedTempFiles()   // delete leftover *.sb-* atomic-write temps
         LaunchLocationGuard.check()   // warn if we're translocated / outside /Applications
         Notifier.shared.setup()   // ask for notification permission on first launch
         // (Screen Recording registration/guidance is handled by the Welcome window below and by
