@@ -195,3 +195,89 @@ final class SynthesizedWordTimingTests: XCTestCase {
         XCTAssertTrue(CaptionBurner.synthesizeWords(text: "   ", start: 0, end: 1).isEmpty)
     }
 }
+
+// MARK: - Normalizing real word timings
+//
+// Transcripts carry per-word timings, and they can't be animated as-is: Whisper emits zero-duration
+// words and sub-frame flashes that render in no frame at all. `normalize` is what stops those drops.
+
+final class WordTimingNormalizeTests: XCTestCase {
+
+    func testZeroDurationWordGetsARealInterval() {
+        // "And here's the agent itself." — "agent" arrives as 12.46→12.46 in the real transcript.
+        let words = [
+            CaptionWord(text: "here's", start: 11.90, end: 12.08),   // 0.18 flash
+            CaptionWord(text: "the",    start: 12.08, end: 12.46),
+            CaptionWord(text: "agent",  start: 12.46, end: 12.46),   // zero-duration → was dropped
+            CaptionWord(text: "itself", start: 12.46, end: 12.98)
+        ]
+        let out = CaptionBurner.normalize(words, minWordDuration: 0.42, cueStart: 11.9, cueEnd: 20)
+        XCTAssertEqual(out.count, 4)
+        for w in out {
+            XCTAssertGreaterThanOrEqual(w.end - w.start, 0.42 - 1e-6, "\(w.text) still too brief")
+        }
+        // Strictly increasing, no overlaps — so every word owns a stretch of frames.
+        for (a, b) in zip(out, out.dropFirst()) {
+            XCTAssertLessThanOrEqual(a.end, b.start + 1e-6)
+            XCTAssertLessThan(a.start, a.end)
+        }
+    }
+
+    func testHighlightFloorIsGentleButNonZero() {
+        let words = [CaptionWord(text: "a", start: 0, end: 0), CaptionWord(text: "b", start: 0, end: 0.02)]
+        let out = CaptionBurner.normalize(words, minWordDuration: CaptionBurner.highlightMinSeconds,
+                                          cueStart: 0, cueEnd: 10)
+        for w in out { XCTAssertGreaterThanOrEqual(w.end - w.start, CaptionBurner.highlightMinSeconds - 1e-6) }
+    }
+
+    func testRunIsScaledToStayInsideTheCue() {
+        // Six words, each forced to 0.42 (2.52s) but only a 1s cue — must compress, not overflow.
+        let words = (0..<6).map { CaptionWord(text: "w\($0)", start: Double($0) * 0.05, end: Double($0) * 0.05) }
+        let out = CaptionBurner.normalize(words, minWordDuration: 0.42, cueStart: 0, cueEnd: 1.0)
+        XCTAssertLessThanOrEqual(out.last!.end, 1.0 + 1e-6)
+        XCTAssertGreaterThanOrEqual(out.first!.start, 0)
+    }
+
+    func testRealOnsetsSurviveWhenTheyAreAlreadySpacedOut() {
+        // Well-spaced words shouldn't be shoved around — the highlight should still track the voice.
+        let words = [CaptionWord(text: "one", start: 0, end: 1),
+                     CaptionWord(text: "two", start: 2, end: 3)]
+        let out = CaptionBurner.normalize(words, minWordDuration: 0.42, cueStart: 0, cueEnd: 5)
+        XCTAssertEqual(out[0].start, 0, accuracy: 1e-6)
+        XCTAssertEqual(out[1].start, 2, accuracy: 1e-6)
+    }
+}
+
+// MARK: - Transcript cache keying
+//
+// A transcript's cue times fit one audio timeline. Cosmetic renders share it; timeline-changing ones
+// and re-voicings must not — sharing them landed a derivative's captions on the wrong cue times.
+
+final class TranscriptCacheKeyTests: XCTestCase {
+
+    private func key(_ name: String) -> String {
+        Captions.transcriptURL(for: URL(fileURLWithPath: "/Movies/\(name)")).lastPathComponent
+    }
+
+    func testCosmeticRendersShareOneTranscript() {
+        // styled / captioned / avatar are the same timeline as the base recording.
+        XCTAssertEqual(key("Demo.styled.mp4"), "Demo.transcript.json")
+        XCTAssertEqual(key("Demo.captioned.mp4"), "Demo.transcript.json")
+        XCTAssertEqual(key("Demo.avatar.mp4"), "Demo.transcript.json")
+    }
+
+    func testTimelineChangingRendersGetTheirOwn() {
+        // Sped-up / silence-cut, and re-narrated — different audio timing, different transcript.
+        XCTAssertEqual(key("Demo.tight.mp4"), "Demo.tight.transcript.json")
+        XCTAssertEqual(key("Demo.voiceover.mp4"), "Demo.voiceover.transcript.json")
+    }
+
+    func testTheBugCaseIsNowDistinct() {
+        // The exact collision that showed the voiceover's cue times on the sped-up clip.
+        XCTAssertNotEqual(key("Demo.es.tight.mp4"), key("Demo.voiceover.es.mp4"))
+    }
+
+    func testLanguageVariantsStaySeparate() {
+        XCTAssertNotEqual(key("Demo.voiceover.es.mp4"), key("Demo.voiceover.fr.mp4"))
+    }
+}

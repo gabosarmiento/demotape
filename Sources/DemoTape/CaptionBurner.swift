@@ -231,17 +231,59 @@ final class CaptionBurner {
     /// Per-cue words with timing — real word timestamps when present, otherwise synthesized
     /// evenly across the cue so animation still works on older transcripts.
     private func wordsForCue(_ cue: CaptionCue, style: CaptionStyle) -> [CaptionWord] {
-        if let w = cue.words, !w.isEmpty { return w }
-        // Word-by-word styles show one or two words at a time, so a word that flashes for two frames
-        // is simply gone. They need a readable floor per word; phrase styles show the whole line, so
-        // the exact per-word timing only moves a highlight and needs no floor.
-        let floor = style.isWordByWord ? Self.wordByWordMinSeconds : 0
-        return Self.synthesizeWords(text: cue.text, start: cue.start, end: cue.end, minWordDuration: floor)
+        let floor = style.isWordByWord ? Self.wordByWordMinSeconds : Self.highlightMinSeconds
+        // Prefer the transcript's own per-word timings, but they CANNOT be trusted for animation:
+        // Whisper routinely emits zero-duration words (e.g. "agent" 12.46→12.46) and sub-frame flashes.
+        // A zero-duration word falls between every sampled frame, so it renders in no frame at all — the
+        // dropped words. Normalize whatever we have (real or synthesized) so every word gets a readable,
+        // non-overlapping slot that still fits inside the cue.
+        let base = (cue.words?.isEmpty == false)
+            ? cue.words!
+            : Self.synthesizeWords(text: cue.text, start: cue.start, end: cue.end, minWordDuration: floor)
+        return Self.normalize(base, minWordDuration: floor, cueStart: cue.start, cueEnd: cue.end)
     }
 
     /// The shortest a single word stays on screen in a word-by-word style — long enough to read one
     /// word, short enough to keep pace. Below this, words were being skipped.
     static let wordByWordMinSeconds: Double = 0.42
+    /// Phrase styles show the whole line, but a word still needs a real interval or its highlight is
+    /// never reached and a pop-in reveal skips it. A few frames is enough here.
+    static let highlightMinSeconds: Double = 0.14
+
+    /// Makes a word list safe to animate: every word at least `minWordDuration` long, in order, with no
+    /// overlaps, and the whole run kept inside `[cueStart, cueEnd]`.
+    ///
+    /// Real timings keep their onset where they can (so the highlight still tracks the voice); a word is
+    /// only pushed later when the one before it needed the floor. If enforcing the floor would run past
+    /// the cue — many short words in a short cue — the run is scaled to fit, because a word past the
+    /// cue's end is clipped by the "only draw inside the cue" guard and lost.
+    static func normalize(_ words: [CaptionWord], minWordDuration: Double,
+                          cueStart: Double, cueEnd: Double) -> [CaptionWord] {
+        guard !words.isEmpty else { return [] }
+        let start0 = min(words[0].start, cueEnd)
+        var cursor = start0
+        var out: [CaptionWord] = []
+        out.reserveCapacity(words.count)
+        for w in words {
+            let s = max(w.start, cursor)
+            let dur = max(minWordDuration, w.end - w.start)
+            let e = s + dur
+            out.append(CaptionWord(text: w.text, start: s, end: e))
+            cursor = e
+        }
+        // Scale the run back into the cue if the floors pushed it past the end.
+        let total = cursor - start0
+        let available = cueEnd - start0
+        if total > available, total > 0 {
+            let k = available / total
+            out = out.map {
+                CaptionWord(text: $0.text,
+                            start: start0 + ($0.start - start0) * k,
+                            end: start0 + ($0.end - start0) * k)
+            }
+        }
+        return out
+    }
 
     /// Word timings for a cue that has none, from the text itself.
     ///

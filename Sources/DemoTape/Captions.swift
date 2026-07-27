@@ -93,7 +93,15 @@ final class Captions {
     /// file's own stem keeps each timeline's transcript to itself, which is also exactly the rule the
     /// user wants: a different file gets transcribed, not reused.
     static func transcriptURL(for video: URL) -> URL {
-        let stem = video.deletingPathExtension().lastPathComponent
+        var stem = video.deletingPathExtension().lastPathComponent
+        // Strip only markers that DON'T change the audio timeline, so `styled`, `captioned` and
+        // `avatar` renders share one transcript (correct — same timing, and it keeps the existing
+        // `<base>.transcript.json` on disk). Keep `.tight` (sped up / silence-cut) and `.voiceover`
+        // (re-narrated), and any language tag, as their OWN transcripts — those timelines differ, and
+        // sharing them was the bug where a derivative showed the original's cue times.
+        for marker in [".styled", ".captioned", ".avatar"] {
+            stem = stem.replacingOccurrences(of: marker, with: "")
+        }
         return SourcePaths(source: video).sourceDir.appendingPathComponent("\(stem).transcript.json")
     }
 
