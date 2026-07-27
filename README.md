@@ -15,9 +15,9 @@ Runs on **macOS 12.3+** (Intel or Apple Silicon) — including older Macs like M
 This demo was made by a coding agent — scripted, recorded, narrated and verified — then sped up and
 captioned, all from prompts:
 
-[![Watch the demo](media/demo-poster.jpg)](https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4)
+[![Watch the demo](media/demo-poster.jpg)](https://github.com/gabosarmiento/demotape/releases/download/v7.0.0/demotape-demo.mp4)
 
-▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4)
+▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v7.0.0/demotape-demo.mp4)
 
 <!--
   To play INLINE (like DeepFilterNet's README), GitHub needs an "attachment" URL, which is only
@@ -66,10 +66,13 @@ item: **Let Your Coding Agent Record a Demo…**
 
 ## Record yourself to camera (webcam only)
 
-Not every video is a screen demo. **Input → Record Webcam Only** records just your camera at 1080p —
-a clean talking-head — with an optional teleprompter that scrolls on screen for you but **never
-appears in the recording** (it captures the camera, not the screen). Mirror the image with **Mirror
-Camera**. The result is a normal recording, so Captions, Voiceover and Web Publish all work on it.
+Not every video is a screen demo. **Webcam Only** is a first-class capture mode — pick it from the
+menu-bar icon (under **Select Recording Area**) or the floating bar's **•••** — and DemoTape records
+just your camera at 1080p, a clean talking-head. A near-full-screen live preview makes it obvious the
+camera is the whole video, and an optional teleprompter scrolls on screen for you but **never appears
+in the recording** (it captures the camera, not the screen), sitting in whichever edge strip you pick.
+Mirror the image with **Mirror camera**, and clean the mic with **Enhance audio** and **Noise
+suppression**. The result is a normal recording, so Captions, Voiceover and Web Publish all work on it.
 
 This is where the agent shines again — it can write the script and run the teleprompter for you:
 
@@ -86,8 +89,9 @@ Copy the prompt for your agent from the composer, or drive it directly (`demotap
 
 Click the menu-bar icon (**⇧⌘S**), pick **Full Screen** or an area, and a floating bar appears:
 Start/Stop, a timer, mic and webcam toggles, and a **•••** for what you set before a take —
-background, branding, teleprompter, auto-zoom. Press Stop and DemoTape auto-edits a polished video
-(smooth zoom, clean cursor) into `~/Movies/DemoTape/`.
+background, branding, teleprompter, auto-zoom. Pick an area and you can **lock** it in place to click
+and scroll the app beneath while framing your shot, then unlock to adjust. Press Stop and DemoTape
+auto-edits a polished video (smooth zoom, clean cursor) into `~/Movies/DemoTape/`.
 
 Then, under **After Recording**, each step opens a source→result window with a **Generate preview**:
 

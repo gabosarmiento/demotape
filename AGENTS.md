@@ -83,7 +83,7 @@ rm -rf "${_dt_probe}"
 
 # 1. Build + verify ---------------------------------------------------------
 swift build -c release             # must succeed
-swift test                         # 46 tests; all must pass (pure logic, no GUI/network)
+swift test                         # 361 tests; all must pass (pure logic, no GUI/network)
 
 # 2. Stable signing identity (one-time; persists Screen Recording permission) --
 security find-identity -v -p codesigning | grep -q "DemoTape Dev" || ./create-identity.sh
