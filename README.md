@@ -10,6 +10,16 @@ Runs on **macOS 12.3+** (Intel or Apple Silicon) — including older Macs like M
 > Free forever — no account, no license, no upsell. If it saved you time,
 > [**★ star the repo**](https://github.com/gabosarmiento/demotape).
 
+## See it
+
+This demo was made by a coding agent — scripted, recorded, narrated and verified — then sped up and
+captioned, all from prompts:
+
+<video src="https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4" controls width="100%"></video>
+
+If the player doesn't load,
+[watch the demo here](https://github.com/gabosarmiento/demotape/releases/download/v6.6.0/demotape-demo.mp4).
+
 ---
 
 ## What "agentically" means here
