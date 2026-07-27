@@ -1439,6 +1439,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func captureRectForTeleprompter() -> CGRect? {
         guard let f = NSScreen.main?.frame else { return nil }
         if Settings.useRegion { return regionScreenRect() }
+        return fullScreenStripCrop()
+    }
+
+    /// The full-screen strip crop for the chosen edge (everything except the reserved strip), in
+    /// screen coords. Used for full-screen recordings and for webcam-only, where honoring the edge
+    /// keeps the teleprompter in a strip rather than filling the whole screen.
+    private func fullScreenStripCrop() -> CGRect? {
+        guard let f = NSScreen.main?.frame else { return nil }
         let (crop, _) = TeleprompterStrip.crop(width: f.width, height: f.height,
                                                edge: Settings.teleprompterStripEdge,
                                                fraction: CGFloat(Settings.teleprompterTopStripFraction))
@@ -1976,10 +1984,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let minutes = TeleprompterOverlay.scrollMinutes(
                     text: Settings.teleprompterText, speed: Settings.teleprompterSpeed,
                     fit: Settings.teleprompterFitDuration, fitMinutes: Settings.teleprompterMinutes)
-                // Webcam-only reserves nothing (no screen capture), so the teleprompter can use the
-                // whole screen; a screen recording keeps it in the free area outside the crop.
+                // Webcam-only isn't a screen grab, so the whole screen is safe — but still honor the
+                // chosen edge by reserving just that strip (like a full-screen recording) instead of
+                // filling the screen. A screen recording keeps it in the free area outside the crop.
                 teleprompter.show(text: Settings.teleprompterText, minutes: minutes,
-                                  recordedRect: webcamOnly ? .zero : captureRectForTeleprompter(),
+                                  recordedRect: webcamOnly ? fullScreenStripCrop()
+                                                           : captureRectForTeleprompter(),
                                   edge: Settings.teleprompterStripEdge)
             }
         default:
