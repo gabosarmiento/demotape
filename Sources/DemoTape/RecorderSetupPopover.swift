@@ -19,6 +19,7 @@ final class RecorderSetupPopover: NSObject {
         var toggleBranding: () -> Void
         var toggleTeleprompter: () -> Void
         var toggleAutoZoom: () -> Void
+        var toggleMirror: () -> Void
         var openAudio: () -> Void
         var openWebcam: () -> Void
         var openAISettings: () -> Void
@@ -31,6 +32,7 @@ final class RecorderSetupPopover: NSObject {
     private var brandingSwitch: NSSwitch!
     private var teleprompterSwitch: NSSwitch!
     private var autoZoomSwitch: NSSwitch!
+    private var mirrorSwitch: NSSwitch!
 
     init(actions: Actions) {
         self.actions = actions
@@ -56,6 +58,7 @@ final class RecorderSetupPopover: NSObject {
         brandingSwitch.state = Settings.brandingEnabled ? .on : .off
         teleprompterSwitch.state = Settings.teleprompterEnabled ? .on : .off
         autoZoomSwitch.state = Settings.autoZoomEnabled ? .on : .off
+        mirrorSwitch.state = Settings.mirrorCamera ? .on : .off
     }
 
     /// A readable name for the chosen background file ("Gradient Wave 01"), not its filename.
@@ -103,6 +106,10 @@ final class RecorderSetupPopover: NSObject {
         autoZoomSwitch = NSSwitch()
         autoZoomSwitch.target = self; autoZoomSwitch.action = #selector(tapAutoZoom)
         content.addArrangedSubview(switchRow(icon: "viewfinder", title: "Auto-Zoom", control: autoZoomSwitch))
+        mirrorSwitch = NSSwitch()
+        mirrorSwitch.target = self; mirrorSwitch.action = #selector(tapMirror)
+        content.addArrangedSubview(switchRow(icon: "arrow.left.and.right.righttriangle.left.righttriangle.right",
+                                             title: "Mirror camera", control: mirrorSwitch))
 
         content.addArrangedSubview(spacer(4))
         content.addArrangedSubview(disclosureRow(icon: "mic", title: "Microphone & audio settings…",
@@ -258,6 +265,7 @@ final class RecorderSetupPopover: NSObject {
     @objc private func tapBranding() { actions.toggleBranding(); refresh() }
     @objc private func tapTeleprompter() { actions.toggleTeleprompter(); refresh() }
     @objc private func tapAutoZoom() { actions.toggleAutoZoom(); refresh() }
+    @objc private func tapMirror() { actions.toggleMirror(); refresh() }
     @objc private func tapAudio() { close(); actions.openAudio() }
     @objc private func tapWebcam() { close(); actions.openWebcam() }
     @objc private func tapAISettings() { close(); actions.openAISettings() }

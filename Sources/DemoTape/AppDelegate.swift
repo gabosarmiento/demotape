@@ -10,6 +10,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let countdown = CountdownController()
     private let hotKey = GlobalHotKey()
 
+    /// Webcam-only recording (a talking-head to camera, no screen). Uses its own camera recorder and
+    /// finalize path; the teleprompter is on screen for the presenter but never in the file, because
+    /// we capture the camera device, not the screen.
+    private let webcamRecorder = CameraRecorder()
+    private var webcamOnly = false
+    private var webcamOutputURL: URL?
+
     private enum State { case idle, countdown, recording, rendering }
     private var state: State = .idle { didSet { refreshUI(); updateRecorderBarForState(); writeControlStatus() } }
     /// Absolute path of the most recent finished video, surfaced in the control status file.
@@ -160,6 +167,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             inputMenu.addItem(sysAudio)
         }
         inputMenu.addItem(webcamItem)
+
+        // Record just the camera — a talking-head to camera, no screen. The teleprompter (if on)
+        // scrolls for you but isn't in the file.
+        let webcamOnlyItem = NSMenuItem(title: "Record Webcam Only",
+                                        action: #selector(recordWebcamOnly), keyEquivalent: "")
+        webcamOnlyItem.target = self
+        inputMenu.addItem(webcamOnlyItem)
+        let mirrorItem = NSMenuItem(title: "Mirror Camera",
+                                    action: #selector(toggleMirrorCamera), keyEquivalent: "")
+        mirrorItem.target = self
+        mirrorItem.state = Settings.mirrorCamera ? .on : .off
+        self.mirrorCameraItem = mirrorItem
+        inputMenu.addItem(mirrorItem)
 
         // Audio Source: pick which audio INPUT device the mic toggle records — a real mic, or a
         // loopback driver (BlackHole/Loopback) to capture system audio. Rebuilt on open.
@@ -523,6 +543,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// hands-off automation); otherwise it runs the usual 3-2-1 countdown.
     private func startRecording(countdownFrom count: Int) {
         guard state == .idle else { return }
+        if webcamOnly { startWebcamOnlyRecording(countdownFrom: count); return }
         state = .countdown
 
         // Warm up the capture sessions concurrently with the countdown so recording
@@ -548,6 +569,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if count > 0 { countdown.run(from: count) { begin() } }
         else { begin() }
+    }
+
+    /// Webcam-only start: warm the camera at 1080p (+ mic), then on zero write straight to the
+    /// recording's `.source`. No screen capture, so the teleprompter (shown separately) is never in
+    /// the frame. Finalizes to a clean `.styled.mp4` so it flows into Captions / Voiceover / Web
+    /// Publish like any recording.
+    private func startWebcamOnlyRecording(countdownFrom count: Int) {
+        state = .countdown
+        let base = "DemoTape \(Self.timestamp())"
+        let source = Paths.outputDirectory
+            .appendingPathComponent(base, isDirectory: true)
+            .appendingPathComponent(".source", isDirectory: true)
+        try? FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let raw = source.appendingPathComponent("\(base).mov")
+        webcamOutputURL = raw
+
+        let ready = webcamRecorder.prepare(withMicrophone: Settings.captureMicrophone,
+                                           quality: .standalone, mirrored: Settings.mirrorCamera)
+        let begin: () -> Void = { [weak self] in
+            guard let self = self else { return }
+            guard ready, self.webcamRecorder.begin(to: raw) else {
+                self.state = .idle
+                self.presentPermissionHelp(title: "Can't start webcam recording",
+                    message: "No camera is available, or Camera permission hasn't been granted yet.")
+                return
+            }
+            self.state = .recording
+        }
+        if count > 0 { countdown.run(from: count) { begin() } } else { begin() }
+    }
+
+    static func timestamp() -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return f.string(from: Date())
     }
 
     // MARK: - External control surface (demotape:// URLs)
@@ -594,6 +649,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if state == .recording { stopRecording() }
         case .start(let opts):
             guard state == .idle else { Log.write("control: start ignored (busy)"); return }
+            if opts.webcamOnly {
+                // Keep the chrome: the teleprompter must be on screen for the presenter to read, and
+                // the bar gives them Stop. Mic follows the override or the current setting.
+                if let mic = opts.microphone { Settings.captureMicrophone = mic; micItem.state = mic ? .on : .off }
+                webcamOnly = true
+                presentRecorderBar()
+                startRecording(countdownFrom: opts.countdown)
+                return
+            }
             controlDriven = true
             dismissRecorderBar()   // no DemoTape chrome in an automated capture
             if let mic = opts.microphone {
@@ -981,6 +1045,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func stopRecording() {
         guard state == .recording else { return }
+        if webcamOnly { stopWebcamOnlyRecording(); return }
         state = .rendering
         teleprompter.stop()
         dismissRecorderBar()   // close the bar + border; rendering starts
@@ -1026,6 +1091,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if wasControlDriven { self.presentRecorderBar() }   // restore chrome for manual use
             }
         }
+    }
+
+    /// Webcam-only stop: no styling. Remux the camera capture to a clean `<base>.styled.mp4` (mp4
+    /// container, no re-encode) so it's a first-class recording for Web Publish, then leave the mode.
+    private func stopWebcamOnlyRecording() {
+        state = .rendering
+        teleprompter.stop()
+        dismissRecorderBar()
+        renderHUD.show(stage: "Finishing your video…")
+        Task {
+            let raw = await webcamRecorder.stop()
+            let finalURL: URL?
+            if let raw = raw {
+                let out = raw.deletingLastPathComponent().deletingLastPathComponent()
+                    .appendingPathComponent(raw.deletingPathExtension().lastPathComponent + ".styled.mp4")
+                finalURL = (try? await Self.remuxToMP4(raw, to: out)) ?? raw
+            } else {
+                finalURL = nil
+            }
+            await MainActor.run {
+                self.renderHUD.hide()
+                self.webcamOnly = false
+                self.webcamOutputURL = nil
+                self.state = .idle
+                if let finalURL = finalURL {
+                    self.lastOutputPath = finalURL.path
+                    self.notifySaved(at: finalURL)
+                } else {
+                    self.presentPermissionHelp(title: "No video was captured",
+                        message: "The webcam recording was empty — check Camera permission.")
+                }
+            }
+        }
+    }
+
+    /// Passthrough remux (no re-encode) of a `.mov` capture into a `.mp4` container.
+    static func remuxToMP4(_ input: URL, to output: URL) async throws -> URL {
+        try? FileManager.default.removeItem(at: output)
+        let asset = AVAsset(url: input)
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+            return input
+        }
+        export.outputURL = output
+        export.outputFileType = .mp4
+        export.shouldOptimizeForNetworkUse = true
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            export.exportAsynchronously { c.resume() }
+        }
+        return export.status == .completed ? output : input
     }
 
     /// Denoises the mic audio of `url` in place (best-effort). Renders to a temp file and swaps it
@@ -1577,6 +1691,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var systemAudioItem: NSMenuItem?
     private var noiseToggleItem: NSMenuItem?
     private var enhanceToggleItem: NSMenuItem?
+    private var mirrorCameraItem: NSMenuItem?
 
     @objc private func toggleNoiseSuppression() {
         Settings.noiseSuppressionEnabled.toggle()
@@ -1619,6 +1734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func selectFullScreen() {
+        webcamOnly = false
         Settings.useRegion = false
         updateCaptureModeChecks()
         regionOverlay?.hide()
@@ -1626,6 +1742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func selectArea() {
+        webcamOnly = false
         let selector = RegionSelector()
         regionSelector = selector
         selector.selectArea { [weak self] ok in
@@ -1634,6 +1751,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if ok { self?.presentRecorderBar() }
             }
         }
+    }
+
+    /// Enter webcam-only mode and show the recorder bar. Start records the camera at 1080p; if the
+    /// teleprompter is on, it scrolls on screen for you but never lands in the file.
+    @objc private func recordWebcamOnly() {
+        guard state == .idle else { return }
+        guard AVCaptureDevice.default(for: .video) != nil else {
+            presentPermissionHelp(title: "No camera found",
+                                  message: "Connect a camera to record a webcam-only video.")
+            return
+        }
+        webcamOnly = true
+        regionOverlay?.hide()
+        presentRecorderBar()
+    }
+
+    @objc private func toggleMirrorCamera() {
+        Settings.mirrorCamera.toggle()
+        mirrorCameraItem?.state = Settings.mirrorCamera ? .on : .off
+        recorderSetupPopover?.refresh()
     }
 
     // MARK: - Recorder bar + region border
@@ -1672,6 +1809,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleBranding: { [weak self] in self?.toggleBranding() },
                 toggleTeleprompter: { [weak self] in self?.toggleTeleprompter() },
                 toggleAutoZoom: { Settings.autoZoomEnabled = !Settings.autoZoomEnabled },
+                toggleMirror: { [weak self] in
+                    Settings.mirrorCamera.toggle()
+                    self?.mirrorCameraItem?.state = Settings.mirrorCamera ? .on : .off
+                },
                 // Audio lives in the menu's Input submenu, so the row drops that same submenu here
                 // rather than a second copy of it that could drift.
                 openAudio: { [weak self] in self?.popUpInputMenu(from: anchor) },
@@ -1760,19 +1901,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard recorderBar != nil else { return }
         switch state {
         case .countdown:
-            // Lock the region (click-through border only) once we're about to record.
-            regionOverlay?.setEditable(false)
             webcamPreview?.hide()   // never let the live bubble land in the capture
+            // Webcam-only captures the camera, not the screen — so keep the bar (and its Stop) on
+            // screen and skip all the region/hide logic that a screen capture needs.
+            if webcamOnly { break }
+            regionOverlay?.setEditable(false)
             if !Settings.useRegion { recorderBar?.setHiddenDuringCapture(true) }
         case .recording:
             recorderBar?.setRecording(true)
-            recorderBar?.relinquishKeyFocus()   // typing goes to the recorded app, not the bar
-            if Settings.teleprompterEnabled {   // scroll the script in the free area outside the crop
+            if !webcamOnly { recorderBar?.relinquishKeyFocus() }
+            if Settings.teleprompterEnabled {
                 let minutes = TeleprompterOverlay.scrollMinutes(
                     text: Settings.teleprompterText, speed: Settings.teleprompterSpeed,
                     fit: Settings.teleprompterFitDuration, fitMinutes: Settings.teleprompterMinutes)
+                // Webcam-only reserves nothing (no screen capture), so the teleprompter can use the
+                // whole screen; a screen recording keeps it in the free area outside the crop.
                 teleprompter.show(text: Settings.teleprompterText, minutes: minutes,
-                                  recordedRect: captureRectForTeleprompter(),
+                                  recordedRect: webcamOnly ? .zero : captureRectForTeleprompter(),
                                   edge: Settings.teleprompterStripEdge)
             }
         default:

@@ -16,6 +16,12 @@ enum Settings {
         get { defaults.object(forKey: "autoZoomEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "autoZoomEnabled") }
     }
+    /// Mirror the webcam horizontally when recording (the mirror image people are used to seeing of
+    /// themselves). Applies to webcam-only recording. Default on.
+    static var mirrorCamera: Bool {
+        get { defaults.object(forKey: "mirrorCamera") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "mirrorCamera") }
+    }
     /// "Demo mode": keep DemoTape's own menu/config/action items active while a recording is in
     /// progress, so you can record a walkthrough *of DemoTape itself* (showing off its features).
     /// Normally these are greyed out while recording. Default off.

@@ -31,6 +31,8 @@ enum DemoControl {
         var countdown: Int = 3    // seconds; 0 = begin immediately
         var microphone: Bool? = nil   // nil = leave the current setting
         var webcam: Bool? = nil
+        /// Record the camera only (talking-head), not the screen. `demotape://record/webcam`.
+        var webcamOnly: Bool = false
     }
 
     enum Command: Equatable {
@@ -174,7 +176,9 @@ enum DemoControl {
             return .openUI(win, holdMs: max(0, hold))
         }
         if tokens.contains("stop") { return .stop }
-        guard tokens.contains("start") else { return nil }
+        // demotape://record/webcam[?countdown=&mic=]  — talking-head to camera, no screen.
+        let webcamOnly = tokens.contains("webcam")
+        guard tokens.contains("start") || webcamOnly else { return nil }
         func flag(_ keys: [String]) -> Bool? {
             for k in keys { if let v = q[k]?.lowercased() {
                 if ["1", "true", "yes", "on"].contains(v) { return true }
@@ -193,7 +197,8 @@ enum DemoControl {
         }
         if let c = q["countdown"], let n = Int(c) { opts.countdown = max(0, n) }
         opts.microphone = flag(["mic", "microphone"])
-        opts.webcam = flag(["webcam", "cam", "camera"])
+        opts.webcam = webcamOnly ? nil : flag(["webcam", "cam", "camera"])
+        opts.webcamOnly = webcamOnly
         return .start(opts)
     }
 

@@ -64,7 +64,25 @@ item: **Let Your Coding Agent Record a Demo…**
 
 ---
 
-## Or record it yourself
+## Record yourself to camera (webcam only)
+
+Not every video is a screen demo. **Input → Record Webcam Only** records just your camera at 1080p —
+a clean talking-head — with an optional teleprompter that scrolls on screen for you but **never
+appears in the recording** (it captures the camera, not the screen). Mirror the image with **Mirror
+Camera**. The result is a normal recording, so Captions, Voiceover and Web Publish all work on it.
+
+This is where the agent shines again — it can write the script and run the teleprompter for you:
+
+> Help me make a 1-minute YC application video. Write it to sound natural when spoken (per
+> ycombinator.com/video), load it into the teleprompter, and tell me when to start.
+
+> Help me make a 2-minute interview intro about me — ask me what you need, draft the teleprompter,
+> then count me in and record webcam-only.
+
+The agent loads the teleprompter, says "ready when you are", counts 3-2-1, and records you to camera.
+Copy the prompt for your agent from the composer, or drive it directly (`demotape://record/webcam`).
+
+## Or record your screen
 
 Click the menu-bar icon (**⇧⌘S**), pick **Full Screen** or an area, and a floating bar appears:
 Start/Stop, a timer, mic and webcam toggles, and a **•••** for what you set before a take —

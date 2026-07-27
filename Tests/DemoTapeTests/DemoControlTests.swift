@@ -48,6 +48,19 @@ final class DemoControlTests: XCTestCase {
         XCTAssertEqual(opts.region, .normalized(CGRect(x: 0, y: 0, width: 1, height: 1)))
     }
 
+    func testWebcamOnlyRoute() {
+        guard case .start(let opts)? = parse("demotape://record/webcam?countdown=3") else { return XCTFail() }
+        XCTAssertTrue(opts.webcamOnly)
+        XCTAssertEqual(opts.countdown, 3)
+    }
+
+    func testScreenStartIsNotWebcamOnly() {
+        // A webcam=1 QUERY on a screen recording turns on the PiP bubble, not webcam-only mode.
+        guard case .start(let opts)? = parse("demotape://record/start?webcam=1") else { return XCTFail() }
+        XCTAssertFalse(opts.webcamOnly)
+        XCTAssertEqual(opts.webcam, true)
+    }
+
     func testRejectsForeignSchemeAndGarbage() {
         XCTAssertNil(parse("https://record/start"))
         XCTAssertNil(parse("demotape://record/pause"))
