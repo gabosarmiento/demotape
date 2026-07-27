@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         title: "Record Full Screen", action: #selector(selectFullScreen), keyEquivalent: "")
     private lazy var selectAreaItem = NSMenuItem(
         title: "Select Recording Area…", action: #selector(selectArea), keyEquivalent: "")
+    private lazy var webcamOnlyModeItem = NSMenuItem(
+        title: "Record Webcam Only", action: #selector(recordWebcamOnly), keyEquivalent: "")
     private lazy var micItem = NSMenuItem(
         title: "Record Microphone", action: #selector(toggleMic), keyEquivalent: "")
     private lazy var webcamItem = NSMenuItem(
@@ -141,6 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(fullScreenItem)
         selectAreaItem.target = self
         menu.addItem(selectAreaItem)
+        // Webcam-only is a capture MODE, not an input toggle — it records the camera instead of the
+        // screen. It sits with the other modes and takes the checkmark when active.
+        webcamOnlyModeItem.target = self
+        menu.addItem(webcamOnlyModeItem)
         menu.addItem(.separator())
         menu.addItem(sectionHeader("Setup"))
 
@@ -167,19 +173,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             inputMenu.addItem(sysAudio)
         }
         inputMenu.addItem(webcamItem)
-
-        // Record just the camera — a talking-head to camera, no screen. The teleprompter (if on)
-        // scrolls for you but isn't in the file.
-        let webcamOnlyItem = NSMenuItem(title: "Record Webcam Only",
-                                        action: #selector(recordWebcamOnly), keyEquivalent: "")
-        webcamOnlyItem.target = self
-        inputMenu.addItem(webcamOnlyItem)
-        let mirrorItem = NSMenuItem(title: "Mirror Camera",
-                                    action: #selector(toggleMirrorCamera), keyEquivalent: "")
-        mirrorItem.target = self
-        mirrorItem.state = Settings.mirrorCamera ? .on : .off
-        self.mirrorCameraItem = mirrorItem
-        inputMenu.addItem(mirrorItem)
 
         // Audio Source: pick which audio INPUT device the mic toggle records — a real mic, or a
         // loopback driver (BlackHole/Loopback) to capture system audio. Rebuilt on open.
@@ -389,7 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Items disabled while a recording is in progress (disabling a submenu's parent
         // greys the whole submenu).
-        whileIdleItems = [fullScreenItem, selectAreaItem, inputItem, backgroundItem,
+        whileIdleItems = [fullScreenItem, selectAreaItem, webcamOnlyModeItem, inputItem, backgroundItem,
                           teleprompterItem, brandingItem, composeItem, tightenItem,
                           captionsItem, voiceoverItem, avatarItem, briefItem, autoEditItem,
                           publishItem, changeDir]
@@ -1691,7 +1684,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var systemAudioItem: NSMenuItem?
     private var noiseToggleItem: NSMenuItem?
     private var enhanceToggleItem: NSMenuItem?
-    private var mirrorCameraItem: NSMenuItem?
 
     @objc private func toggleNoiseSuppression() {
         Settings.noiseSuppressionEnabled.toggle()
@@ -1729,8 +1721,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var regionSelector: RegionSelector?
     private func updateCaptureModeChecks() {
-        fullScreenItem.state = Settings.useRegion ? .off : .on
-        selectAreaItem.state = Settings.useRegion ? .on : .off
+        // Three exclusive modes. Webcam-only is transient (not persisted), so it wins the checkmark
+        // whenever it's active; otherwise the region setting decides between full screen and area.
+        fullScreenItem.state = (!webcamOnly && !Settings.useRegion) ? .on : .off
+        selectAreaItem.state = (!webcamOnly && Settings.useRegion) ? .on : .off
+        webcamOnlyModeItem.state = webcamOnly ? .on : .off
     }
 
     @objc private func selectFullScreen() {
@@ -1763,14 +1758,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         webcamOnly = true
+        updateCaptureModeChecks()
         regionOverlay?.hide()
+        refreshWebcamPreview()   // show a live self-view (mirrored to match the recording)
         presentRecorderBar()
-    }
-
-    @objc private func toggleMirrorCamera() {
-        Settings.mirrorCamera.toggle()
-        mirrorCameraItem?.state = Settings.mirrorCamera ? .on : .off
-        recorderSetupPopover?.refresh()
     }
 
     // MARK: - Recorder bar + region border
@@ -1811,7 +1802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleAutoZoom: { Settings.autoZoomEnabled = !Settings.autoZoomEnabled },
                 toggleMirror: { [weak self] in
                     Settings.mirrorCamera.toggle()
-                    self?.mirrorCameraItem?.state = Settings.mirrorCamera ? .on : .off
+                    self?.refreshWebcamPreview()   // mirror the live self-view to match
                 },
                 // Audio lives in the menu's Input submenu, so the row drops that same submenu here
                 // rather than a second copy of it that could drift.
@@ -1861,11 +1852,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shows/hides the live camera bubble anchored in the recording area while preparing. Hidden
     /// during recording so it's never captured (the webcam is composited in afterward).
     private func refreshWebcamPreview() {
-        guard state == .idle, recorderBar != nil, Settings.captureWebcam else {
+        // Show the live self-view while idle when the webcam bubble is on, OR in webcam-only mode
+        // (where the camera IS the recording, so a self-view matters even without the PiP toggle).
+        guard state == .idle, recorderBar != nil, (Settings.captureWebcam || webcamOnly) else {
             webcamPreview?.hide(); return
         }
         if webcamPreview == nil { webcamPreview = WebcamPreviewOverlay() }
         webcamPreview?.show(in: regionScreenRect())
+        webcamPreview?.setMirrored(Settings.mirrorCamera)   // match the recording, live
     }
 
     /// Persist a region edited on screen (bottom-left) back to normalized settings (top-left).

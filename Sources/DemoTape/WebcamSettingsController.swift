@@ -76,7 +76,7 @@ final class WebcamSettingsController: NSObject {
         content.addSubview(circle)
 
         // Centered frosted instruction card with a Confirm button (independent of the circle).
-        let cardW: CGFloat = 460, cardH: CGFloat = 210
+        let cardW: CGFloat = 460, cardH: CGFloat = 262
         let card = NSView(frame: NSRect(x: content.bounds.midX - cardW / 2,
                                         y: content.bounds.midY - cardH / 2,
                                         width: cardW, height: cardH))
@@ -106,8 +106,23 @@ final class WebcamSettingsController: NSObject {
         help.font = .systemFont(ofSize: 13)
         help.textColor = NSColor.white.withAlphaComponent(0.72)
         help.alignment = .center
-        help.frame = NSRect(x: 30, y: 78, width: cardW - 60, height: 58)
+        help.frame = NSRect(x: 30, y: 128, width: cardW - 60, height: 58)
         card.addSubview(help)
+
+        // Mirror-camera toggle — mirrors the recorded video horizontally (a natural "as in a
+        // mirror" self-view). Reflected live in the positioning circle below.
+        let mirror = NSButton(checkboxWithTitle: "Mirror camera",
+                              target: self, action: #selector(self.toggleMirror(_:)))
+        mirror.state = Settings.mirrorCamera ? .on : .off
+        mirror.contentTintColor = .white
+        mirror.attributedTitle = NSAttributedString(string: "Mirror camera", attributes: [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium)
+        ])
+        mirror.sizeToFit()
+        mirror.frame = NSRect(x: (cardW - mirror.frame.width) / 2, y: 86,
+                              width: mirror.frame.width, height: 22)
+        card.addSubview(mirror)
 
         let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(self.cancel))
         cancelBtn.bezelStyle = .rounded
@@ -133,6 +148,11 @@ final class WebcamSettingsController: NSObject {
         }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func toggleMirror(_ sender: NSButton) {
+        Settings.mirrorCamera = (sender.state == .on)
+        circle?.setMirrored(Settings.mirrorCamera)
     }
 
     @objc private func cancel() { close() }
@@ -176,6 +196,7 @@ private final class CircleControl: NSView {
     let maxDiameter: CGFloat
     var clampBounds: CGRect = .zero
     var zoom: CGFloat { CGFloat(slider.doubleValue) }
+    private var mirrored: Bool = Settings.mirrorCamera
     /// Called after the circle is moved, resized, or zoomed (used by the live prepare preview to
     /// persist WYSIWYG position/size immediately).
     var onChange: (() -> Void)?
@@ -245,7 +266,16 @@ private final class CircleControl: NSView {
     }
 
     private func applyPreviewTransform() {
-        preview.setAffineTransform(CGAffineTransform(scaleX: -zoom, y: zoom)) // mirror + zoom
+        // Mirror horizontally only when the setting is on, matching the recorded output; always zoom.
+        preview.setAffineTransform(CGAffineTransform(scaleX: mirrored ? -zoom : zoom, y: zoom))
+    }
+
+    /// Toggle the live self-view mirroring in place (from the settings-window checkbox).
+    func setMirrored(_ on: Bool) {
+        mirrored = on
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        applyPreviewTransform()
+        CATransaction.commit()
     }
 
     @objc private func zoomChanged() {
@@ -404,8 +434,16 @@ final class WebcamPreviewOverlay {
     private var session: AVCaptureSession?
     private var circle: CircleControl?
     private var anchorLocal: CGRect = .zero      // recording area in panel-content coords
+    private weak var previewLayer: AVCaptureVideoPreviewLayer?
 
     var isVisible: Bool { panel != nil }
+
+    /// Update the live self-view's mirroring in place (when the toggle changes while it's showing).
+    func setMirrored(_ on: Bool) {
+        guard let conn = previewLayer?.connection, conn.isVideoMirroringSupported else { return }
+        conn.automaticallyAdjustsVideoMirroring = false
+        conn.isVideoMirrored = on
+    }
 
     /// Show the bubble anchored inside `regionScreenRect` (screen coords, bottom-left origin).
     /// Pass nil for full-screen capture (anchors to the whole main screen). No-op without camera
@@ -422,6 +460,12 @@ final class WebcamPreviewOverlay {
         if session.canAddInput(input) { session.addInput(input) }
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
+        // Mirror the live self-view to match how the recording will look, so it's WYSIWYG.
+        if let conn = preview.connection, conn.isVideoMirroringSupported {
+            conn.automaticallyAdjustsVideoMirroring = false
+            conn.isVideoMirrored = Settings.mirrorCamera
+        }
+        previewLayer = preview
         session.startRunning()
 
         let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
