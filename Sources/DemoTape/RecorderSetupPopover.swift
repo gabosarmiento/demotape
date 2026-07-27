@@ -16,6 +16,9 @@ final class RecorderSetupPopover: NSObject {
         var setFullScreen: (Bool) -> Void
         var setWebcamOnly: () -> Void
         var isWebcamOnly: () -> Bool
+        var toggleLockArea: () -> Void
+        var isAreaLocked: () -> Bool
+        var openTeleprompter: () -> Void
         var openComposer: () -> Void
         var openBackground: () -> Void
         var toggleBranding: () -> Void
@@ -35,13 +38,22 @@ final class RecorderSetupPopover: NSObject {
     private var teleprompterSwitch: NSSwitch!
     private var autoZoomSwitch: NSSwitch!
     private var mirrorSwitch: NSSwitch!
+    private var lockSwitch: NSSwitch!
+    private var enhanceAudioSwitch: NSSwitch!
+    private var noiseSuppressionSwitch: NSSwitch!
 
-    // Rows hidden in webcam-only mode (they only apply to a styled screen recording).
+    // Rows shown/hidden per capture mode.
     private var agentCardRow: NSView!
     private var backgroundRow: NSView!
     private var brandingRow: NSView!
     private var autoZoomRow: NSView!
     private var webcamRow: NSView!
+    private var audioRow: NSView!
+    private var aiSettingsRow: NSView!
+    private var lockRow: NSView!                 // Select-Area only
+    private var teleprompterSettingsRow: NSView! // only while the teleprompter is on
+    private var enhanceAudioRow: NSView!         // webcam-only
+    private var noiseSuppressionRow: NSView!     // webcam-only
 
     init(actions: Actions) {
         self.actions = actions
@@ -69,15 +81,27 @@ final class RecorderSetupPopover: NSObject {
         teleprompterSwitch.state = Settings.teleprompterEnabled ? .on : .off
         autoZoomSwitch.state = Settings.autoZoomEnabled ? .on : .off
         mirrorSwitch.state = Settings.mirrorCamera ? .on : .off
+        lockSwitch.state = actions.isAreaLocked() ? .on : .off
+        enhanceAudioSwitch.state = Settings.enhanceVoiceEnabled ? .on : .off
+        noiseSuppressionSwitch.state = Settings.noiseSuppressionEnabled ? .on : .off
 
         // Webcam-only records the raw camera (no styled compositing), so the screen-recording
-        // options don't apply — hide them and leave just what's relevant: mirror, teleprompter,
-        // and the mic/audio path. Mic + camera are always included in this mode.
+        // options don't apply. Show only what's relevant: mirror, teleprompter, and the two mic
+        // clean-up toggles (mic + camera are always included in this mode).
         agentCardRow.isHidden = webcamOnly
         backgroundRow.isHidden = webcamOnly
         brandingRow.isHidden = webcamOnly
         autoZoomRow.isHidden = webcamOnly
         webcamRow.isHidden = webcamOnly
+        audioRow.isHidden = webcamOnly            // replaced by the two direct toggles below
+        aiSettingsRow.isHidden = webcamOnly
+        enhanceAudioRow.isHidden = !webcamOnly
+        noiseSuppressionRow.isHidden = !webcamOnly
+
+        // Lock only makes sense for a framed area (not full screen, not webcam-only).
+        lockRow.isHidden = webcamOnly || !Settings.useRegion
+        // The teleprompter's settings live-appear only when it's turned on.
+        teleprompterSettingsRow.isHidden = !Settings.teleprompterEnabled
     }
 
     /// A readable name for the chosen background file ("Gradient Wave 01"), not its filename.
@@ -105,6 +129,12 @@ final class RecorderSetupPopover: NSObject {
         modeControl.segmentDistribution = .fillEqually
         content.addArrangedSubview(modeControl)
 
+        // Lock the framed area in place (Select-Area only) so you can prepare the app beneath.
+        lockSwitch = NSSwitch()
+        lockSwitch.target = self; lockSwitch.action = #selector(tapLock)
+        lockRow = switchRow(icon: "lock", title: "Lock area position", control: lockSwitch)
+        content.addArrangedSubview(lockRow)
+
         // The agent path, as a card: two ways to get a video, and this one isn't a setting.
         agentCardRow = agentCard()
         content.addArrangedSubview(agentCardRow)
@@ -124,6 +154,10 @@ final class RecorderSetupPopover: NSObject {
         teleprompterSwitch.target = self; teleprompterSwitch.action = #selector(tapTeleprompter)
         content.addArrangedSubview(switchRow(icon: "text.alignleft", title: "Teleprompter",
                                              control: teleprompterSwitch))
+        // Appears only while the teleprompter is on, to edit its script/speed right here.
+        teleprompterSettingsRow = disclosureRow(icon: "text.viewfinder", title: "Teleprompter settings…",
+                                                value: nil, action: #selector(tapTeleprompterSettings))
+        content.addArrangedSubview(teleprompterSettingsRow)
         autoZoomSwitch = NSSwitch()
         autoZoomSwitch.target = self; autoZoomSwitch.action = #selector(tapAutoZoom)
         autoZoomRow = switchRow(icon: "viewfinder", title: "Auto-Zoom", control: autoZoomSwitch)
@@ -134,14 +168,26 @@ final class RecorderSetupPopover: NSObject {
                                              title: "Mirror camera", control: mirrorSwitch))
 
         content.addArrangedSubview(spacer(4))
-        content.addArrangedSubview(disclosureRow(icon: "mic", title: "Microphone & audio settings…",
-                                                 value: nil, action: #selector(tapAudio)))
+        audioRow = disclosureRow(icon: "mic", title: "Microphone & audio settings…",
+                                 value: nil, action: #selector(tapAudio))
+        content.addArrangedSubview(audioRow)
+        // Webcam-only exposes the two mic clean-up toggles directly (there's no audio submenu here).
+        enhanceAudioSwitch = NSSwitch()
+        enhanceAudioSwitch.target = self; enhanceAudioSwitch.action = #selector(tapEnhanceAudio)
+        enhanceAudioRow = switchRow(icon: "waveform", title: "Enhance audio", control: enhanceAudioSwitch)
+        content.addArrangedSubview(enhanceAudioRow)
+        noiseSuppressionSwitch = NSSwitch()
+        noiseSuppressionSwitch.target = self; noiseSuppressionSwitch.action = #selector(tapNoiseSuppression)
+        noiseSuppressionRow = switchRow(icon: "waveform.badge.minus", title: "Noise suppression",
+                                        control: noiseSuppressionSwitch)
+        content.addArrangedSubview(noiseSuppressionRow)
         webcamRow = disclosureRow(icon: "video", title: "Webcam settings…",
                                   value: nil, action: #selector(tapWebcam))
         content.addArrangedSubview(webcamRow)
         content.addArrangedSubview(spacer(4))
-        content.addArrangedSubview(disclosureRow(icon: "gearshape", title: "AI Settings…",
-                                                 value: nil, action: #selector(tapAISettings)))
+        aiSettingsRow = disclosureRow(icon: "gearshape", title: "AI Settings…",
+                                      value: nil, action: #selector(tapAISettings))
+        content.addArrangedSubview(aiSettingsRow)
 
         for row in content.arrangedSubviews {
             row.translatesAutoresizingMaskIntoConstraints = false
@@ -288,6 +334,10 @@ final class RecorderSetupPopover: NSObject {
         refresh()
     }
     @objc private func tapComposer() { close(); actions.openComposer() }
+    @objc private func tapLock() { actions.toggleLockArea(); refresh() }
+    @objc private func tapTeleprompterSettings() { close(); actions.openTeleprompter() }
+    @objc private func tapEnhanceAudio() { Settings.enhanceVoiceEnabled.toggle(); refresh() }
+    @objc private func tapNoiseSuppression() { Settings.noiseSuppressionEnabled.toggle(); refresh() }
     @objc private func tapBackground() { close(); actions.openBackground() }
     @objc private func tapBranding() { actions.toggleBranding(); refresh() }
     @objc private func tapTeleprompter() { actions.toggleTeleprompter(); refresh() }

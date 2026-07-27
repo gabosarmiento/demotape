@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// we capture the camera device, not the screen.
     private let webcamRecorder = CameraRecorder()
     private var webcamOnly = false
+    /// Select-Area only: when locked, the framed region stops intercepting clicks so the user can
+    /// prepare the app beneath, and a pill lets them unlock to adjust again.
+    private var regionLocked = false
     private var webcamOutputURL: URL?
 
     private enum State { case idle, countdown, recording, rendering }
@@ -1101,7 +1104,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let raw = raw {
                 let out = raw.deletingLastPathComponent().deletingLastPathComponent()
                     .appendingPathComponent(raw.deletingPathExtension().lastPathComponent + ".styled.mp4")
-                finalURL = (try? await Self.remuxToMP4(raw, to: out)) ?? raw
+                let url = (try? await Self.remuxToMP4(raw, to: out)) ?? raw
+                // Same on-device mic clean-up the styled render offers — applied in place here so the
+                // webcam-only toggles actually do something (there's no render pass to hook otherwise).
+                if Settings.captureMicrophone {
+                    if Settings.noiseSuppressionEnabled {
+                        await MainActor.run { self.renderHUD.setIndeterminate(stage: "Cleaning up audio…") }
+                        self.applyNoiseSuppression(to: url)
+                    }
+                    if Settings.enhanceVoiceEnabled {
+                        await MainActor.run { self.renderHUD.setIndeterminate(stage: "Enhancing voice…") }
+                        self.applyVoiceEnhancement(to: url)
+                    }
+                }
+                finalURL = url
             } else {
                 finalURL = nil
             }
@@ -1406,7 +1422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Settings.teleprompterEnabled && Settings.teleprompterText.trimmingCharacters(in: .whitespaces).isEmpty {
             Settings.teleprompterEnabled = false
             openTeleprompterSettings()
-        } else if Settings.teleprompterEnabled && !Settings.useRegion {
+        } else if Settings.teleprompterEnabled && !Settings.useRegion && !webcamOnly {
             let a = NSAlert()
             a.messageText = "Teleprompter enabled"
             a.informativeText = "In full-screen recording a thin strip at the top of the screen "
@@ -1732,6 +1748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func selectFullScreen() {
         webcamOnly = false
+        regionLocked = false
         Settings.useRegion = false
         updateCaptureModeChecks()
         regionOverlay?.hide()
@@ -1740,11 +1757,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func selectArea() { beginAreaSelection(forcePicker: true) }
 
+    /// Toggle the Select-Area lock: locked frees the app beneath for interaction (the overlay stops
+    /// grabbing clicks) while keeping the accepted region on screen; unlocked lets you move/resize.
+    private func toggleRegionLock() {
+        regionLocked.toggle()
+        regionOverlay?.setLocked(regionLocked)
+        recorderSetupPopover?.refresh()
+    }
+
     /// Enter area mode. `forcePicker` runs the full drag/preset picker (the menu's "Select Recording
     /// Area…"); without it, an already-chosen area is simply reopened editable — so flipping the
     /// ellipsis segment back to "Select Area" doesn't blow away the region you just framed.
     private func beginAreaSelection(forcePicker: Bool) {
         webcamOnly = false
+        regionLocked = false
         if !forcePicker, Settings.useRegion, Settings.regionW > 0.01, Settings.regionH > 0.01 {
             updateCaptureModeChecks()
             presentRecorderBar()
@@ -1770,6 +1796,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         webcamOnly = true
+        regionLocked = false
         updateCaptureModeChecks()
         regionOverlay?.hide()
         refreshWebcamPreview()   // show a live self-view (mirrored to match the recording)
@@ -1809,6 +1836,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 setWebcamOnly: { [weak self] in self?.recordWebcamOnly() },
                 isWebcamOnly: { [weak self] in self?.webcamOnly ?? false },
+                toggleLockArea: { [weak self] in self?.toggleRegionLock() },
+                isAreaLocked: { [weak self] in self?.regionLocked ?? false },
+                openTeleprompter: { [weak self] in self?.openTeleprompterSettings() },
                 openComposer: { [weak self] in self?.openDemoComposer() },
                 openBackground: { [weak self] in self?.openBackgroundPicker() },
                 toggleBranding: { [weak self] in self?.toggleBranding() },
@@ -1851,10 +1881,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.recorderBar?.reposition(anchorRegion: screenRect)
                     self?.webcamPreview?.show(in: screenRect)   // keep the bubble anchored in-region
                 }
+                overlay.onToggleLock = { [weak self] in self?.toggleRegionLock() }
                 regionOverlay = overlay
             }
             regionOverlay?.aspect = AreaPreset.named(Settings.regionPreset).aspect
             regionOverlay?.show(region: region, editable: true)  // adjustable until recording
+            regionOverlay?.setLocked(regionLocked)
         } else {
             regionOverlay?.hide()
         }

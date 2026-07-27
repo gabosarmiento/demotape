@@ -10,6 +10,8 @@ final class RegionOverlay {
 
     /// Called with the region in screen coordinates (bottom-left origin) whenever it changes.
     var onChange: ((CGRect) -> Void)?
+    /// The user tapped the lock/unlock pill on the overlay.
+    var onToggleLock: (() -> Void)?
     /// When set, resizing keeps this width/height ratio.
     var aspect: CGFloat?
 
@@ -24,6 +26,7 @@ final class RegionOverlay {
             let v = RegionEditView(frame: NSRect(origin: .zero, size: screen.frame.size))
             v.screenOrigin = screen.frame.origin
             v.onChange = { [weak self] r in self?.onChange?(r) }
+            v.onToggleLock = { [weak self] in self?.onToggleLock?() }
             win.contentView = v
             view = v
             return v
@@ -41,6 +44,15 @@ final class RegionOverlay {
         view?.editable = editable
         view?.needsDisplay = true
         if let v = view { window?.invalidateCursorRects(for: v) }
+    }
+
+    /// Lock the framed area in place: the overlay stops intercepting move/resize (so you can click
+    /// and scroll the app beneath) while still drawing the accepted region, and a small pill lets you
+    /// unlock to adjust again. Only meaningful while idle (`editable`).
+    func setLocked(_ locked: Bool) {
+        view?.locked = locked
+        window?.ignoresMouseEvents = false   // keep the (un)lock pill clickable either way
+        view?.needsDisplay = true
     }
 
     func hide() { window?.orderOut(nil); window = nil; view = nil }
@@ -63,7 +75,11 @@ final class RegionOverlay {
 private final class RegionEditView: NSView {
     var screenOrigin: CGPoint = .zero
     var onChange: ((CGRect) -> Void)?
+    var onToggleLock: (() -> Void)?
     var editable = false { didSet { needsDisplay = true } }
+    /// Accepted-and-fixed: draw the region + an unlock pill, but let clicks fall through so the user
+    /// can prepare the app they're about to record.
+    var locked = false { didSet { needsDisplay = true } }
     var aspect: CGFloat?
 
     /// Region in view-local coordinates (bottom-left origin).
@@ -86,42 +102,54 @@ private final class RegionEditView: NSView {
         guard regionLocal.width > 0 else { return }
         let r = regionLocal.insetBy(dx: -gap, dy: -gap)   // border sits outside the recorded pixels
 
+        // A locked area reads as "accepted" — a solid green frame instead of the white dashed one.
         let path = NSBezierPath(rect: r)
         path.lineWidth = 2
-        path.setLineDash([7, 5], count: 2, phase: 0)
         NSColor.black.withAlphaComponent(0.5).setStroke()
         NSBezierPath(rect: r.insetBy(dx: -1, dy: -1)).stroke()
-        NSColor.white.withAlphaComponent(0.95).setStroke()
-        path.stroke()
+        if locked {
+            NSColor.systemGreen.setStroke()
+            path.stroke()
+        } else {
+            path.setLineDash([7, 5], count: 2, phase: 0)
+            NSColor.white.withAlphaComponent(0.95).setStroke()
+            path.stroke()
+        }
 
-        if editable {
+        guard editable else { return }
+
+        if locked {
+            drawPill(lockPillRect, text: "🔓  Unlock", accent: true)
+        } else {
             // Small solid corner handles.
-            NSColor.white.setFill()
             let s: CGFloat = 8
             for c in [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
                       CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY)] {
                 let box = CGRect(x: c.x - s/2, y: c.y - s/2, width: s, height: s)
-                NSColor.black.withAlphaComponent(0.5).setStroke()
-                let p = NSBezierPath(rect: box); p.lineWidth = 1
                 NSColor.white.setFill(); box.fill(using: .sourceOver)
                 NSBezierPath(rect: box).fill()
-                p.stroke()
+                NSColor.black.withAlphaComponent(0.5).setStroke()
+                NSBezierPath(rect: box).stroke()
             }
-
-            // "Drag to move" pill on the top border — because the interior is click-through, this is
-            // the discoverable way to reposition the whole area.
-            let mh = moveHandleRect
-            let pill = NSBezierPath(roundedRect: mh, xRadius: mh.height / 2, yRadius: mh.height / 2)
-            NSColor.black.withAlphaComponent(0.66).setFill(); pill.fill()
-            NSColor.white.withAlphaComponent(0.85).setStroke(); pill.lineWidth = 1; pill.stroke()
-            let label = "Drag to move" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.white
-            ]
-            let sz = label.size(withAttributes: attrs)
-            label.draw(at: NSPoint(x: mh.midX - sz.width / 2, y: mh.midY - sz.height / 2), withAttributes: attrs)
+            drawPill(movePillRect, text: "Drag to move", accent: false)
+            drawPill(lockPillRect, text: "🔒  Lock", accent: false)
         }
+    }
+
+    /// Draws a rounded control pill with centered text. `accent` fills green (the unlock affordance).
+    private func drawPill(_ rect: CGRect, text: String, accent: Bool) {
+        let pill = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+        (accent ? NSColor.systemGreen.withAlphaComponent(0.92)
+                : NSColor.black.withAlphaComponent(0.66)).setFill()
+        pill.fill()
+        NSColor.white.withAlphaComponent(0.85).setStroke(); pill.lineWidth = 1; pill.stroke()
+        let label = text as NSString
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.white
+        ]
+        let sz = label.size(withAttributes: attrs)
+        label.draw(at: NSPoint(x: rect.midX - sz.width / 2, y: rect.midY - sz.height / 2), withAttributes: attrs)
     }
 
     // MARK: - Cursors
@@ -140,7 +168,10 @@ private final class RegionEditView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        setCursor(for: zone(at: convert(event.locationInWindow, from: nil)))
+        let p = convert(event.locationInWindow, from: nil)
+        if editable, lockPillRect.contains(p) { NSCursor.pointingHand.set(); return }
+        if locked { NSCursor.arrow.set(); return }
+        setCursor(for: zone(at: p))
     }
     override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 
@@ -169,19 +200,41 @@ private final class RegionEditView: NSView {
 
     // MARK: - Interaction
 
-    /// The "drag to move" pill straddling the top border — the only place a move gesture starts, so
-    /// the whole interior can stay click-through for arranging the app you're about to record.
-    private var moveHandleRect: CGRect {
+    private let pillH: CGFloat = 26
+    private let movePillW: CGFloat = 104
+    private let lockPillW: CGFloat = 96
+    private let lockedPillW: CGFloat = 132
+    private let pillGap: CGFloat = 8
+
+    /// The "Drag to move" pill straddling the top border (shown only while unlocked). The interior
+    /// stays click-through, so this is the discoverable way to reposition the whole area.
+    private var movePillRect: CGRect {
         let r = regionLocal.insetBy(dx: -gap, dy: -gap)
-        let w: CGFloat = 108, h: CGFloat = 26
-        return CGRect(x: r.midX - w / 2, y: r.maxY - h / 2, width: w, height: h)
+        let total = movePillW + pillGap + lockPillW
+        return CGRect(x: r.midX - total / 2, y: r.maxY - pillH / 2, width: movePillW, height: pillH)
+    }
+
+    /// The lock / unlock pill. Unlocked: sits right of the move pill ("Lock"). Locked: centered on
+    /// the top border on its own ("Unlock"), and it's the only live target so the rest falls through.
+    private var lockPillRect: CGRect {
+        let r = regionLocal.insetBy(dx: -gap, dy: -gap)
+        if locked {
+            return CGRect(x: r.midX - lockedPillW / 2, y: r.maxY - pillH / 2, width: lockedPillW, height: pillH)
+        }
+        let total = movePillW + pillGap + lockPillW
+        return CGRect(x: r.midX - total / 2 + movePillW + pillGap, y: r.maxY - pillH / 2,
+                      width: lockPillW, height: pillH)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Claim only the move pill and the border band (resize). The interior — and everything
-        // outside — falls through so you can click/scroll the app you're about to record.
+        // Recording (not editable): pass everything through.
         guard editable else { return nil }
-        if moveHandleRect.contains(point) { return self }
+        // The (un)lock pill is always live so you can toggle it.
+        if lockPillRect.contains(point) { return self }
+        // Locked: nothing else is interactive — clicks reach the app beneath.
+        if locked { return nil }
+        // Unlocked: the move pill and the resize border band; interior + outside fall through.
+        if movePillRect.contains(point) { return self }
         let outer = regionLocal.insetBy(dx: -grab, dy: -grab)
         let inner = regionLocal.insetBy(dx: grab, dy: grab)
         return (outer.contains(point) && !inner.contains(point)) ? self : nil
@@ -189,6 +242,8 @@ private final class RegionEditView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
+        if lockPillRect.contains(p) { onToggleLock?(); return }   // toggle, never a drag
+        guard !locked else { return }
         dragZone = zone(at: p)
         dragStart = p
         origRegion = regionLocal
@@ -208,7 +263,7 @@ private final class RegionEditView: NSView {
     override func mouseUp(with event: NSEvent) { dragZone = .none }
 
     private func zone(at p: NSPoint) -> Zone {
-        if moveHandleRect.contains(p) { return .move }   // the pill moves the whole region
+        if movePillRect.contains(p) { return .move }   // the pill moves the whole region
         let r = regionLocal, g = grab
         guard r.insetBy(dx: -g, dy: -g).contains(p) else { return .none }
         let nl = abs(p.x - r.minX) <= g, nr = abs(p.x - r.maxX) <= g
