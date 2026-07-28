@@ -2090,6 +2090,17 @@ extension AppDelegate: NSMenuDelegate {
         refreshAIMenuItems()
     }
 
+    // Suspend the cursor-shape Accessibility probe while any menu is on screen. AX hit-testing an
+    // open Carbon menu segfaults inside HIToolbox on macOS 12, which was crashing recordings the
+    // moment the user opened the status-bar menu to stop or export. See CursorKindProbe.
+    func menuWillOpen(_ menu: NSMenu) {
+        CursorKindProbe.beginMenuTracking()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        CursorKindProbe.endMenuTracking()
+    }
+
     /// Rebuilds the Audio Source list each time it opens: "System Default" plus every connected
     /// audio input device, with a checkmark on the current choice. Loopback drivers are labelled
     /// so users recording system audio can spot them; if none is installed, a hint links to setup.

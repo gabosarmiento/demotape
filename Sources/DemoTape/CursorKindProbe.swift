@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import os
 
 /// Works out which pointer shape belongs at a screen position — arrow, hand, text bar, resize.
 ///
@@ -38,6 +39,43 @@ enum CursorKindProbe {
 
     private static let systemWide = AXUIElementCreateSystemWide()
 
+    /// Guards `menuTrackingDepth`. The gate is written on the main thread (menu open/close) and read
+    /// on the sampling queue, so it needs to be cheap and lock-safe from both.
+    private static var gateLock = os_unfair_lock()
+    /// How many menus are currently being tracked. AX hit-testing an open Carbon menu can segfault
+    /// deep inside HIToolbox (`HIStandardMenuView::FetchItemCache` → `CFRetain` on a freed pointer)
+    /// on macOS 12; while a menu is up we skip the probe entirely rather than risk taking down a
+    /// recording mid-take. See `beginMenuTracking()`.
+    private static var menuTrackingDepth = 0
+
+    /// Call from `NSMenuDelegate.menuWillOpen`: suspends AX probing while a menu is on screen.
+    ///
+    /// Why this exists: the background sampler queries the Accessibility element under the pointer a
+    /// few times a second to pick the cursor shape. When DemoTape's own status-bar menu is open and
+    /// the pointer is over it, that query hit-tests a Carbon menu and crashes inside the system
+    /// frameworks — a SIGSEGV we cannot catch in-process. Every crash captured in the field had the
+    /// main thread tracking the status menu while this probe fired. Skipping the probe while any
+    /// menu is up removes the trigger; the cursor shape over a menu doesn't matter anyway.
+    static func beginMenuTracking() {
+        os_unfair_lock_lock(&gateLock)
+        menuTrackingDepth += 1
+        os_unfair_lock_unlock(&gateLock)
+    }
+
+    /// Call from `NSMenuDelegate.menuDidClose`. Clamped at zero so an unbalanced close can't leave
+    /// the probe permanently disabled.
+    static func endMenuTracking() {
+        os_unfair_lock_lock(&gateLock)
+        if menuTrackingDepth > 0 { menuTrackingDepth -= 1 }
+        os_unfair_lock_unlock(&gateLock)
+    }
+
+    private static var isMenuTracking: Bool {
+        os_unfair_lock_lock(&gateLock)
+        defer { os_unfair_lock_unlock(&gateLock) }
+        return menuTrackingDepth > 0
+    }
+
     /// The shape that belongs at `point` (global, top-left screen coordinates).
     ///
     /// Falls back to `.arrow`, which is both the common case and the safe default: a wrongly drawn
@@ -45,6 +83,8 @@ enum CursorKindProbe {
     /// not per frame — the caller caches it.
     static func kind(at point: CGPoint) -> CursorKind {
         guard AXIsProcessTrusted() else { return .arrow }
+        // Never hit-test while a menu is open — AX-probing a Carbon menu segfaults on macOS 12.
+        guard !isMenuTracking else { return .arrow }
         var element: AXUIElement?
         guard AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y),
                                               &element) == .success,
