@@ -14,11 +14,11 @@ final class AreaPresetTests: XCTestCase {
         XCTAssertTrue(shorts.contains("Free"))
     }
 
-    func testSocialRowHasTenPlatformPresets() {
-        XCTAssertEqual(AreaPreset.social.count, 10)
+    func testSocialRowHasExpectedPlatformPresets() {
+        XCTAssertEqual(AreaPreset.social.count, 11)
         XCTAssertTrue(AreaPreset.social.allSatisfy { $0.category == .social })
         let shorts = AreaPreset.social.map { $0.short }
-        for s in ["YouTube","Shorts","TikTok","IG Reel","IG Story","IG Post",
+        for s in ["YouTube","Shorts","TikTok","IG Reel","IG Story","IG Post","IG Portrait",
                   "LinkedIn","LI Post","FB Video","FB Post"] {
             XCTAssertTrue(shorts.contains(s), "missing \(s)")
         }
@@ -66,5 +66,13 @@ final class AreaPresetTests: XCTestCase {
         let img = AreaPreset.named("YouTube · 16:9 · 1920×1080").icon(box: 40)
         XCTAssertEqual(img.size.width, 40, accuracy: 0.5)
         XCTAssertEqual(img.size.height, 40, accuracy: 0.5)
+    }
+
+    func testSocialLabelIsRatioPlusOrientationNoPixels() {
+        XCTAssertEqual(AreaPreset.named("YouTube · 16:9 · 1920×1080").socialLabel, "YouTube · 16:9 landscape")
+        XCTAssertEqual(AreaPreset.named("TikTok · 9:16 · 1080×1920").socialLabel, "TikTok · 9:16 portrait")
+        XCTAssertEqual(AreaPreset.named("Instagram Post · 1:1 · 1080×1080").socialLabel, "IG Post · 1:1 square")
+        // No pixel dimensions leak into the label.
+        XCTAssertFalse(AreaPreset.named("TikTok · 9:16 · 1080×1920").socialLabel.contains("1080"))
     }
 }

@@ -202,9 +202,11 @@ enum Settings {
         get { defaults.bool(forKey: "teleprompterFitDuration") }
         set { defaults.set(newValue, forKey: "teleprompterFitDuration") }
     }
-    /// Fraction of the screen reserved for the teleprompter strip in full-screen mode
-    /// (kept thin; this strip is excluded from the recording).
-    static let teleprompterTopStripFraction: Double = 0.12
+    /// Fraction of the screen reserved for the teleprompter strip in full-screen mode. Kept out of
+    /// the recording, so it's a genuine trade-off against captured height: 0.18 roughly doubles the
+    /// old 0.12 reading window (enough to see the upcoming line) while still leaving the strip a
+    /// minority of the frame.
+    static let teleprompterTopStripFraction: Double = 0.18
     /// Which edge the full-screen teleprompter strip sits on: "top" (default), "bottom",
     /// "left", or "right".
     static var teleprompterStripEdge: String {
@@ -216,6 +218,28 @@ enum Settings {
     static var teleprompterActive: Bool {
         teleprompterEnabled && !teleprompterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    // MARK: - Output destination (platform format)
+
+    /// Optional, off by default (mirrors "Webcam only"). When on, the chosen `outputDestination`
+    /// format drives the capture into its aspect-locked area preset, so the recording is framed and
+    /// exported at that platform's shape/size without any extra crop pass.
+    static var outputDestinationEnabled: Bool {
+        get { defaults.bool(forKey: "outputDestinationEnabled") }
+        set { defaults.set(newValue, forKey: "outputDestinationEnabled") }
+    }
+    /// Chosen output destination — a social `AreaPreset` name (see `SocialDestination`). Irrelevant
+    /// until `outputDestinationEnabled` is on; reconciled against the capture aspect when enabled.
+    static var outputDestination: String {
+        get { defaults.string(forKey: "outputDestination") ?? SocialDestination.all[0].name }
+        set { defaults.set(newValue, forKey: "outputDestination") }
+    }
+    // MARK: - One-time feature explainer cards
+
+    /// Whether the one-time explainer card for `key` has been dismissed (see `FeatureCardController`).
+    static func helpDismissed(_ key: String) -> Bool { defaults.bool(forKey: key) }
+    /// Mark a one-time explainer card as dismissed so it never shows again.
+    static func dismissHelp(_ key: String) { defaults.set(true, forKey: key) }
 
     // MARK: - Output directory
 

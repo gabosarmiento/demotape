@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webcamPreview: WebcamPreviewOverlay?
     /// Full-screen live camera preview shown before a webcam-only take (instead of the PiP bubble).
     private var webcamStage: WebcamStageOverlay?
+
+    /// Output Destination submenu, rebuilt on open (enable toggle + the social platforms compatible
+    /// with the current capture aspect).
+    private var outputMenu: NSMenu?
     /// Optional neural denoiser: active only if a Core ML model is bundled; otherwise the boosted
     /// on-device DSP reducer handles Smart Noise Suppression.
     private let speechEnhancer = CoreMLSpeechEnhancer()
@@ -84,9 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// it — and with no window and the menu bar easy to miss, it felt dead. Show the recorder bar, the
     /// same thing choosing a capture mode does, so there's always a visible way in.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if hasVisibleWindows { return true }
         if recorderBar?.isRecording == true { return true }   // don't disturb an active recording
-        selectFullScreen()   // presents the recorder bar in full-screen capture mode
+        // Always surface the recorder bar in the CURRENT capture mode. (The old `hasVisibleWindows`
+        // guard made this a no-op: the Dock icon only appears while a window is open, so that flag is
+        // always true exactly when the user clicks it — and the bar never came back.)
+        presentRecorderBar()
         return true
     }
 
@@ -208,6 +214,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inputItem.submenu = inputMenu
         self.inputSubmenu = inputMenu       // the recorder bar's popover drops this same submenu
         menu.addItem(inputItem)
+
+        // --- Output Destination (submenu: enable + a fixed set of platform formats) ---
+        // Optional, off by default. When on, the chosen format drives the aspect-locked capture so
+        // the recording is framed and exported at that platform's shape — reusing the area presets.
+        let outputItem = NSMenuItem(title: "Video Format", action: nil, keyEquivalent: "")
+        let outputMenu = NSMenu(); outputMenu.autoenablesItems = false
+        outputMenu.delegate = self       // rebuilt on open to reflect the current capture aspect
+        outputItem.submenu = outputMenu
+        self.outputMenu = outputMenu
+        menu.addItem(outputItem)
 
         // --- Background (submenu: choose an image, or No Background) ---
         let chooseBg = NSMenuItem(title: "Choose Background…",
@@ -1079,13 +1095,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.applyVoiceEnhancement(to: styled)
                 }
             }
+            // Optimize-for-social-media: write a platform-cropped/scaled derivative (no-op when the
+            // capture already has that ratio, e.g. a Select-Area take framed to it).
+            var finalOut = styled ?? raw
+            if let styled = styled, Settings.outputDestinationEnabled {
+                await MainActor.run {
+                    self.renderHUD.setIndeterminate(
+                        stage: "Optimizing for \(AreaPreset.named(Settings.outputDestination).short)…")
+                }
+                if let deriv = self.platformDerivative(from: styled) { finalOut = deriv }
+            }
+            let resolved = finalOut
             await MainActor.run {
                 self.renderHUD.hide()
-                self.lastOutputPath = (styled ?? raw).path   // published in control.json for agents
+                self.lastOutputPath = resolved.path   // published in control.json for agents
                 let wasControlDriven = self.controlDriven
                 self.controlDriven = false
                 self.state = .idle
-                self.notifySaved(at: styled ?? raw)
+                self.notifySaved(at: resolved)
                 if wasControlDriven { self.presentRecorderBar() }   // restore chrome for manual use
             }
         }
@@ -1117,7 +1144,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.applyVoiceEnhancement(to: url)
                     }
                 }
-                finalURL = url
+                // Optimize-for-social-media: center-crop the camera to the chosen ratio.
+                if Settings.outputDestinationEnabled {
+                    await MainActor.run {
+                        self.renderHUD.setIndeterminate(
+                            stage: "Optimizing for \(AreaPreset.named(Settings.outputDestination).short)…")
+                    }
+                    if let deriv = self.platformDerivative(from: url) { finalURL = deriv } else { finalURL = url }
+                } else {
+                    finalURL = url
+                }
             } else {
                 finalURL = nil
             }
@@ -1422,16 +1458,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Settings.teleprompterEnabled && Settings.teleprompterText.trimmingCharacters(in: .whitespaces).isEmpty {
             Settings.teleprompterEnabled = false
             openTeleprompterSettings()
-        } else if Settings.teleprompterEnabled && !Settings.useRegion && !webcamOnly {
-            let a = NSAlert()
-            a.messageText = "Teleprompter enabled"
-            a.informativeText = "In full-screen recording a thin strip at the top of the screen "
-                + "is reserved for the teleprompter and is NOT recorded, so leave a little "
-                + "headroom in your content. (In Select Recording Area mode it scrolls in the "
-                + "empty space around your selection instead.)"
-            a.runModal()
+        } else if Settings.teleprompterEnabled {
+            showTeleprompterHelpIfNeeded()
         }
         teleprompterToggleItem.state = Settings.teleprompterEnabled ? .on : .off
+    }
+
+    private func showTeleprompterHelpIfNeeded() {
+        presentFeatureCard(
+            title: "Teleprompter",
+            heading: "Read your script while you record",
+            body: "Your script scrolls on screen but stays out of the video — in full screen it sits "
+                + "in a thin strip that isn't recorded; in Select Area it scrolls beside your frame. "
+                + "Set the words and speed in Teleprompter settings.",
+            cells: [
+                .init(image: FeatureCardController.symbol("text.alignleft"), caption: "Your script,\nscrolling"),
+                .init(image: FeatureCardController.symbol("rectangle.dashed"), caption: "Never in\nthe recording"),
+                .init(image: FeatureCardController.symbol("speedometer"), caption: "Set the\nreading speed"),
+            ],
+            key: "teleprompterHelpDismissed")
     }
 
     /// The rect actually being recorded (screen coords, bottom-left), so the teleprompter can
@@ -1583,12 +1628,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openDemoComposer() {
+        presentFeatureCard(
+            title: "Let your coding agent record a demo",
+            heading: "Your agent drives the demo",
+            body: "Describe the demo you want; DemoTape writes a prompt for your coding agent "
+                + "(Kiro, Claude Code, and the like). The agent opens your app, clicks through the "
+                + "steps, narrates them, records with DemoTape, and checks the result — hands-off.",
+            cells: [
+                .init(image: FeatureCardController.symbol("text.bubble"), caption: "Describe\nthe demo"),
+                .init(image: FeatureCardController.symbol("terminal"), caption: "Agent drives\n& records"),
+                .init(image: FeatureCardController.symbol("checkmark.seal"), caption: "Narrated\n& verified"),
+            ],
+            key: "agentHelpDismissed")
         let controller = DemoComposerController()
         demoComposerController = controller
         controller.show(onClose: { [weak self] in self?.demoComposerController = nil })
     }
 
     @objc private func explainToAI() {
+        presentFeatureCard(
+            title: "Share Recording for AI",
+            heading: "Turn a recording into a brief for AI",
+            body: "DemoTape watches your latest recording — what you said and did — and writes a "
+                + "structured brief with screenshots that you can hand to a coding agent as a bug "
+                + "report, a feature summary, or a to-do. Runs on your own AI key.",
+            cells: [
+                .init(image: FeatureCardController.symbol("waveform"), caption: "Reads speech\n+ actions"),
+                .init(image: FeatureCardController.symbol("doc.text.magnifyingglass"),
+                      caption: "Writes a\nstructured brief"),
+                .init(image: FeatureCardController.symbol("sparkles"), caption: "Hand to\nyour agent"),
+            ],
+            key: "shareAIHelpDismissed")
         guard let video = latestRecording() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record a short walkthrough first — the AI brief runs on your latest recording.")
@@ -1760,6 +1830,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fullScreenItem.state = (!webcamOnly && !Settings.useRegion) ? .on : .off
         selectAreaItem.state = (!webcamOnly && Settings.useRegion) ? .on : .off
         webcamOnlyModeItem.state = webcamOnly ? .on : .off
+        recorderSetupPopover?.refresh()
     }
 
     @objc private func selectFullScreen() {
@@ -1789,7 +1860,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         regionLocked = false
         webcamStage?.hide()      // switching away from webcam-only: drop the camera immediately,
         webcamPreview?.hide()    // not after the area is picked
-        if !forcePicker, Settings.useRegion, Settings.regionW > 0.01, Settings.regionH > 0.01 {
+        if !forcePicker, Settings.regionW > 0.01, Settings.regionH > 0.01 {
+            // Reuse the remembered area. Force useRegion on (we may be arriving from webcam-only or
+            // full screen) and tear down any stale overlay window so it re-shows cleanly — otherwise
+            // switching back from Webcam Only left the selector invisible until a Full-Screen detour.
+            Settings.useRegion = true
+            regionOverlay?.hide()
             updateCaptureModeChecks()
             presentRecorderBar()
             return
@@ -1819,6 +1895,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         regionOverlay?.hide()
         refreshWebcamPreview()   // show a live self-view (mirrored to match the recording)
         presentRecorderBar()
+    }
+
+    // MARK: - Output destination (social media)
+
+    /// The aspect the capture is locked to, or nil when there's no framed area (webcam-only / full
+    /// screen) — which is when a chosen destination crops on export instead of driving the frame.
+    func currentCaptureAspect() -> CGFloat? {
+        if webcamOnly { return nil }
+        if Settings.useRegion { return AreaPreset.named(Settings.regionPreset).aspect }
+        return nil   // full screen: no locked aspect
+    }
+
+    /// Toggle "optimize for social media". The capture aspect has priority, so on enable we only
+    /// reconcile the stored destination to be compatible — we never change the framed area.
+    // MARK: - One-time feature explainer cards
+
+    private var featureCard: FeatureCardController?
+
+    /// Show a one-time explainer card unless the user has already dismissed it.
+    private func presentFeatureCard(title: String, heading: String, body: String,
+                                    cells: [FeatureCardController.Cell], key: String) {
+        guard !Settings.helpDismissed(key) else { return }
+        let c = FeatureCardController()
+        featureCard = c
+        c.show(title: title, heading: heading, body: body, cells: cells, dismissKey: key)
+    }
+
+    private func showOutputHelpIfNeeded() {
+        presentFeatureCard(
+            title: "Formats for social media",
+            heading: "Made for where it's going",
+            body: "Pick the platform and DemoTape exports your video in the right shape. "
+                + "Your original recording is always kept.",
+            cells: [
+                .init(image: AreaPreset.named("Landscape · 16:9 · 1920×1080").icon(box: 40),
+                      caption: "YouTube\n16:9 landscape"),
+                .init(image: AreaPreset.named("Vertical · 9:16 · 1080×1920").icon(box: 40),
+                      caption: "TikTok · Reels\n9:16 portrait"),
+                .init(image: AreaPreset.named("Square · 1:1 · 1080×1080").icon(box: 40),
+                      caption: "Feed post\n1:1 square"),
+            ],
+            key: "outputHelpDismissed")
+    }
+
+    @objc private func toggleOutputDestination() {
+        Settings.outputDestinationEnabled.toggle()
+        if Settings.outputDestinationEnabled {
+            if !SocialDestination.isCompatible(Settings.outputDestination, aspect: currentCaptureAspect()) {
+                Settings.outputDestination = SocialDestination.defaultName(forAspect: currentCaptureAspect())
+            }
+            showOutputHelpIfNeeded()   // first time on: a concise, welcome-style card
+        }
+        refreshWebcamPreview()   // reflect the target shape in the webcam-only preview
+        recorderSetupPopover?.refresh()
+    }
+
+    @objc private func selectSocialDestination(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        selectSocialDestinationByName(name)
+    }
+
+    /// Choose a destination by its social-preset name (from the menu or the ellipsis popup) and turn
+    /// the feature on. Never changes the framed area — the area owns the ratio.
+    func selectSocialDestinationByName(_ name: String) {
+        Settings.outputDestination = name
+        Settings.outputDestinationEnabled = true
+        refreshWebcamPreview()   // re-crop the webcam-only preview to the new ratio
+        recorderSetupPopover?.refresh()
+    }
+
+    /// Re-open the area picker to redefine the recording area (the ellipsis "Reselect area…").
+    func reselectArea() { beginAreaSelection(forcePicker: true) }
+
+    /// Whether a framed area currently exists (for showing "Reselect area…").
+    func hasFramedArea() -> Bool {
+        !webcamOnly && Settings.useRegion && Settings.regionW > 0.01 && Settings.regionH > 0.01
+    }
+
+    /// If "optimize for social media" is on, produce a platform-cropped/scaled derivative next to
+    /// `source` (center-crop to the chosen ratio, scale to its exact size). Returns the derivative,
+    /// or `source` when no crop is needed (the capture already has that ratio — e.g. a Select-Area
+    /// recording framed to it). Runs the encode synchronously; call it off the main thread.
+    private func platformDerivative(from source: URL) -> URL? {
+        guard Settings.outputDestinationEnabled else { return nil }
+        let dest = AreaPreset.named(Settings.outputDestination)
+        guard let targetSize = dest.targetSize else { return nil }
+        let asset = AVAsset(url: source)
+        guard let track = asset.tracks(withMediaType: .video).first else { return nil }
+        if PlatformFit.aspectsMatch(track.naturalSize, targetSize) { return source }
+        let out = SourcePaths(source: source).output(suffix: SocialDestination.slug(dest.name))
+        do {
+            try PlatformCrop().export(source: source, to: out, targetSize: targetSize) { _ in }
+            return out
+        } catch {
+            Log.write("platform derivative failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     // MARK: - Recorder bar + region border
@@ -1854,6 +2027,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 setWebcamOnly: { [weak self] in self?.recordWebcamOnly() },
                 isWebcamOnly: { [weak self] in self?.webcamOnly ?? false },
+                toggleOutputDestination: { [weak self] in self?.toggleOutputDestination() },
+                isOutputDestinationOn: { Settings.outputDestinationEnabled },
+                selectOutputFormat: { [weak self] name in self?.selectSocialDestinationByName(name) },
+                currentOutputFormat: { Settings.outputDestination },
+                currentCaptureAspect: { [weak self] in self?.currentCaptureAspect() ?? nil },
+                hasFramedArea: { [weak self] in self?.hasFramedArea() ?? false },
+                reselectArea: { [weak self] in self?.reselectArea() },
                 toggleLockArea: { [weak self] in self?.toggleRegionLock() },
                 isAreaLocked: { [weak self] in self?.regionLocked ?? false },
                 openTeleprompter: { [weak self] in self?.openTeleprompterSettings() },
@@ -1924,6 +2104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if webcamStage == nil { webcamStage = WebcamStageOverlay() }
             webcamStage?.show()
             webcamStage?.setMirrored(Settings.mirrorCamera)
+            // When optimizing for social media, frame the preview to the chosen ratio so it's clear
+            // what will be exported (the feed fills the shape, cropping the sides for 1:1/4:5/9:16).
+            let aspect = Settings.outputDestinationEnabled
+                ? AreaPreset.named(Settings.outputDestination).aspect : nil
+            webcamStage?.setAspect(aspect)
             return
         }
         webcamStage?.hide()
@@ -2087,7 +2272,43 @@ extension AppDelegate: NSMenuDelegate {
             rebuildAudioSourceMenu(menu)
             return
         }
+        if menu === outputMenu {
+            rebuildOutputMenu(menu)
+            return
+        }
         refreshAIMenuItems()
+    }
+
+    /// Rebuilds the Output Destination submenu: an enable toggle, then the social platforms whose
+    /// ratio matches the current capture (Select Area → only that aspect; webcam/full-screen → all).
+    private func rebuildOutputMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let enable = NSMenuItem(title: "Optimize for social media",
+                                action: #selector(toggleOutputDestination), keyEquivalent: "")
+        enable.target = self
+        enable.state = Settings.outputDestinationEnabled ? .on : .off
+        menu.addItem(enable)
+        menu.addItem(.separator())
+
+        let aspect = currentCaptureAspect()
+        if aspect != nil {
+            let hint = NSMenuItem(title: "Matching the selected area", action: nil, keyEquivalent: "")
+            hint.isEnabled = false
+            menu.addItem(hint)
+        }
+        for preset in SocialDestination.options(forAspect: aspect) {
+            // Ratio + orientation ("TikTok · 9:16 portrait") — the visual aid, without overwhelming
+            // pixel dimensions. The shape icon reinforces portrait/landscape.
+            let item = NSMenuItem(title: preset.socialLabel, action: #selector(selectSocialDestination(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.image = preset.icon(box: 20)
+            item.representedObject = preset.name
+            item.isEnabled = Settings.outputDestinationEnabled
+            item.state = (Settings.outputDestinationEnabled && Settings.outputDestination == preset.name)
+                ? .on : .off
+            menu.addItem(item)
+        }
     }
 
     // Suspend the cursor-shape Accessibility probe while any menu is on screen. AX hit-testing an

@@ -5,7 +5,7 @@ import AppKit
 ///  - **Display**: choose which edge the full-screen strip sits on (top/bottom/left/right),
 ///    shown on a diagram of the capture area. That strip is excluded from the recording.
 @available(macOS 12.3, *)
-final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
+final class TeleprompterSettingsController: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private var window: NSWindow?
     private var onClose: (() -> Void)?
     private var escMonitor: Any?
@@ -18,8 +18,9 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
 
     // Script controls
     private var textView: NSTextView!
-    private var speedSeg: NSSegmentedControl!
+    private var speedSlider: SpeedSliderView!
     private var speedRow: NSView!
+    private var aiPromptButton: NSButton!
     private var fitCheckbox: NSButton!
     private var minutesSlider: NSSlider!
     private var minutesLabel: NSTextField!
@@ -30,7 +31,6 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
     private var diagram: StripDiagramView!
     private var edgeSeg: NSSegmentedControl!
 
-    private let speeds: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     private let edges = ["top", "bottom", "left", "right"]
 
     func show(onClose: @escaping () -> Void) {
@@ -89,8 +89,16 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
             "Paste your script and pick a scroll speed (1× is a natural reading pace). It scrolls "
             + "in the strip you choose under Display — excluded from the recording.")
         header.font = .systemFont(ofSize: 11); header.textColor = .secondaryLabelColor
-        header.frame = NSRect(x: 16, y: h - 92, width: w - 32, height: 34)
+        header.frame = NSRect(x: 16, y: h - 92, width: w - 32 - 196, height: 34)
         content.addSubview(header)
+
+        // "Write my script with AI": copies a ready-made meta-prompt. Emphasized while the box is
+        // empty (the moment it's most useful), then stays quietly available once there's text.
+        aiPromptButton = NSButton(title: "Copy AI script prompt", target: self,
+                                  action: #selector(copyAIPrompt))
+        aiPromptButton.bezelStyle = .rounded
+        aiPromptButton.frame = NSRect(x: w - 16 - 190, y: h - 90, width: 190, height: 28)
+        content.addSubview(aiPromptButton)
 
         let scroll = NSScrollView(frame: NSRect(x: 16, y: 150, width: w - 32, height: h - 250))
         scroll.hasVerticalScroller = true; scroll.borderType = .bezelBorder
@@ -98,17 +106,19 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
         tv.autoresizingMask = [.width]; tv.isRichText = false
         tv.font = .systemFont(ofSize: 14); tv.textContainerInset = NSSize(width: 6, height: 6)
         tv.string = Settings.teleprompterText
+        tv.delegate = self
         scroll.documentView = tv
         content.addSubview(scroll); textView = tv
 
-        speedRow = NSView(frame: NSRect(x: 16, y: 104, width: w - 32, height: 26))
+        speedRow = NSView(frame: NSRect(x: 16, y: 100, width: w - 32, height: 30))
         let speedTitle = NSTextField(labelWithString: "Speed"); speedTitle.font = .systemFont(ofSize: 12)
-        speedTitle.frame = NSRect(x: 0, y: 4, width: 54, height: 18); speedRow.addSubview(speedTitle)
-        speedSeg = NSSegmentedControl(labels: ["0.5×", "0.75×", "1×", "1.25×", "1.5×", "2×"],
-                                      trackingMode: .selectOne, target: nil, action: nil)
-        speedSeg.frame = NSRect(x: 58, y: 0, width: 360, height: 26)
-        speedSeg.selectedSegment = speeds.firstIndex(of: Settings.teleprompterSpeed) ?? 2
-        speedRow.addSubview(speedSeg)
+        speedTitle.frame = NSRect(x: 0, y: 6, width: 54, height: 18); speedRow.addSubview(speedTitle)
+        // Continuous 0.5×–2.0× in 0.1 steps; 0.8×–1.5× marked as the recommended reading band.
+        speedSlider = SpeedSliderView(value: Settings.teleprompterSpeed, min: 0.5, max: 2.0,
+                                      recommended: 0.8...1.5)
+        speedSlider.frame = NSRect(x: 58, y: 0, width: w - 32 - 58, height: 30)
+        speedSlider.autoresizingMask = [.width]
+        speedRow.addSubview(speedSlider)
         content.addSubview(speedRow)
 
         minutesRow = NSView(frame: NSRect(x: 16, y: 104, width: w - 32, height: 26))
@@ -132,7 +142,8 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
         content.addSubview(fitCheckbox)
         applyFitState()
 
-        scriptViews = [header, scroll, speedRow, minutesRow, fitCheckbox]
+        scriptViews = [header, aiPromptButton, scroll, speedRow, minutesRow, fitCheckbox]
+        updateAIPromptEmphasis()
     }
 
     private func buildDisplayTab(in content: NSView, w: CGFloat, h: CGFloat) {
@@ -179,10 +190,38 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate {
         minutesLabel.stringValue = m < 1 ? String(format: "%.0f sec", m * 60)
                                          : String(format: "%.1f min", m)
     }
-    private var currentSpeed: Double { speeds[max(0, speedSeg.selectedSegment)] }
+    private var currentSpeed: Double { speedSlider.value }
     private var currentEdge: String { edges[max(0, edgeSeg.selectedSegment)] }
 
     @objc private func edgeChanged() { diagram.edge = currentEdge }
+
+    // MARK: - AI script prompt
+
+    /// Copies the ready-made meta-prompt and briefly confirms on the button itself.
+    @objc private func copyAIPrompt() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(TeleprompterPrompt.text, forType: .string)
+        let previous = aiPromptButton.title
+        aiPromptButton.title = "Copied ✓"
+        aiPromptButton.isEnabled = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+            guard let self = self, self.aiPromptButton != nil else { return }
+            self.aiPromptButton.title = previous
+            self.aiPromptButton.isEnabled = true
+        }
+    }
+
+    /// Emphasize the AI-prompt button while the script box is empty (accent-tinted), and let it
+    /// recede once there's text — still available, just not shouting.
+    private func updateAIPromptEmphasis() {
+        guard aiPromptButton != nil, textView != nil else { return }
+        let empty = textView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        aiPromptButton.bezelColor = empty ? .controlAccentColor : nil
+        aiPromptButton.contentTintColor = empty ? .white : nil
+    }
+
+    func textDidChange(_ notification: Notification) { updateAIPromptEmphasis() }
 
     // MARK: - Test / save
 

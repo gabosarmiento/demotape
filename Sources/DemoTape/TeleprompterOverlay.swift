@@ -102,15 +102,28 @@ final class TeleprompterOverlay {
         let bandLocal = CGRect(x: band.minX - screen.minX, y: band.minY - screen.minY,
                                width: band.width, height: band.height)
         let colW = min(bandLocal.width, 620)
+        // Reading window: tall enough to show the line that's arriving next, but capped so it never
+        // dominates the screen — then centered within the (larger) free band.
+        let clipH = min(bandLocal.height, max(150, screen.height * 0.5))
+        let clipY = bandLocal.minY + (bandLocal.height - clipH) / 2
         let clip = NSView(frame: CGRect(x: bandLocal.minX + (bandLocal.width - colW) / 2,
-                                        y: bandLocal.minY, width: colW, height: bandLocal.height))
+                                        y: clipY, width: colW, height: clipH))
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true
         clip.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.30).cgColor
         clip.layer?.cornerRadius = 10
+        // Soft top/bottom fade so lines ease in and out instead of popping at the hard edge.
+        let fade = CAGradientLayer()
+        fade.frame = clip.bounds
+        fade.colors = [NSColor.clear.cgColor, NSColor.white.cgColor,
+                       NSColor.white.cgColor, NSColor.clear.cgColor]
+        fade.locations = [0.0, 0.14, 0.86, 1.0]
+        fade.startPoint = CGPoint(x: 0.5, y: 0.0)
+        fade.endPoint = CGPoint(x: 0.5, y: 1.0)
+        clip.layer?.mask = fade
         content.addSubview(clip)
 
-        let fontSize: CGFloat = min(46, max(26, min(colW * 0.06, bandLocal.height * 0.42)))
+        let fontSize: CGFloat = min(46, max(28, min(colW * 0.06, clipH * 0.30)))
         let para = NSMutableParagraphStyle()
         para.alignment = .center
         para.lineSpacing = 10
@@ -137,7 +150,7 @@ final class TeleprompterOverlay {
 
         let duration = max(5.0, minutes * 60.0)
         startY = -height
-        travel = bandLocal.height + height
+        travel = clipH + height
         let interval = 1.0 / 30.0
         perTick = travel * CGFloat(interval / duration)
         var y = startY

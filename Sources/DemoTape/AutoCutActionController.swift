@@ -5,10 +5,10 @@ import AppKit
 @available(macOS 12.3, *)
 final class AutoCutActionController: ActionPreviewController {
 
-    private let speeds: [Double] = [1.0, 1.25, 1.5, 2.0]
-    private let defaultSpeedIndex = 1          // 1.25×
+    private let defaultSpeed = 1.25
     private var silenceBox: NSButton!
-    private var speedControl: NSSegmentedControl!
+    private var speedSlider: SpeedSliderView!
+    private var speedNote: NSTextField!
 
     override var actionTitle: String { "Auto Cut and Speed" }
     override var nothingMessage: String { "Nothing to change — this clip has no silent gaps to remove." }
@@ -21,27 +21,39 @@ final class AutoCutActionController: ActionPreviewController {
         let speedLabel = NSTextField(labelWithString: "Speed")
         speedLabel.font = .systemFont(ofSize: 13)
 
-        speedControl = NSSegmentedControl(
-            labels: speeds.map { $0 == 1.0 ? "1×" : "\(formatted($0))×" },
-            trackingMode: .selectOne, target: nil, action: nil)
-        speedControl.selectedSegment = defaultSpeedIndex
-        speedControl.controlSize = .large
+        // Continuous 1.0×–2.0× in 0.1 steps; 1.0×–1.5× is the recommended band. Above 1.5× the
+        // pitch-preserved audio starts to sound unnatural, so we call that out.
+        speedSlider = SpeedSliderView(value: defaultSpeed, min: 1.0, max: 2.0, recommended: 1.0...1.5)
+        speedSlider.onChange = { [weak self] v in self?.updateSpeedNote(v) }
+        speedSlider.widthAnchor.constraint(equalToConstant: 360).isActive = true
 
-        let speedRow = NSStackView(views: [speedLabel, speedControl])
+        let speedRow = NSStackView(views: [speedLabel, speedSlider])
         speedRow.orientation = .horizontal
         speedRow.spacing = 10
 
-        let stack = NSStackView(views: [silenceBox, speedRow])
+        speedNote = NSTextField(labelWithString: "")
+        speedNote.font = .systemFont(ofSize: 11)
+        speedNote.textColor = .secondaryLabelColor
+        speedNote.alignment = .center
+
+        let stack = NSStackView(views: [silenceBox, speedRow, speedNote])
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = 16
+        stack.spacing = 12
+        updateSpeedNote(defaultSpeed)
         return stack
+    }
+
+    private func updateSpeedNote(_ speed: Double) {
+        speedNote?.stringValue = speed > 1.5
+            ? "Above 1.5×, the voice may sound distorted."
+            : " "
     }
 
     override func render(progress: @escaping (Double) -> Void) throws -> URL? {
         var opts = Tightener.Options()
         opts.removeSilence = (silenceBox.state == .on)
-        opts.speed = speeds[max(0, speedControl.selectedSegment)]
+        opts.speed = speedSlider.value
         let out = SourcePaths(source: source).output(suffix: "tight")
         let summary = try Tightener().tighten(video: source, options: opts, to: out)
         // Nothing removed and no speed change → treat as "nothing to do".
@@ -50,9 +62,5 @@ final class AutoCutActionController: ActionPreviewController {
             return nil
         }
         return out
-    }
-
-    private func formatted(_ v: Double) -> String {
-        v.rounded() == v ? String(Int(v)) : String(v)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 /// Focused "Captions" action. On open it transcribes the source (reusing a cached transcript so
 /// it never re-charges), shows the timed, editable lines in a full-width tab under the video, and
@@ -9,6 +10,16 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
     private var config: Captions.Config
     private var cues: [CaptionCue]
     private let hadCache: Bool
+
+    /// Aspect (w/h) of the working video, used to size the style swatches so a 9:16 file shows tall
+    /// previews. Falls back to 16:9 when the track can't be read.
+    private var sourceAspect: CGFloat {
+        let asset = AVAsset(url: source)
+        guard let t = asset.tracks(withMediaType: .video).first else { return 16.0 / 9.0 }
+        let sz = t.naturalSize.applying(t.preferredTransform)
+        let w = abs(sz.width), h = abs(sz.height)
+        return h > 0 ? w / h : 16.0 / 9.0
+    }
 
     private var languagePopup: NSPopUpButton!
     private var targetLanguagePopup: NSPopUpButton!
@@ -221,7 +232,7 @@ final class CaptionsActionController: ActionPreviewController, NSTextFieldDelega
                 grid.addArrangedSubview(r)
                 row = r
             }
-            let card = CaptionStyleCard(style: style) { [weak self] chosen in
+            let card = CaptionStyleCard(style: style, aspect: sourceAspect) { [weak self] chosen in
                 self?.selectStyle(chosen)
             }
             card.isSelected = (style.id == selectedStyle.id)
@@ -475,12 +486,25 @@ final class CaptionStyleCard: NSView {
     private let onSelect: (CaptionStyle) -> Void
     private let style: CaptionStyle
 
-    private let tileSize = CGSize(width: 150, height: 78)
+    private let tileSize: CGSize
 
-    init(style: CaptionStyle, onSelect: @escaping (CaptionStyle) -> Void) {
+    /// Swatch size for a given source aspect, fitted inside a fixed bounding box so a 9:16 project
+    /// shows tall swatches and a 16:9 project wide ones — the preview matches the real proportions
+    /// instead of always drawing a landscape thumbnail.
+    static func tileSize(forAspect aspect: CGFloat) -> CGSize {
+        let maxW: CGFloat = 150, maxH: CGFloat = 110
+        let a = aspect > 0 ? aspect : 16.0 / 9.0
+        var w = maxW, h = maxW / a
+        if h > maxH { h = maxH; w = maxH * a }
+        return CGSize(width: w.rounded(), height: h.rounded())
+    }
+
+    init(style: CaptionStyle, aspect: CGFloat = 16.0 / 9.0,
+         onSelect: @escaping (CaptionStyle) -> Void) {
         self.style = style
         self.styleID = style.id
         self.onSelect = onSelect
+        self.tileSize = Self.tileSize(forAspect: aspect)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true

@@ -28,6 +28,20 @@ struct AreaPreset {
 
     var isFreeform: Bool { rw <= 0 || rh <= 0 }
     var aspect: CGFloat? { isFreeform ? nil : rw / rh }
+
+    /// "16:9" — the ratio, without pixel dimensions.
+    var ratioText: String { isFreeform ? "Free" : "\(Int(rw)):\(Int(rh))" }
+
+    /// "landscape" / "portrait" / "square" — the at-a-glance orientation word.
+    var orientationWord: String {
+        guard let a = aspect else { return "" }
+        if abs(a - 1) < 0.01 { return "square" }
+        return a > 1 ? "landscape" : "portrait"
+    }
+
+    /// Concise picker label, e.g. "YouTube · 16:9 landscape", "TikTok · 9:16 portrait". Pixel sizes
+    /// are intentionally omitted — the ratio and orientation are what a user actually chooses by.
+    var socialLabel: String { "\(short) · \(ratioText) \(orientationWord)" }
     var targetSize: CGSize? { (targetW > 0 && targetH > 0) ? CGSize(width: targetW, height: targetH) : nil }
     var tint: NSColor { tintHex.flatMap { NSColor(hex: $0) } ?? .white }
 
@@ -55,6 +69,8 @@ struct AreaPreset {
                    targetW: 1080, targetH: 1920, category: .social, tintHex: "#E1306C"),
         AreaPreset(name: "Instagram Post · 1:1 · 1080×1080", short: "IG Post", rw: 1, rh: 1,
                    targetW: 1080, targetH: 1080, category: .social, tintHex: "#E1306C"),
+        AreaPreset(name: "Instagram Portrait · 4:5 · 1080×1350", short: "IG Portrait", rw: 4, rh: 5,
+                   targetW: 1080, targetH: 1350, category: .social, tintHex: "#E1306C"),
         AreaPreset(name: "LinkedIn Video · 9:16 · 1080×1920", short: "LinkedIn", rw: 9, rh: 16,
                    targetW: 1080, targetH: 1920, category: .social, tintHex: "#0A66C2"),
         AreaPreset(name: "LinkedIn Post · 1:1 · 1080×1080", short: "LI Post", rw: 1, rh: 1,

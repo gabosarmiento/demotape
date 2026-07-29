@@ -567,8 +567,21 @@ final class WebcamStageOverlay {
     private var session: AVCaptureSession?
     private weak var previewLayer: AVCaptureVideoPreviewLayer?
     private var stageLayer: CALayer?
+    private weak var pillHost: NSView?
+    /// The shape the stage is framed to. 16:9 by default (the camera's native look); set to a
+    /// platform ratio when "optimize for social media" is on, so the preview shows exactly what will
+    /// be exported — the feed fills the shape (`resizeAspectFill`), cropping the sides for 1:1/4:5/9:16.
+    private var stageAspect: CGFloat = 16.0 / 9.0
 
     var isVisible: Bool { panel != nil }
+
+    /// Set the preview's target aspect (nil = the camera's native 16:9). Re-lays out live if shown.
+    func setAspect(_ aspect: CGFloat?) {
+        let a = aspect ?? (16.0 / 9.0)
+        guard abs(a - stageAspect) > 0.001 else { return }
+        stageAspect = a
+        if panel != nil { layoutStage() }
+    }
 
     func setMirrored(_ on: Bool) {
         guard let conn = previewLayer?.connection, conn.isVideoMirroringSupported else { return }
@@ -608,20 +621,13 @@ final class WebcamStageOverlay {
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
 
-        // A big rounded 16:9 stage centred on screen (the camera's native aspect), filled by the feed.
-        let bounds = content.bounds
-        let maxW = bounds.width * 0.86, maxH = bounds.height * 0.82
-        var stageW = maxW, stageH = stageW * 9.0 / 16.0
-        if stageH > maxH { stageH = maxH; stageW = stageH * 16.0 / 9.0 }
+        // A big rounded stage centred on screen, filled by the feed (cropped to the stage shape).
         let stage = CALayer()
-        stage.frame = NSRect(x: (bounds.width - stageW) / 2, y: (bounds.height - stageH) / 2 + 20,
-                             width: stageW, height: stageH)
         stage.cornerRadius = 20
         stage.cornerCurve = .continuous
         stage.masksToBounds = true
         stage.borderWidth = 2
         stage.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
-        preview.frame = stage.bounds
         stage.addSublayer(preview)
         content.layer?.addSublayer(stage)
         stageLayer = stage
@@ -633,19 +639,40 @@ final class WebcamStageOverlay {
         pill.alignment = .center
         pill.sizeToFit()
         let pw = pill.frame.width + 36, ph: CGFloat = 34
-        let host = NSView(frame: NSRect(x: (bounds.width - pw) / 2,
-                                        y: stage.frame.minY - ph - 16, width: pw, height: ph))
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: pw, height: ph))
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
         host.layer?.cornerRadius = ph / 2
         pill.frame = NSRect(x: 18, y: (ph - pill.frame.height) / 2, width: pw - 36, height: pill.frame.height)
         host.addSubview(pill)
         content.addSubview(host)
+        pillHost = host
 
         panel.contentView = content
         self.panel = panel
         self.session = session
+        layoutStage()
         panel.orderFrontRegardless()
+    }
+
+    /// Sizes the stage to `stageAspect`, centres it, and re-anchors the caption pill beneath it.
+    private func layoutStage() {
+        guard let content = panel?.contentView, let stage = stageLayer else { return }
+        let bounds = content.bounds
+        let maxW = bounds.width * 0.86, maxH = bounds.height * 0.82
+        var stageW = maxW, stageH = stageW / stageAspect
+        if stageH > maxH { stageH = maxH; stageW = stageH * stageAspect }
+        let frame = NSRect(x: (bounds.width - stageW) / 2, y: (bounds.height - stageH) / 2 + 20,
+                           width: stageW, height: stageH)
+        // No implicit animation — snap to the new shape.
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        stage.frame = frame
+        previewLayer?.frame = stage.bounds
+        CATransaction.commit()
+        if let host = pillHost {
+            host.frame.origin = NSPoint(x: (bounds.width - host.frame.width) / 2,
+                                        y: frame.minY - host.frame.height - 16)
+        }
     }
 
     func hide() {

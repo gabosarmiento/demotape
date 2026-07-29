@@ -16,6 +16,13 @@ final class RecorderSetupPopover: NSObject {
         var setFullScreen: (Bool) -> Void
         var setWebcamOnly: () -> Void
         var isWebcamOnly: () -> Bool
+        var toggleOutputDestination: () -> Void
+        var isOutputDestinationOn: () -> Bool
+        var selectOutputFormat: (String) -> Void   // by social-preset name
+        var currentOutputFormat: () -> String       // social-preset name
+        var currentCaptureAspect: () -> CGFloat?
+        var hasFramedArea: () -> Bool
+        var reselectArea: () -> Void
         var toggleLockArea: () -> Void
         var isAreaLocked: () -> Bool
         var openTeleprompter: () -> Void
@@ -32,6 +39,13 @@ final class RecorderSetupPopover: NSObject {
     private var popover: NSPopover?
     private var actions: Actions
     private var modeControl: NSSegmentedControl!
+    private var outputSwitch: NSSwitch!
+    private var outputFormatPopup: NSPopUpButton!
+    private var outputFormatRow: NSView!
+    private var outputSwitchRow: NSView!
+    private var reselectAreaRow: NSView!
+    /// Platform options currently in the popup, so its index maps back to a preset name.
+    private var outputOptions: [AreaPreset] = []
     private var backgroundValue: NSTextField!
     private var brandingSwitch: NSSwitch!
     private var teleprompterSwitch: NSSwitch!
@@ -74,6 +88,16 @@ final class RecorderSetupPopover: NSObject {
         guard modeControl != nil else { return }
         let webcamOnly = actions.isWebcamOnly()
         modeControl.selectedSegment = webcamOnly ? 2 : (Settings.useRegion ? 1 : 0)
+        let outputOn = actions.isOutputDestinationOn()
+        outputSwitch.state = outputOn ? .on : .off
+        // Rebuild the platform list for the current capture aspect (area has priority; webcam/full
+        // screen offer every ratio).
+        outputOptions = SocialDestination.options(forAspect: actions.currentCaptureAspect())
+        outputFormatPopup.removeAllItems()
+        for preset in outputOptions { outputFormatPopup.addItem(withTitle: preset.socialLabel) }
+        if let idx = outputOptions.firstIndex(where: { $0.name == actions.currentOutputFormat() }) {
+            outputFormatPopup.selectItem(at: idx)
+        }
         backgroundValue.stringValue = Settings.framedBackground ? Self.backgroundLabel() : "Off"
         brandingSwitch.state = Settings.brandingEnabled ? .on : .off
         teleprompterSwitch.state = Settings.teleprompterEnabled ? .on : .off
@@ -86,6 +110,13 @@ final class RecorderSetupPopover: NSObject {
         // Webcam-only records the raw camera (no styled compositing), so the screen-recording
         // options don't apply. Show only what's relevant: mirror, teleprompter, and the two mic
         // clean-up toggles (mic + camera are always included in this mode).
+        // Output destination applies in every mode (webcam-only and full-screen crop on export; a
+        // framed area exports at its own ratio). The format popup appears once the toggle is on.
+        outputSwitchRow.isHidden = false
+        outputFormatRow.isHidden = !outputOn
+        // "Reselect area…" only makes sense once a framed area exists.
+        reselectAreaRow.isHidden = !actions.hasFramedArea()
+
         agentCardRow.isHidden = webcamOnly
         backgroundRow.isHidden = webcamOnly
         brandingRow.isHidden = webcamOnly
@@ -127,6 +158,25 @@ final class RecorderSetupPopover: NSObject {
                                          target: self, action: #selector(modeChanged))
         modeControl.segmentDistribution = .fillEqually
         content.addArrangedSubview(modeControl)
+
+        // Output destination: optimize for a platform. Off by default; when on, a popup picks one of
+        // the fixed formats, which drives the aspect-locked capture shape.
+        outputSwitch = NSSwitch()
+        outputSwitch.target = self; outputSwitch.action = #selector(tapOutputDestination)
+        outputSwitchRow = switchRow(icon: "rectangle.on.rectangle.angled",
+                                    title: "Optimize for social media", control: outputSwitch)
+        content.addArrangedSubview(outputSwitchRow)
+        outputFormatPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        outputFormatPopup.target = self
+        outputFormatPopup.action = #selector(chooseOutputFormat)
+        outputFormatRow = wrap([icon("aspectratio"), outputFormatPopup], in: {
+            let c = HoverCard(); c.isEnabled = false; return c
+        }())
+        content.addArrangedSubview(outputFormatRow)
+        // Redefine the framed area (shown only once an area exists).
+        reselectAreaRow = disclosureRow(icon: "crop", title: "Reselect area…",
+                                        value: nil, action: #selector(tapReselectArea))
+        content.addArrangedSubview(reselectAreaRow)
 
         // Lock the framed area in place (Select-Area only) so you can prepare the app beneath.
         lockSwitch = NSSwitch()
@@ -328,6 +378,23 @@ final class RecorderSetupPopover: NSObject {
         default: actions.setFullScreen(true)
         }
         refresh()
+    }
+
+    @objc private func tapOutputDestination() {
+        actions.toggleOutputDestination()
+        refresh()
+    }
+
+    @objc private func chooseOutputFormat() {
+        let idx = outputFormatPopup.indexOfSelectedItem
+        guard idx >= 0, idx < outputOptions.count else { return }
+        actions.selectOutputFormat(outputOptions[idx].name)
+        refresh()
+    }
+
+    @objc private func tapReselectArea() {
+        actions.reselectArea()
+        close()
     }
     @objc private func tapComposer() { close(); actions.openComposer() }
     @objc private func tapLock() { actions.toggleLockArea(); refresh() }
