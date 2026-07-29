@@ -103,20 +103,20 @@ final class RecorderBarController: NSObject {
         isRecording = recording
         recordButton.image = symbol(recording ? "stop.fill" : "record.circle", size: 12)
         recordButton.title = recording ? "  Stop" : "  Start"
-        recordButton.contentTintColor = recording ? .white : .systemRed
+        recordButton.contentTintColor = Theme.recordRed
         recordButton.toolTip = recording ? "Stop recording" : "Start recording"
         if recording { startTimer() } else { stopTimer(); timerLabel.stringValue = "00:00" }
     }
 
     func updateMic(_ on: Bool) {
         micButton.image = symbol(on ? "mic.fill" : "mic.slash.fill", size: 13)
-        micButton.contentTintColor = on ? .white : .tertiaryLabelColor
+        micButton.contentTintColor = on ? Theme.accent : Theme.faint
         micButton.toolTip = on ? "Microphone (on)" : "Microphone (off)"
     }
 
     func updateWebcam(_ on: Bool) {
         webcamButton.image = symbol(on ? "video.fill" : "video.slash.fill", size: 13)
-        webcamButton.contentTintColor = on ? .white : .tertiaryLabelColor
+        webcamButton.contentTintColor = on ? Theme.accent : Theme.faint
         webcamButton.toolTip = on ? "Webcam (on)" : "Webcam (off)"
     }
 
@@ -137,6 +137,7 @@ final class RecorderBarController: NSObject {
         return img?.withSymbolConfiguration(.init(pointSize: size, weight: .regular))
     }
 
+
     private func build() {
         let panel = KeyablePanel(contentRect: NSRect(origin: .zero, size: barSize),
                                  styleMask: [.borderless, .nonactivatingPanel],
@@ -152,25 +153,21 @@ final class RecorderBarController: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
         let blur = DragBackgroundView(frame: NSRect(origin: .zero, size: barSize))
-        blur.material = .hudWindow
-        blur.state = .active
         blur.wantsLayer = true
-        blur.layer?.cornerRadius = 11
-        blur.layer?.cornerCurve = .continuous
-        blur.layer?.masksToBounds = true
 
-        recordButton = NSButton(title: "  Start", target: self, action: #selector(toggleRecord))
+        recordButton = CursorButton(title: "  Start", target: self, action: #selector(toggleRecord))
         recordButton.image = symbol("record.circle", size: 12)
         recordButton.imagePosition = .imageLeading
-        recordButton.bezelStyle = .rounded
-        recordButton.contentTintColor = .systemRed
+        recordButton.bezelStyle = .rounded          // a real, obviously-clickable button
+        recordButton.focusRingType = .none          // no blue ring when it takes focus
+        recordButton.contentTintColor = Theme.recordRed
         recordButton.toolTip = "Start recording"
         recordButton.frame = NSRect(x: 8, y: 7, width: 96, height: 28)
         blur.addSubview(recordButton)
 
         timerLabel = NSTextField(labelWithString: "00:00")
         timerLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        timerLabel.textColor = .white
+        timerLabel.textColor = Theme.ink
         timerLabel.alignment = .center
         timerLabel.frame = NSRect(x: 110, y: 12, width: 50, height: 18)
         blur.addSubview(timerLabel)
@@ -178,8 +175,10 @@ final class RecorderBarController: NSObject {
         addSeparator(to: blur, x: 168)
 
         micButton = iconButton(action: #selector(tapMic), x: 180)
+        micButton.toolTip = "Microphone"
         blur.addSubview(micButton)
         webcamButton = iconButton(action: #selector(tapWebcam), x: 210)
+        webcamButton.toolTip = "Webcam"
         blur.addSubview(webcamButton)
 
         addSeparator(to: blur, x: 244)
@@ -196,7 +195,7 @@ final class RecorderBarController: NSObject {
 
         cancelButton = iconButton(action: #selector(tapCancel), x: 300)
         cancelButton.image = symbol("xmark", size: 12)
-        cancelButton.contentTintColor = .secondaryLabelColor
+        cancelButton.contentTintColor = Theme.faint
         cancelButton.toolTip = "Cancel recording"
         blur.addSubview(cancelButton)
 
@@ -217,7 +216,8 @@ final class RecorderBarController: NSObject {
         b.isBordered = false
         b.bezelStyle = .regularSquare
         b.imageScaling = .scaleNone
-        b.contentTintColor = .white
+        b.contentTintColor = Theme.ink
+        b.focusRingType = .none          // no blue focus ring on the icon buttons
         b.target = self
         b.action = action
         return b
@@ -262,18 +262,34 @@ final class RecorderBarController: NSObject {
     @objc private func tapCancel() { onCancel?() }
 }
 
+/// A bordered button that shows the pointing-hand (clickable) cursor, so the draggable bar's
+/// open-hand cursor doesn't bleed over it.
+final class CursorButton: NSButton {
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+}
+
 /// A non-activating panel that can still become key, so Tab/Enter reach its buttons.
 final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
 
-/// The bar's blurred background — shows an open-hand cursor so users know it's draggable.
-final class DragBackgroundView: NSVisualEffectView {
+/// The bar's themed background — a solid "tape shell" card (adapts to light/dark) with a hairline
+/// border, plus an open-hand cursor so users know it's draggable. Replaces the old HUD blur, which
+/// went light-grey in Light mode and left the white icons unreadable.
+@available(macOS 12.3, *)
+final class DragBackgroundView: NSView {
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+    override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 11, yRadius: 11)
+        Theme.card.setFill(); path.fill()
+        Theme.strokeStrong.setStroke(); path.lineWidth = 1; path.stroke()
+    }
 }
 
 /// A borderless button that shows it's clickable: pointing-hand cursor + subtle hover fill.
+@available(macOS 12.3, *)
 final class BarHoverButton: NSButton {
     private var tracking: NSTrackingArea?
 
@@ -294,7 +310,7 @@ final class BarHoverButton: NSButton {
     private func setHover(_ on: Bool) {
         wantsLayer = true
         layer?.cornerRadius = 6
-        layer?.backgroundColor = on ? NSColor.white.withAlphaComponent(0.16).cgColor
+        layer?.backgroundColor = on ? Theme.ink.withAlphaComponent(0.12).cgColor
                                     : NSColor.clear.cgColor
     }
 }

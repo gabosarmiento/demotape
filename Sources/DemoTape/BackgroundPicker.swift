@@ -24,6 +24,7 @@ final class BackgroundPickerController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: contentW, height: contentH),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Choose Background"
+        Theme.style(window)
         window.isReleasedWhenClosed = false
         window.delegate = self
 

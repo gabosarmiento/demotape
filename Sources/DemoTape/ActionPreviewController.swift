@@ -55,7 +55,17 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     var generateTitle: String { "Generate preview" }
 
     /// Re-reads `generateTitle`. Call after changing whatever the title depends on.
-    func refreshGenerateTitle() { generateButton?.title = generateTitle }
+    func refreshGenerateTitle() { applyGenerateStyle() }
+
+    /// The prominent primary button, in the brand accent with a white title.
+    private func applyGenerateStyle() {
+        guard let b = generateButton else { return }
+        b.bezelColor = Theme.accent
+        b.attributedTitle = NSAttributedString(string: generateTitle, attributes: [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+        ])
+    }
 
     /// Message shown when `render` returns nil.
     var nothingMessage: String { "Nothing to generate." }
@@ -121,7 +131,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
     // MARK: - Layout
 
     private func buildContent() -> NSView {
-        let root = NSView()
+        let root = ThemedBackgroundView()
         let inset: CGFloat = 24
 
         // Header: working file + Change…
@@ -152,6 +162,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
         generateButton.controlSize = .large
         generateButton.keyEquivalent = "\r"
         generateButton.isHidden = !showsPrimaryButton
+        applyGenerateStyle()
 
         spinner = NSProgressIndicator()
         spinner.style = .spinning
@@ -182,7 +193,7 @@ class ActionPreviewController: NSObject, NSWindowDelegate {
 
         resultLink = NSButton(title: "", target: self, action: #selector(revealResult))
         resultLink.isBordered = false
-        resultLink.contentTintColor = .linkColor
+        resultLink.contentTintColor = Theme.accent
         let revealButton = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealResult))
         revealButton.bezelStyle = .rounded
         resultRow = NSStackView(views: [resultLink, revealButton])

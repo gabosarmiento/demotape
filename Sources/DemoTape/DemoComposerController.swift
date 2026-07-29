@@ -30,6 +30,7 @@ final class DemoComposerController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Create a Demo with AI"
+        Theme.style(window)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentView = buildContent(defaultProjectPath: defaultProjectPath)
@@ -123,6 +124,7 @@ final class DemoComposerController: NSObject, NSWindowDelegate {
         let close = NSButton(title: "Close", target: self, action: #selector(closeWindow))
         close.bezelStyle = .rounded
         close.keyEquivalent = "\r"
+        Theme.stylePrimary(close)
         close.frame = NSRect(x: w - inset - 88, y: 14, width: 88, height: 32)
         root.addSubview(close)
 

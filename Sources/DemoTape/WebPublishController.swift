@@ -43,6 +43,7 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Web Publish"
+        Theme.style(window)
         window.isReleasedWhenClosed = false
         window.delegate = self
         let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
@@ -115,6 +116,7 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         exportButton = NSButton(title: "Export", target: self, action: #selector(export))
         exportButton.bezelStyle = .rounded
         exportButton.keyEquivalent = "\r"
+        Theme.stylePrimary(exportButton)
         exportButton.frame = NSRect(x: w - 130, y: 18, width: 110, height: 32)
         content.addSubview(exportButton)
 

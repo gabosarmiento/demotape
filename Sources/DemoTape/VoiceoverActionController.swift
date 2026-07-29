@@ -152,6 +152,7 @@ final class VoiceoverActionController: ActionPreviewController {
         actionButton.bezelStyle = .rounded
         actionButton.controlSize = .large
         actionButton.keyEquivalent = "\r"
+        Theme.stylePrimary(actionButton)
         costInlineLabel = NSTextField(labelWithString: "")
         costInlineLabel.font = .systemFont(ofSize: 11)
         costInlineLabel.textColor = .secondaryLabelColor

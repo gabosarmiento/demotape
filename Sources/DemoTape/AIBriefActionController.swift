@@ -68,6 +68,7 @@ final class AIBriefActionController: NSObject, NSWindowDelegate {
                               styleMask: [.titled, .closable, .miniaturizable],
                               backing: .buffered, defer: false)
         window.title = "Explain to AI"
+        Theme.style(window)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentView = buildContent()
@@ -144,6 +145,7 @@ final class AIBriefActionController: NSObject, NSWindowDelegate {
         analyzeButton.bezelStyle = .rounded
         analyzeButton.controlSize = .large
         analyzeButton.keyEquivalent = "\r"
+        Theme.stylePrimary(analyzeButton)
 
         spinner = NSProgressIndicator()
         spinner.style = .spinning

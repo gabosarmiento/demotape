@@ -241,10 +241,21 @@ final class RecorderSetupPopover: NSObject {
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12).isActive = true
         }
 
-        let host = NSViewController()
-        host.view = content
+        // Warm themed card behind the rows (follows light/dark) instead of the system-grey popover.
         content.translatesAutoresizingMaskIntoConstraints = false
         content.widthAnchor.constraint(equalToConstant: width).isActive = true
+        let root = ThemedCardView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+        ])
+
+        let host = NSViewController()
+        host.view = root
 
         let pop = NSPopover()
         pop.contentViewController = host
@@ -256,7 +267,7 @@ final class RecorderSetupPopover: NSObject {
     private func header(_ text: String) -> NSView {
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 11, weight: .medium)
-        label.textColor = .secondaryLabelColor
+        label.textColor = Theme.faint
         return label
     }
 
@@ -271,7 +282,7 @@ final class RecorderSetupPopover: NSObject {
         let iv = NSImageView()
         iv.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
-        iv.contentTintColor = .controlAccentColor
+        iv.contentTintColor = Theme.accent
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.widthAnchor.constraint(equalToConstant: 18).isActive = true
         return iv
@@ -286,7 +297,7 @@ final class RecorderSetupPopover: NSObject {
         art.image = NSImage(systemSymbolName: "sparkles.rectangle.stack",
                             accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
-        art.contentTintColor = .controlAccentColor
+        art.contentTintColor = Theme.accent
         art.translatesAutoresizingMaskIntoConstraints = false
         art.widthAnchor.constraint(equalToConstant: 20).isActive = true
 

@@ -99,6 +99,7 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "AI Features"
+        Theme.style(window)
         window.isReleasedWhenClosed = false
         window.delegate = self
         let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
@@ -133,6 +134,7 @@ final class AISettingsController: NSObject, NSWindowDelegate {
         let save = NSButton(title: "Save", target: self, action: #selector(save))
         save.bezelStyle = .rounded
         save.keyEquivalent = "\r"
+        Theme.stylePrimary(save)
         save.frame = NSRect(x: w - 124, y: 14, width: 96, height: 32)
         content.addSubview(save)
         saveButton = save

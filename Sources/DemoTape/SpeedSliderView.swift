@@ -147,8 +147,9 @@ final class SpeedSliderView: NSView {
             let x = full.minX + full.width * CGFloat(max(0, fraction.lo))
             let w = full.width * CGFloat(min(1, fraction.hi) - max(0, fraction.lo))
             let band = NSRect(x: x, y: full.minY, width: max(0, w), height: full.height)
-            NSColor.controlAccentColor.withAlphaComponent(0.55).setFill()
-            NSBezierPath(roundedRect: band, xRadius: 2, yRadius: 2).fill()
+            guard band.width > 1 else { return }
+            // The recommended band carries the logo stripe — a small, on-brand flourish.
+            Theme.stripeImage(width: band.width, height: band.height, radius: 2).draw(in: band)
         }
     }
 }

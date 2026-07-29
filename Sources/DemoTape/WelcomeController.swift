@@ -23,11 +23,13 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         self.onFinish = onFinish
         let h: CGFloat = 430
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
-                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
+                           styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         win.title = "Welcome to DemoTape"
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .hidden
         win.isReleasedWhenClosed = false
         win.delegate = self
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+        let content = ThemedBackgroundView(frame: NSRect(x: 0, y: 0, width: w, height: h))
 
         // Header.
         if let url = Bundle.main.resourceURL?.appendingPathComponent("AppIcon.icns"),
@@ -39,11 +41,12 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         }
         let name = NSTextField(labelWithString: "Welcome to DemoTape")
         name.font = .systemFont(ofSize: 22, weight: .bold)
+        name.textColor = Theme.ink
         name.frame = NSRect(x: leftX + 62, y: h - 60, width: w - leftX - 62 - 40, height: 28)
         content.addSubview(name)
         let tagline = NSTextField(labelWithString: "Record once — get a polished, auto-edited demo.")
         tagline.font = .systemFont(ofSize: 12)
-        tagline.textColor = .secondaryLabelColor
+        tagline.textColor = Theme.dim
         tagline.frame = NSRect(x: leftX + 62, y: h - 80, width: w - leftX - 62 - 40, height: 18)
         content.addSubview(tagline)
 
@@ -60,16 +63,17 @@ final class WelcomeController: NSObject, NSWindowDelegate {
                            x: leftX + CGFloat(i) * cellW, width: cellW, y: h - 190, on: content)
         }
 
-        let divider = NSBox(frame: NSRect(x: leftX, y: h - 214, width: w - leftX * 2, height: 1))
-        divider.boxType = .separator
-        content.addSubview(divider)
+        // The one place the full logo stripe shows on this screen: a thin signature rule.
+        let stripe = NSImageView(frame: NSRect(x: leftX, y: h - 215, width: w - leftX * 2, height: 3))
+        stripe.image = Theme.stripeImage(width: w - leftX * 2, height: 3)
+        stripe.imageScaling = .scaleAxesIndependently
+        content.addSubview(stripe)
 
         // Permissions area (rebuilt live; only shows what's still missing).
         permissionsBox = NSView(frame: NSRect(x: leftX, y: 78, width: w - leftX * 2, height: h - 214 - 78))
         content.addSubview(permissionsBox)
 
-        let start = NSButton(title: "Start using DemoTape", target: self, action: #selector(finish))
-        start.bezelStyle = .rounded
+        let start = Theme.primaryButton("Start using DemoTape", target: self, action: #selector(finish))
         start.keyEquivalent = "\r"
         start.frame = NSRect(x: w - leftX - 200, y: 26, width: 200, height: 34)
         content.addSubview(start)
@@ -96,13 +100,13 @@ final class WelcomeController: NSObject, NSWindowDelegate {
         let iv = NSImageView(frame: NSRect(x: x + (width - 26) / 2, y: y + 34, width: 26, height: 26))
         let cfg = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
         iv.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
-        iv.contentTintColor = .controlAccentColor
+        iv.contentTintColor = Theme.accent
         iv.imageScaling = .scaleProportionallyUpOrDown
         view.addSubview(iv)
 
         let label = NSTextField(wrappingLabelWithString: title)
         label.font = .systemFont(ofSize: 11)
-        label.textColor = .secondaryLabelColor
+        label.textColor = Theme.dim
         label.alignment = .center
         label.frame = NSRect(x: x, y: y - 6, width: width, height: 32)
         view.addSubview(label)

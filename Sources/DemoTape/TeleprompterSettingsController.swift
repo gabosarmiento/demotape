@@ -39,6 +39,7 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate, NSTextVi
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Teleprompter"
+        Theme.style(window)
         window.isReleasedWhenClosed = false
         window.delegate = self
         // Sit above the floating recorder bar / any live camera preview so the editor is always
@@ -67,6 +68,7 @@ final class TeleprompterSettingsController: NSObject, NSWindowDelegate, NSTextVi
         content.addSubview(cancel)
         let save = NSButton(title: "Save", target: self, action: #selector(save))
         save.bezelStyle = .rounded; save.keyEquivalent = "\r"
+        Theme.stylePrimary(save)
         save.frame = NSRect(x: w - 126, y: 16, width: 110, height: 32)
         content.addSubview(save)
 

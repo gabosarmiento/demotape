@@ -179,6 +179,7 @@ final class AboutController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "About DemoTape"
+        Theme.style(win)
         win.isReleasedWhenClosed = false
         win.delegate = self
         let content = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
