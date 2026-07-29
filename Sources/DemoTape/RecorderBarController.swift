@@ -17,6 +17,8 @@ final class RecorderBarController: NSObject {
 
     private var panel: KeyablePanel?
     private var recordButton: NSButton!
+    private var recordDot: NSView?
+    private var blinkTimer: Timer?
     private var timerLabel: NSTextField!
     private var micButton: BarHoverButton!
     private var webcamButton: BarHoverButton!
@@ -88,6 +90,7 @@ final class RecorderBarController: NSObject {
 
     func hide() {
         stopTimer()
+        blinkTimer?.invalidate(); blinkTimer = nil
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
         panel?.orderOut(nil)
     }
@@ -105,7 +108,32 @@ final class RecorderBarController: NSObject {
         recordButton.title = recording ? "  Stop" : "  Start"
         recordButton.contentTintColor = Theme.recordRed
         recordButton.toolTip = recording ? "Stop recording" : "Start recording"
+        setDotBlinking(recording)
         if recording { startTimer() } else { stopTimer(); timerLabel.stringValue = "00:00" }
+    }
+
+    /// The tally light: a red dot that blinks beside the timer while the tape is rolling. It's the
+    /// convention every camera uses, and it's the one part of the bar that answers "am I recording?"
+    /// from the corner of your eye — the button reads as an action ("Stop"), not as a state.
+    ///
+    /// Driven by a timer rather than a Core Animation keyframe. The blink is a hard on/off (the CSS
+    /// `steps(1)` look), and a discrete keyframe animation on a layer inside the panel's blur view did
+    /// not run reliably — a timer toggling the alpha is both simpler and certain to be visible.
+    private func setDotBlinking(_ blinking: Bool) {
+        blinkTimer?.invalidate(); blinkTimer = nil
+        guard let dot = recordDot else { return }
+        dot.isHidden = !blinking
+        dot.alphaValue = 1
+        guard blinking else { return }
+        // Honour the system setting: a solid dot still reads as "recording" without the motion.
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+            guard let dot = self?.recordDot else { return }
+            dot.alphaValue = dot.alphaValue > 0.6 ? 0.25 : 1.0
+        }
+        // The bar is a non-activating panel; without this the blink stalls while a menu or the
+        // popover is tracking the mouse.
+        if let t = blinkTimer { RunLoop.main.add(t, forMode: .common) }
     }
 
     func updateMic(_ on: Bool) {
@@ -165,11 +193,20 @@ final class RecorderBarController: NSObject {
         recordButton.frame = NSRect(x: 8, y: 7, width: 96, height: 28)
         blur.addSubview(recordButton)
 
+        // Tally light: hidden until Start, then blinks red beside the timer.
+        let dot = NSView(frame: NSRect(x: 108, y: 17, width: 8, height: 8))
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = 4
+        dot.layer?.backgroundColor = Theme.recordRed.cgColor
+        dot.isHidden = true
+        blur.addSubview(dot)
+        recordDot = dot
+
         timerLabel = NSTextField(labelWithString: "00:00")
         timerLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         timerLabel.textColor = Theme.ink
         timerLabel.alignment = .center
-        timerLabel.frame = NSRect(x: 110, y: 12, width: 50, height: 18)
+        timerLabel.frame = NSRect(x: 120, y: 12, width: 46, height: 18)
         blur.addSubview(timerLabel)
 
         addSeparator(to: blur, x: 168)

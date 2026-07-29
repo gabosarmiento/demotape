@@ -38,7 +38,7 @@ final class RecorderSetupPopover: NSObject {
 
     private var popover: NSPopover?
     private var actions: Actions
-    private var modeControl: NSSegmentedControl!
+    private var modeControl: ModeSelector!
     private var outputSwitch: NSSwitch!
     private var outputFormatPopup: NSPopUpButton!
     private var outputFormatRow: NSView!
@@ -153,11 +153,20 @@ final class RecorderSetupPopover: NSObject {
         content.spacing = 8
         content.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
 
-        modeControl = NSSegmentedControl(labels: ["Full Screen", "Select Area", "Webcam Only"],
-                                         trackingMode: .selectOne,
-                                         target: self, action: #selector(modeChanged))
-        modeControl.segmentDistribution = .fillEqually
+        // The three capture modes, as pressable cards with the icon above the label (see ModeSelector:
+        // a segmented control could only put the glyph beside the words, which truncated "Webcam Only"
+        // and made the row read as a heading instead of buttons).
+        modeControl = ModeSelector(modes: [
+            .init(title: "Full Screen", symbol: "macwindow",
+                  tooltip: "Record the whole screen"),
+            .init(title: "Select Area", symbol: "crop",
+                  tooltip: "Record a framed area of the screen"),
+            .init(title: "Webcam Only", symbol: "video.circle",
+                  tooltip: "Record just your camera"),
+        ], target: self, action: #selector(modeChanged))
         content.addArrangedSubview(modeControl)
+        // The stack is leading-aligned, so the card row needs the content width explicitly.
+        modeControl.widthAnchor.constraint(equalToConstant: width - 24).isActive = true
 
         // Output destination: optimize for a platform. Off by default; when on, a popup picks one of
         // the fixed formats, which drives the aspect-locked capture shape.
