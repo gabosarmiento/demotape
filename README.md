@@ -9,6 +9,9 @@
 Your coding agent says it works. DemoTape runs the branch, performs the expected flow,
 verifies what appears on screen, and produces a narrated video that proves the result.
 
+*It's also a very good screen recorder.* The same engine handles demos, launch videos and
+talking-heads — captioned, narrated, translated, reframed for vertical. All of it free and local.
+
 [![Download](https://img.shields.io/github/v/release/gabosarmiento/demotape?label=download&color=DC5050)](https://github.com/gabosarmiento/demotape/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-12.3%2B-211E17)](https://github.com/gabosarmiento/demotape/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-832B72)](LICENSE)
