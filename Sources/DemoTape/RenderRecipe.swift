@@ -62,6 +62,15 @@ struct RenderRecipe: Codable, Equatable {
     var volumeGain: Double?
     /// "1080x1350" — exact export size. Omit for the native composed size.
     var exportSize: String?
+    /// Vertical/social reframe target ("9:16", "4:5", "1080x1920"). When set, a planned camera frames
+    /// the recording for that shape — cropping the sides and filling the height — instead of the
+    /// reactive auto-zoom. Omit for a normal landscape render.
+    var reframeTarget: String?
+    /// Multiplier on the computed fill zoom (1 = crop the sides, keep the full height).
+    var reframeZoom: Double?
+    /// Draw the camera rect on the LANDSCAPE footage instead of producing the reframed output, to
+    /// inspect what the camera is doing.
+    var reframeDebug: Bool?
 
     // Branding watermark (fixed position, does not zoom).
     var brandingImage: String?
@@ -103,6 +112,13 @@ struct RenderRecipe: Codable, Equatable {
         if let v = outputFPS { style.outputFPS = v }
         if let v = volumeGain { style.volumeGain = Float(v) }
         if let v = exportSize { style.exportSize = Self.size(fromString: v) }
+        if let v = reframeTarget, let size = ReframeGeometry.targetSize(for: v) {
+            var rf = style.reframe ?? VideoRenderer.Style.Reframe(targetSize: size)
+            rf.targetSize = size
+            style.reframe = rf
+        }
+        if let v = reframeZoom { style.reframe?.zoomMultiplier = CGFloat(v) }
+        if let v = reframeDebug { style.reframe?.debugOverlay = v }
 
         if let v = brandingImage {
             style.brandingImageURL = v.isEmpty ? nil : URL(fileURLWithPath: v)
@@ -141,6 +157,9 @@ struct RenderRecipe: Codable, Equatable {
             outputFPS: style.outputFPS,
             volumeGain: Double(style.volumeGain),
             exportSize: style.exportSize.map { string(from: $0) },
+            reframeTarget: style.reframe.map { string(from: $0.targetSize) },
+            reframeZoom: style.reframe.map { Double($0.zoomMultiplier) },
+            reframeDebug: style.reframe.map { $0.debugOverlay },
             brandingImage: style.brandingImageURL?.path,
             brandingCenterX: Double(style.brandingCenterX),
             brandingCenterY: Double(style.brandingCenterY),
@@ -190,6 +209,7 @@ struct RenderRecipe: Codable, Equatable {
         "cursorSmoothing", "showShortcuts", "showClickRipples", "clickRippleDuration",
         "webcamOverlay", "webcamDiameterFraction", "webcamMirror", "webcamCenterX",
         "webcamCenterY", "webcamZoom", "outputFPS", "volumeGain", "exportSize",
+        "reframeTarget", "reframeZoom", "reframeDebug",
         "brandingImage", "brandingCenterX", "brandingCenterY", "brandingWidthFraction"
     ]
 

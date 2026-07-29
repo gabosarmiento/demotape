@@ -534,6 +534,62 @@ if let i = args.firstIndex(of: "--tighten"), args.count > i + 1 {
     }
 }
 
+// Headless vertical/social reframe. The styled render (smooth cursor, ripples, branding) framed for a
+// portrait/square target by a PLANNED camera: it crops the sides and fills the height, holds on a shot
+// instead of drifting, follows typed text like a text editor, routes long moves through an overview,
+// and returns to overview when nothing is happening. The sampled rect is clamped to the source every
+// frame, so an element at the far edge sits near the edge of the frame and no frame samples outside
+// the image. Reads a RAW capture (with its events.json sidecar) and any recipe.json beside it.
+// Writes <name>.reframe.mp4 (local; no network). Non-destructive.
+//   DemoTape --reframe <raw.mov> <9:16|1:1|4:5|WxH> [outPath] [--zoom <mult>] [--debug]
+// --debug renders the LANDSCAPE footage with the camera rect + state drawn on it, to inspect the
+// camera's decisions directly. Equivalent recipe fields: reframeTarget / reframeZoom / reframeDebug.
+if let i = args.firstIndex(of: "--reframe"), args.count > i + 2 {
+    let video = URL(fileURLWithPath: args[i + 1])
+    guard let target = ReframeGeometry.targetSize(for: args[i + 2]) else {
+        FileHandle.standardError.write("reframe error: bad target '\(args[i + 2])' (use 9:16, 1:1, 4:5, or WxH)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    let debug = args.contains("--debug")
+    var zoomMultiplier: CGFloat = 1.0
+    if let z = args.firstIndex(of: "--zoom"), args.count > z + 1, let v = Double(args[z + 1]) {
+        zoomMultiplier = CGFloat(v)
+    }
+    let outArg = args.count > i + 3 && !args[i + 3].hasPrefix("--") ? args[i + 3] : nil
+    let out = outArg.map { URL(fileURLWithPath: $0) }
+        ?? SourcePaths(source: video).output(suffix: debug ? "reframe-debug" : "reframe")
+    do {
+        let sidecar = video.deletingPathExtension().appendingPathExtension("events.json")
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let metadata = try decoder.decode(RecordingMetadata.self, from: Data(contentsOf: sidecar))
+        let camURL = video.deletingPathExtension().appendingPathExtension("cam.mov")
+        let camera = FileManager.default.fileExists(atPath: camURL.path) ? camURL : nil
+
+        var style = VideoRenderer.Style()
+        // Carry the recording's own look (branding/background) if a recipe sits beside it.
+        let sidecarRecipe = video.deletingLastPathComponent().appendingPathComponent(RenderRecipe.filename)
+        if FileManager.default.fileExists(atPath: sidecarRecipe.path),
+           let found = try? RenderRecipe.load(from: sidecarRecipe) {
+            found.apply(to: &style)
+        }
+        style.exportSize = nil
+        style.reframe = VideoRenderer.Style.Reframe(targetSize: target,
+                                                    zoomMultiplier: zoomMultiplier,
+                                                    debugOverlay: debug)
+
+        try VideoRenderer().render(videoURL: video, metadata: metadata, cameraURL: camera,
+                                   to: out, style: style) { p in
+            FileHandle.standardError.write("reframe: \(Int(p * 100))%\r".data(using: .utf8)!)
+        }
+        let shape = debug ? "debug overlay on landscape" : "\(Int(target.width))x\(Int(target.height))"
+        print("reframed: \(out.path)  (\(shape))")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("reframe error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // Headless Web Publish — the SAME pipeline the GUI's "Web Publish" window runs, so automation and
 // README assets can't drift from what users get:
 //   DemoTape --publish <styled.mp4> [heights=720,540,360] [gifWidth=640] [gifFps=10]

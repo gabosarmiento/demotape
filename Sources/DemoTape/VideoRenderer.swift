@@ -60,6 +60,25 @@ final class VideoRenderer {
         /// at an exact target resolution (e.g. 1080×1350). nil = native composed size.
         var exportSize: CGSize?
 
+        /// Vertical/social reframing. When set, the reactive auto-zoom is replaced by a **planned**
+        /// camera (`ReframeCameraPlan`) that frames the recording for a portrait/square target: it
+        /// crops the sides and fills the height, holds on a shot instead of drifting, follows typed
+        /// text like a text editor, routes long moves through an overview, and returns to overview
+        /// when nothing is happening. Everything else about the styled render (cursor, ripples,
+        /// background, branding) is unchanged.
+        var reframe: Reframe?
+
+        struct Reframe {
+            /// Output size, e.g. 1080×1920.
+            var targetSize: CGSize
+            /// Multiplier on the computed fill zoom (1 = crop the sides and fill the height exactly;
+            /// above 1 crops into the height too, and enables vertical panning).
+            var zoomMultiplier: CGFloat = 1.0
+            /// Render the LANDSCAPE footage with the camera rect and state drawn on it, instead of the
+            /// reframed output — so the camera's decisions can be inspected directly.
+            var debugOverlay = false
+        }
+
         // Branding (logo watermark) — fixed position/size, does not zoom.
         var brandingImageURL: URL?
         /// Logo center, normalized to the output (top-left origin).
@@ -109,9 +128,21 @@ final class VideoRenderer {
         let outH = even(H + pad * 2)
         let contentW = outW - pad * 2
         let contentH = outH - pad * 2
-        // Final encoded size: a preset's target, or the native composed size.
-        let finalW = style.exportSize.map { even($0.width) } ?? outW
-        let finalH = style.exportSize.map { even($0.height) } ?? outH
+        // Final encoded size. A reframe owns the output size (the debug overlay draws on the landscape
+        // footage, so it keeps the composed size); otherwise a preset's target, else the composed size.
+        let finalW: CGFloat, finalH: CGFloat
+        if let rf = style.reframe {
+            finalW = rf.debugOverlay ? outW : even(rf.targetSize.width)
+            finalH = rf.debugOverlay ? outH : even(rf.targetSize.height)
+        } else {
+            finalW = style.exportSize.map { even($0.width) } ?? outW
+            finalH = style.exportSize.map { even($0.height) } ?? outH
+        }
+        // Frame size that fixed overlays (webcam bubble, badges, branding) are positioned against. A
+        // reframe composites straight into the output frame, so they follow that; the letterbox path
+        // scales the composed frame afterwards, so they stay in composed coordinates.
+        let frameW = style.reframe != nil ? finalW : outW
+        let frameH = style.reframe != nil ? finalH : outH
         let frameInterval = 1.0 / style.outputFPS
 
         // Reader
@@ -227,6 +258,28 @@ final class VideoRenderer {
 
         let focus = FocusTimeline(metadata: metadata, maxZoom: style.maxZoom)
         let camera = SpringCamera()
+
+        // Reframe: plan the whole camera up front (so it can anticipate each beat), and work out the
+        // zoom that crops the sides while keeping the full height.
+        let composedSize = CGSize(width: outW, height: outH)
+        var reframePlan: ReframeCameraPlan?
+        if let rf = style.reframe {
+            let fill = ReframeGeometry.fillZoom(source: composedSize, target: rf.targetSize)
+            var params = ReframeCameraPlan.Params()
+            params.interactionZoom = max(1, fill * max(0.2, rf.zoomMultiplier))
+            reframePlan = ReframeCameraPlan.build(metadata: metadata,
+                                                 duration: max(metadata.duration, 0.1),
+                                                 params: params)
+            Log.write("reframe: target \(Int(rf.targetSize.width))x\(Int(rf.targetSize.height)) " +
+                      "fillZoom=\(String(format: "%.2f", Double(fill))) " +
+                      "keyframes=\(reframePlan?.keyframes.count ?? 0)" +
+                      (rf.debugOverlay ? " [debug overlay]" : ""))
+        }
+        // Debug overlay layers (only built when asked for).
+        let debugStroke: CIImage? = style.reframe?.debugOverlay == true
+            ? CIImage(color: CIColor(red: 0.1, green: 1, blue: 0.4)) : nil
+        var debugLabelText: String?
+        var debugLabelImage: CIImage?
         var lastEmit: Double = -1
         var curEMA: (x: CGFloat, y: CGFloat)? = nil
         var badgeCacheLabel: String? = nil
@@ -287,10 +340,20 @@ final class VideoRenderer {
             // Event timeline aligned to the video's first frame (fixes cursor lag).
             let eventT = t + (metadata.eventTimeOffset ?? 0)
 
-            // Spring-smoothed camera (focus normalized to the content region).
-            let target = focus.target(at: eventT)
-            camera.step(to: target, dt: dt, stiffness: style.stiffness, damping: style.damping)
-            let scale = camera.scale, camX = camera.cx, camY = camera.cy
+            // The camera. Normally the reactive spring on the focus timeline; in reframe mode, the
+            // pre-computed plan (which already holds, anticipates and eases) drives it instead, so the
+            // two never fight over the same frame.
+            var scale: CGFloat, camX: CGFloat, camY: CGFloat
+            var planState: ReframeCameraPlan.State?
+            if let plan = reframePlan {
+                let s = plan.state(at: eventT)
+                planState = s
+                scale = s.zoom; camX = s.cx; camY = s.cy
+            } else {
+                let target = focus.target(at: eventT)
+                camera.step(to: target, dt: dt, stiffness: style.stiffness, damping: style.damping)
+                scale = camera.scale; camX = camera.cx; camY = camera.cy
+            }
 
             // 1) Build the framed composition at zoom = 1 (background + rounded content).
             var content = CIImage(cvImageBuffer: pixelBuffer)
@@ -304,26 +367,65 @@ final class VideoRenderer {
             if let background = background { base = base.composited(over: background) }
             base = base.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
 
-            // 2) Zoom the WHOLE composition toward the focus point (content + frame + bg move together).
-            let fx = pad + camX * contentW              // focus in composed coords (top-left)
-            let fyTop = pad + camY * contentH
-            let vw = outW / scale, vh = outH / scale
-            var ox = fx - vw / 2
-            var oyBL = (outH - fyTop) - vh / 2
-            ox = min(max(ox, 0), outW - vw)
-            oyBL = min(max(oyBL, 0), outH - vh)
-            var composite = base
-                .cropped(to: CGRect(x: ox, y: oyBL, width: vw, height: vh))
-                .transformed(by: CGAffineTransform(translationX: -ox, y: -oyBL))
-                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            // 2) Point the camera: sample a view rect out of the composition and place it in the
+            // output. Two shapes of the same operation —
+            //  - normal: the rect has the OUTPUT aspect and is scaled by the zoom;
+            //  - reframe: the rect has the TARGET aspect (portrait/square), so the sides are cropped
+            //    and the height fills; when the rect can't be as tall as it wants, vertical panning is
+            //    off and the remainder is letterboxed.
+            // Either way the rect is clamped inside the composition, so no frame samples outside it.
+            let vw: CGFloat, vh: CGFloat, ox: CGFloat, oyBL: CGFloat
+            let viewScale: CGFloat, placeX: CGFloat, placeY: CGFloat
+            var debugRect: CGRect?
+            if let rf = style.reframe {
+                // The plan works in content-normalized coordinates; convert to composed coordinates.
+                let cxComposed = (pad + camX * contentW) / outW
+                let cyComposed = (pad + camY * contentH) / outH
+                let target = rf.debugOverlay ? rf.targetSize : CGSize(width: finalW, height: finalH)
+                let view = ReframeGeometry.view(zoom: scale,
+                                               center: CGPoint(x: cxComposed, y: cyComposed),
+                                               source: CGSize(width: outW, height: outH),
+                                               target: target)
+                vw = view.rect.width; vh = view.rect.height
+                ox = view.rect.minX
+                oyBL = outH - view.rect.maxY          // top-left rect → CoreImage's bottom-left origin
+                if rf.debugOverlay {
+                    // Keep the landscape frame; just record where the camera would have looked.
+                    debugRect = CGRect(x: view.rect.minX, y: oyBL, width: vw, height: vh)
+                    viewScale = 1; placeX = 0; placeY = 0
+                } else {
+                    viewScale = view.scale; placeX = view.offsetX; placeY = view.offsetY
+                }
+            } else {
+                vw = outW / scale; vh = outH / scale
+                let fx = pad + camX * contentW              // focus in composed coords (top-left)
+                let fyTop = pad + camY * contentH
+                ox = min(max(fx - vw / 2, 0), outW - vw)
+                oyBL = min(max((outH - fyTop) - vh / 2, 0), outH - vh)
+                viewScale = scale; placeX = 0; placeY = 0
+            }
 
-            // Map a region-normalized point to output coords after the zoom (bottom-left).
+            var composite: CIImage
+            if debugRect != nil {
+                composite = base                        // landscape footage, overlay drawn below
+            } else {
+                composite = base
+                    .cropped(to: CGRect(x: ox, y: oyBL, width: vw, height: vh))
+                    .transformed(by: CGAffineTransform(translationX: -ox, y: -oyBL))
+                    .transformed(by: CGAffineTransform(scaleX: viewScale, y: viewScale))
+                if placeX != 0 || placeY != 0 {
+                    composite = composite.transformed(by: CGAffineTransform(translationX: placeX, y: placeY))
+                }
+            }
+
+            // Map a region-normalized point to output coords after the framing (bottom-left origin).
             func mapToOutput(_ u: CGFloat, _ v: CGFloat) -> CGPoint? {
                 let cx = pad + u * contentW
                 let cyBL = outH - (pad + v * contentH)
-                let px = (cx - ox) * scale
-                let py = (cyBL - oyBL) * scale
-                if px < 0 || px > outW || py < 0 || py > outH { return nil }
+                if debugRect != nil { return CGPoint(x: cx, y: cyBL) }   // landscape: identity
+                let px = (cx - ox) * viewScale + placeX
+                let py = (cyBL - oyBL) * viewScale + placeY
+                if px < 0 || px > finalW || py < 0 || py > finalH { return nil }
                 return CGPoint(x: px, y: py)
             }
 
@@ -383,7 +485,7 @@ final class VideoRenderer {
                     } else { break }
                 }
                 if let cam = lastCam {
-                    composite = compositeWebcam(cam, over: composite, outW: outW, outH: outH, style: style)
+                    composite = compositeWebcam(cam, over: composite, outW: frameW, outH: frameH, style: style)
                 }
             }
 
@@ -394,20 +496,49 @@ final class VideoRenderer {
                     badgeCacheImage = makeBadge(label)
                 }
                 if let badge = badgeCacheImage {
-                    let bx = (outW - badge.extent.width) / 2
+                    let bx = (frameW - badge.extent.width) / 2
                     composite = badge.transformed(by: CGAffineTransform(translationX: bx, y: 90)).composited(over: composite)
                 }
             }
 
             // Branding watermark — fixed position/size (does not zoom), on top of everything.
             if let logo = brandingLogo {
-                composite = compositeBranding(logo, over: composite, outW: outW, outH: outH, style: style)
+                composite = compositeBranding(logo, over: composite, outW: frameW, outH: frameH, style: style)
             }
 
-            composite = composite.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
+            // Debug overlay: draw the camera rect and its state on the landscape footage, so what the
+            // planned camera is doing can be checked directly instead of inferred from the output.
+            if let dbg = debugRect, let stroke = debugStroke {
+                let th: CGFloat = max(2, outW * 0.003)
+                let bars = [
+                    CGRect(x: dbg.minX, y: dbg.minY, width: dbg.width, height: th),            // bottom
+                    CGRect(x: dbg.minX, y: dbg.maxY - th, width: dbg.width, height: th),       // top
+                    CGRect(x: dbg.minX, y: dbg.minY, width: th, height: dbg.height),           // left
+                    CGRect(x: dbg.maxX - th, y: dbg.minY, width: th, height: dbg.height),      // right
+                ]
+                for bar in bars {
+                    composite = stroke.cropped(to: bar).composited(over: composite)
+                }
+                if let plan = reframePlan {
+                    let text = plan.label(at: eventT)
+                    if text != debugLabelText { debugLabelText = text; debugLabelImage = makeBadge(text) }
+                    if let badge = debugLabelImage {
+                        composite = badge
+                            .transformed(by: CGAffineTransform(translationX: 24, y: outH - badge.extent.height - 24))
+                            .composited(over: composite)
+                    }
+                }
+            }
 
-            // Scale to the exact export size (aspect-fit, centered on black) when a preset set it.
-            if style.exportSize != nil {
+            if style.reframe != nil {
+                // A reframe already scaled and placed the content; letterbox margins become black.
+                composite = composite
+                    .composited(over: CIImage(color: CIColor.black)
+                        .cropped(to: CGRect(x: 0, y: 0, width: finalW, height: finalH)))
+                    .cropped(to: CGRect(x: 0, y: 0, width: finalW, height: finalH))
+            } else if style.exportSize != nil {
+                composite = composite.cropped(to: CGRect(x: 0, y: 0, width: outW, height: outH))
+                // Scale to the exact export size (aspect-fit, centered on black) when a preset set it.
                 let s = min(finalW / outW, finalH / outH)
                 let tx = ((finalW - outW * s) / 2).rounded()
                 let ty = ((finalH - outH * s) / 2).rounded()

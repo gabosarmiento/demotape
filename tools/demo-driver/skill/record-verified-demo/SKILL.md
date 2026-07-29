@@ -379,3 +379,7 @@ name, say which languages exist, and name the drift you accepted if any.
   `narrate` commands, and the language/fit details behind phase 10.
 - `references/grounding-a-codebase.md` — using a code graph + schema-as-truth to find valid inputs,
   the local-stack bring-up playbook, and progressive-disclosure UI handling.
+- `references/producing-social-cuts.md` — post-production for TikTok/Reels/Shorts: the "ship the
+  honest cut first, then offer enhancements" pipeline, what costs credits vs what's free, the craft
+  (hook, pace, value-in-30s, captions-always, portrait), and how pacing/reframing read the recorded
+  click/zoom timeline instead of guessing.
