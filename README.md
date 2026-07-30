@@ -1,16 +1,14 @@
 <div align="center">
 
-<img src="media/logo.png" alt="DemoTape" width="132">
+<img src="media/logo.png" alt="DemoTape" width="200">
 
 # DemoTape
 
-**The visual proof-of-work layer for coding agents.**
+**Make a great demo of your app — fast, with your coding agent.**
 
-Your coding agent says it works. DemoTape runs the branch, performs the expected flow,
-verifies what appears on screen, and produces a narrated video that proves the result.
-
-*It's also a very good screen recorder.* The same engine handles demos, launch videos and
-talking-heads — captioned, narrated, translated, reframed for vertical. All of it free and local.
+Describe the feature; your agent (Kiro, Claude Code, Codex…) reads the code, runs the app, records the
+flow, narrates it, and polishes — captions, voiceover, another language, a vertical cut. Or record it
+yourself and let DemoTape do the styling. Local-first, no account, free and open source.
 
 [![Download](https://img.shields.io/github/v/release/gabosarmiento/demotape?label=download&color=DC5050)](https://github.com/gabosarmiento/demotape/releases/latest)
 [![Platform](https://img.shields.io/badge/macOS-12.3%2B-211E17)](https://github.com/gabosarmiento/demotape/releases/latest)
@@ -20,44 +18,58 @@ talking-heads — captioned, narrated, translated, reframed for vertical. All of
 </div>
 
 Runs on **macOS 12.3+** (Intel or Apple Silicon) — including older Macs like Monterey 12.7.6.
-Local-first, no account, free and open source.
 
-> Free forever — no account, no license, no upsell. If it saved you time,
-> [**★ star the repo**](https://github.com/gabosarmiento/demotape).
+> Free forever — no account, no license, no upsell. If it's useful,
+> [**★ star the repo**](https://github.com/gabosarmiento/demotape) — that's how I'll know what to build next.
 
 ---
 
-## The problem
+## Why this exists
 
-A coding agent can edit files, run commands, pass a test suite, and report that it's done. None of
-that answers the question a reviewer actually has: **does the product visibly behave as promised?**
+My Mac is old, and the modern screen-recording tools have dropped support for it. So I vibecoded my
+own with Claude — Apple frameworks only, no dependencies, so it runs on machines the newer apps have
+left behind (macOS 12.3+, back to Monterey). There's a modest Windows version too.
 
-> Code diffs show what changed. Tests show what a machine asserted.
-> DemoTape shows the delivered product behaving correctly.
+The design goal was **no timeline editor and no fiddling** — I want the result, not another editing
+suite. One command starts the recording; **⇧⌘S** stops it. That raw take becomes the source file, and
+everything else is *derived* from it, so I never re-record just to change how it looks. Better still, I
+can tell my coding agent "build me a demo of this feature from the folder I'm working in" and watch the
+result — and when I need a caption, a voiceover, or a web export, each is one plain step.
 
-Screenshots go stale and prove nothing about a flow. "Works on my machine" isn't a review artifact.
-And a recording that was edited until it looked good is marketing, not evidence.
+It's for **developers and vibecoders who need a demo today** — of a feature, a side project, a launch,
+a pull request — without a pile of subscriptions or an afternoon of editing.
 
-## How it works
+## What you can make
+
+- **Product & feature demos** — the agent drives your app and narrates what it's doing.
+- **Launch clips & social cuts** — vertical (9:16), square (1:1), captioned for muted autoplay.
+- **Talking-head / webcam videos** — a built-in teleprompter that never appears in the recording
+  (great for a YC application or an intro).
+- **Localized versions** — re-voice the same footage in another language, no re-recording.
+- **Proof that a change actually works** — a *verified* demo of a pull request, with a per-scene
+  pass/fail. See [Verified demos](#verified-demos-one-use-case) — one use case, not the whole point.
+
+## How the agent builds a demo
 
 ```
-task or acceptance criteria
+describe the feature
         ↓
-run the actual branch          launch the real app, locally
+run the real app               launch it locally, the way a user would
         ↓
-perform the user journey       drive the UI the way a user would
+perform the flow               drive the UI, narration synced to each action
         ↓
-record the screen              styled, narrated, synced to each action
+record & style                 auto-zoom, smooth cursor, captions, voiceover
         ↓
-verify the expected scenes     compare what was claimed against what is on screen
+check it (optional)            verify each scene shows what the narration says
         ↓
-publish video + evidence       a video to watch, verdicts to check
+hand back the video            plus a per-scene report, if you asked to verify
 ```
 
-The load-bearing rule: **a failed scene stays visible.** A take that shows the wrong thing fails
-loudly and reports why — it is never quietly trimmed out to make the video look clean.
+The reason the checking matters: it keeps the demo **honest**. A take that shows the wrong thing
+fails loudly and reports why, instead of being quietly trimmed until it looks clean. So the polished
+video is a real recording of the app working — not an edit that papers over a broken step.
 
-Two independent checks run, and they answer different questions:
+When you ask for verification, two independent checks run, and they answer different questions:
 
 | Check | What it is | What it catches |
 |---|---|---|
@@ -74,73 +86,31 @@ Verification is honest about its own failure mode. There are **three** outcomes,
 
 An `inconclusive` result is never presented as a pass.
 
-## Visual evaluations
+## Verified demos (one use case)
 
-The video is not decoration. It is the eval result, in a form a human can absorb in two minutes.
+Because DemoTape can *check* a demo, it doubles as a way to prove a change works — useful when the
+code was written by an agent and someone has to trust it. Ask for a verified run and you get the
+video plus a `demo-report.json` beside it: the overall verdict (`ok` / `assertionsOk` / `verifyOk`),
+a per-scene assertion result, and per-scene vision verdicts with timestamps, the reason given, and
+the narration line each frame was judged against.
 
-Each run produces two kinds of evidence:
-
-**Human-readable** — a concise narrated walkthrough (`…voiceover.mp4`), with the narration leading
-each action so the words point at what's happening. Optionally captioned, tightened, re-voiced in
-another language, or reframed for vertical.
-
-**Machine-readable** — `demo-report.json` beside the video, containing:
-
-- the overall verdict (`ok`, `assertionsOk`, `verifyOk`)
-- per-scene assertion results (scene index, pass/fail, reason)
-- per-scene verification verdicts with **timestamps**, the reason the model gave, and the narration
-  line each frame was judged against
-- the path of the artifact the verdicts describe
-
-Alongside it: `verify-scenes.json` (the exact moments the gate photographed, so a gate that couldn't
-run can be re-run on the same frames), `timeline.json` (scene offsets and lines, so narration can be
-re-voiced without re-recording), and `recipe.json` (every styling decision, so the video can be
-re-derived from the raw take).
-
-> **Planned, not yet implemented:** a single consolidated evaluation manifest (working name
-> `eval.json`) carrying **source branch, source commit, and expected-vs-observed state** as
-> structured fields. Today's `demo-report.json` records verdicts, timestamps, reasons and narration
-> lines, but it does **not** capture git metadata. See [Roadmap](#roadmap).
-
-## Example
-
-**Agent claim**
-
-> "Bulk CSV and PDF export is implemented and ready for review."
-
-**Expected scenes**
-
-1. Select 200 report rows.
-2. Export the selected rows as CSV.
-3. Export the selected rows as PDF.
-4. Verify the generated files contain the expected data.
-
-**Result**
+A tiny example — the agent claims "bulk CSV and PDF export works," so the demo exercises it:
 
 ```
 SCENE 01  Select 200 report rows            PASS
 SCENE 02  Export selected rows as CSV       PASS
 SCENE 03  Export selected rows as PDF       PASS
-SCENE 04  Files contain the expected data   PASS
 ```
 
-You get a narrated recording of that flow running against the branch, plus the per-scene verdicts
-that back it up. (Tying the artifact to a specific branch and commit is
-[planned](#roadmap) — today you attach it yourself.)
+You get a narrated recording of that flow running against your code, plus the verdicts that back it
+up. Attach it to a PR, a ticket, or a review. (Automatically wiring this into pull requests, and
+tagging the report with the branch and commit, is on the [roadmap](#where-it-could-go) — today you
+run it and attach it yourself.)
 
-## Who it's for
-
-**Developers** — review behavior before reading the diff. Watch the feature run from the submitted
-branch, then read the code knowing what it's supposed to do.
-
-**QA engineers** — preserve visual evidence for acceptance criteria and regression flows. Attach a
-recording with per-scene verdicts to the ticket instead of writing "passed."
-
-**Product managers** — understand what shipped without checking out the branch or booking a demo
-meeting.
-
-**AI coding teams** — make "show your work" part of the definition of done, so an agent's completion
-claim arrives with evidence attached.
+Also written beside the video: `verify-scenes.json` (the moments the gate photographed, to re-run the
+check on the same frames), `timeline.json` (scene offsets, so narration can be re-voiced without
+re-recording), and `recipe.json` (every styling choice, so the video can be re-derived from the raw
+take).
 
 ---
 
@@ -299,6 +269,12 @@ captioned, all from prompts:
 
 ▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v7.0.0/demotape-demo.mp4)
 
+<!-- INLINE PLAYER: paste a github.com/user-attachments/assets/<uuid> URL on its own line here.
+     Committed files (raw/blob URLs) do NOT embed — only attachment URLs do. Mint one by dragging
+     an mp4 into a NEW ISSUE comment box on github.com (issue uploads allow larger videos than the
+     README editor's ~25MB), copy the URL it inserts, then cancel the issue and paste it here. -->
+
+
 <!--
   To play INLINE (like DeepFilterNet's README), GitHub needs an "attachment" URL, which is only
   minted by uploading through the web UI — a release-download or raw URL will NOT render a player.
@@ -376,31 +352,34 @@ clearly marked, and shows its cost before running.
 
 ---
 
-## DemoTape and Kiff
+## About
 
-DemoTape works independently and needs nothing else. It also fits naturally into governed agent
-workflows: [Kiff](https://kiff.dev) controls what an agent may do, while DemoTape proves what the
-agent delivered.
-
-> **Kiff governs the work. DemoTape proves the result.**
+DemoTape came out of building [kiff.dev](https://kiff.dev) and needing to demo it constantly. It's a
+standalone, self-contained app now — it needs nothing from Kiff and works with any codebase and any
+coding agent.
 
 ---
 
-## Roadmap
+## Where it could go
 
-Planned, not implemented. Ordered roughly by how much it changes the workflow.
+DemoTape is free and stays free. There's **no waitlist and no pricing** — the honest signal is a star.
 
-1. **Reusable visual-evaluation specs** — save a verified flow as a named eval and re-run it against
-   any branch, so a demo becomes a regression check.
-2. **CI and pull-request execution** — run an eval on a branch and attach the video plus verdicts to
-   the PR automatically.
-3. **Jira and Linear acceptance criteria as input** — point at a ticket; its criteria become the
-   expected scenes.
-4. **Structured evaluation manifests** — a consolidated `eval.json` with source branch, commit, and
-   expected-vs-observed state per scene.
-5. **Shared evidence libraries** — a team-wide history of runs with their verdicts.
-6. **Policy-based completion requirements** — an agent's work isn't "done" until its evals pass.
-7. **Expected-vs-observed visual diffing** — compare this run's frames against the last known-good run.
+- **Use it today.** It's done and it works. If it saved you an afternoon, that's the whole point.
+- **Want it to become more?** If you think this should be a real product your team relies on,
+  [**★ star the repo**](https://github.com/gabosarmiento/demotape). Enough interest and I'll build the
+  bigger pieces below — no sign-up, no "request access."
+- **Buy me a coffee** if it earned one: [buymeacoffee.com/gabosarmiento](https://buymeacoffee.com/gabosarmiento).
+- **Want it for your team, or a hand setting it up?** Open an
+  [issue](https://github.com/gabosarmiento/demotape/issues) or reach out — I'll help, and if there's
+  real demand the team features get built (not before).
+
+Things I'd build if the interest is there — clearly **not implemented yet**:
+
+- Save a verified flow as a reusable check and re-run it against any branch (a demo that doubles as a
+  regression test).
+- Attach the video + verdicts to a pull request automatically, tagged with the branch and commit.
+- Read acceptance criteria straight from a Jira or Linear ticket.
+- A shared, searchable history of runs for a team.
 
 ---
 
@@ -413,7 +392,7 @@ and troubleshooting.
 
 ```bash
 swift build -c release   # compile
-swift test              # 408 tests: pure logic, no GUI, no network
+swift test              # 422 tests: pure logic, no GUI, no network
 ```
 
 ## License

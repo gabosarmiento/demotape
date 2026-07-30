@@ -39,9 +39,11 @@ final class Transcoder {
         return Int(duration * Double(v + audioKbps) * 1000 / 8)
     }
 
-    func transcode(input: URL, to outURL: URL, height: Int, audioKbps: Int = 96) throws {
+    func transcode(input: URL, to outURL: URL, height: Int, audioKbps: Int = 96,
+                   progress: ((Double) -> Void)? = nil) throws {
         let asset = AVAsset(url: input)
         guard let vTrack = asset.tracks(withMediaType: .video).first else { throw TranscodeError.noVideoTrack }
+        let duration = CMTimeGetSeconds(asset.duration)
 
         let src = vTrack.naturalSize
         func even(_ v: CGFloat) -> CGFloat { (v / 2).rounded(.down) * 2 }
@@ -141,6 +143,7 @@ final class Transcoder {
                 ciContext.render(scaled, to: outBuf, bounds: CGRect(x: 0, y: 0, width: outW, height: outH),
                                  colorSpace: colorSpace)
                 adaptor.append(outBuf, withPresentationTime: pts)
+                if duration > 0 { progress?(min(1, CMTimeGetSeconds(pts) / duration)) }
             }
         }
         done.wait()

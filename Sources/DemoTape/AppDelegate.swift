@@ -270,17 +270,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // order you'd normally apply them; AI steps are opt-in, enabled from AI Settings) ---
         menu.addItem(sectionHeader("After Recording"))
 
-        let tightenItem = NSMenuItem(title: "Auto-Cut…",
+        let tightenItem = NSMenuItem(title: "Speed up / Auto-cut…",
                                      action: #selector(openTighten), keyEquivalent: "")
         tightenItem.target = self
         menu.addItem(tightenItem)
-
-        let autoEditItem = NSMenuItem(title: "Auto-Edit…",
-                                      action: #selector(openAutoEdit), keyEquivalent: "")
-        autoEditItem.target = self
-        menu.addItem(autoEditItem)
-
-        menu.addItem(.separator())
 
         let captionsItem = NSMenuItem(title: "Add Captions…",
                                       action: #selector(generateCaptions), keyEquivalent: "")
@@ -300,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let publishItem = NSMenuItem(title: "Web Publish…",
+        let publishItem = NSMenuItem(title: "Web Export…",
                                      action: #selector(openWebPublish), keyEquivalent: "")
         publishItem.target = self
         menu.addItem(publishItem)
@@ -405,7 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // greys the whole submenu).
         whileIdleItems = [fullScreenItem, selectAreaItem, webcamOnlyModeItem, inputItem, backgroundItem,
                           teleprompterItem, brandingItem, composeItem, tightenItem,
-                          captionsItem, voiceoverItem, avatarItem, briefItem, autoEditItem,
+                          captionsItem, voiceoverItem, avatarItem, briefItem,
                           publishItem, changeDir]
 
         statusItem.menu = menu
@@ -1572,18 +1565,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = VoiceoverActionController(source: video, apiKey: key)
         voiceoverActionController = controller  // retain while open
         controller.show(onClose: { [weak self] in self?.voiceoverActionController = nil })
-    }
-
-    private var autoEditController: AutoEditActionController?
-    @objc private func openAutoEdit() {
-        guard let video = latestRecording() else {
-            presentPermissionHelp(title: "No recording found",
-                                  message: "Record something first — Auto-Edit re-edits your latest recording.")
-            return
-        }
-        let controller = AutoEditActionController(source: video)
-        autoEditController = controller  // retain while open
-        controller.show(onClose: { [weak self] in self?.autoEditController = nil })
     }
 
     private var aiSettingsController: AISettingsController?
