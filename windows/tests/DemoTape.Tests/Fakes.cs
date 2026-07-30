@@ -64,10 +64,19 @@ internal sealed class FakePathService : IPathService
 internal sealed class FakeRecordingController : IRecordingController
 {
     public RecordingState State { get; private set; } = RecordingState.Idle;
+    public string? LastOutputPath { get; private set; }
     public event Action<RecordingState>? StateChanged;
     public int ToggleCount { get; private set; }
 
-    public int ArmFullScreenCount, ArmRegionCount, StartCount, StopCount, CancelCount;
+    public int ArmFullScreenCount, ArmRegionCount, StartCount, StopCount, CancelCount, ControlCount;
+
+    public Task ApplyControlCommandAsync(DemoTape.Domain.Control.DemoControl.Command command)
+    {
+        ControlCount++;
+        if (command.Kind == DemoTape.Domain.Control.DemoControl.CommandKind.Start) Set(RecordingState.Recording);
+        else if (command.Kind == DemoTape.Domain.Control.DemoControl.CommandKind.Stop) Set(RecordingState.Idle);
+        return Task.CompletedTask;
+    }
 
     public Task ToggleAsync()
     {
