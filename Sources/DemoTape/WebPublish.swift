@@ -14,9 +14,18 @@ enum WebPublish {
     /// Video heights offered as tiers, largest first is NOT assumed — callers pass any set.
     static let defaultHeights = [720, 540, 360]
 
+    /// Progress for the GUI. `stage` reports a fraction (0…1) for the named step; `produced` fires
+    /// with each finished file the moment it lands, so a window can surface outputs as they appear
+    /// rather than only at the very end.
+    struct Progress {
+        var stage: ((_ label: String, _ fraction: Double) -> Void)?
+        var produced: ((URL) -> Void)?
+    }
+
     /// Produces `<name>-web/` next to `source`. Returns the folder, or nil if a tier failed.
     static func export(source: URL, heights: [Int] = defaultHeights,
-                       gif: Bool = true, gifWidth: Int = 640, gifFps: Int = 10) -> URL? {
+                       gif: Bool = true, gifWidth: Int = 640, gifFps: Int = 10,
+                       progress: Progress = Progress()) -> URL? {
         let folder = outputFolder(for: source)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
@@ -24,7 +33,12 @@ enum WebPublish {
         let sorted = heights.sorted()
         for h in sorted {
             do {
-                try t.transcode(input: source, to: folder.appendingPathComponent("demo-\(h)p.mp4"), height: h)
+                let out = folder.appendingPathComponent("demo-\(h)p.mp4")
+                try t.transcode(input: source, to: out, height: h) { f in
+                    progress.stage?("\(h)p", f)
+                }
+                progress.stage?("\(h)p", 1)
+                progress.produced?(out)
             } catch {
                 Log.write("WebPublish tier \(h) failed: \(error.localizedDescription)")
                 return nil
@@ -35,8 +49,12 @@ enum WebPublish {
         var gifMade = false
         if gif {
             do {
-                try GifEncoder().encode(video: source, to: folder.appendingPathComponent("demo.gif"),
+                progress.stage?("GIF", 0)
+                let gifURL = folder.appendingPathComponent("demo.gif")
+                try GifEncoder().encode(video: source, to: gifURL,
                                         maxWidth: gifWidth, fps: Double(gifFps))
+                progress.stage?("GIF", 1)
+                progress.produced?(gifURL)
                 gifMade = true
             } catch {
                 Log.write("WebPublish GIF failed: \(error.localizedDescription)")
