@@ -10,6 +10,27 @@ dependency injection. No cloud, no accounts, no telemetry — everything runs on
 > desktop-to-desktop port. See [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md) for the full
 > macOS → Windows mapping.
 
+## Try it (build it yourself)
+
+DemoTape for Windows is **not code-signed**, so a downloaded prebuilt `.exe` would trip Windows
+SmartScreen ("unknown publisher"). A code-signing certificate is a paid, per-year thing and isn't a
+priority for a local tool — so the recommended way to try it is to **build it on your own machine**.
+Building locally produces a native-arch binary, needs no signing, and triggers **no SmartScreen
+prompt** (nothing is downloaded and run).
+
+The easiest path is to let your coding agent (Kiro, Claude Code, etc.) run the setup for you — from
+a clone of this repo, ask it to run the runbook:
+
+```powershell
+# From the repo root, in PowerShell (see docs/BUILD.md for details):
+windows\setup.ps1
+```
+
+It checks prerequisites (.NET 8 SDK; it will tell you if the Windows 11 SDK is missing), runs the
+unit tests, publishes a self-contained app to `windows\dist\DemoTape`, and adds Desktop + Start Menu
+shortcuts. To update later: `git pull`, then re-run it. There's no account, no cloud, no telemetry —
+everything runs on your PC.
+
 ## Documentation
 
 - [`docs/FEATURE-PARITY.md`](docs/FEATURE-PARITY.md) — every macOS feature mapped to Windows
