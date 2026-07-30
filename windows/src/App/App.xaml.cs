@@ -97,6 +97,29 @@ public partial class App : Application
         };
 
         SetupControlSurface(activationArgs);
+
+        // First-run welcome — but never when launched by a control URL (an automated take must not
+        // pop a window over the demo).
+        if (activationArgs.Kind != ExtendedActivationKind.Protocol) MaybeShowWelcome();
+    }
+
+    /// <summary>Shows the first-run welcome per <see cref="Domain.Settings.WelcomeSchedule"/>.</summary>
+    private void MaybeShowWelcome()
+    {
+        try
+        {
+            var store = _services.GetRequiredService<ISettingsStore>();
+            var s = store.Load();
+            double now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (!Domain.Settings.WelcomeSchedule.ShouldShow(s.WelcomeShowCount, s.WelcomeLastShownUnix, now)) return;
+
+            s.WelcomeShowCount += 1;
+            s.WelcomeLastShownUnix = now;
+            store.Save(s);
+
+            new UI.WelcomeWindow().Activate();
+        }
+        catch (Exception ex) { LogFatal("welcome", ex); }
     }
 
     private ControlStatusWriter? _status;

@@ -99,5 +99,13 @@ public sealed class AppSettings
     /// <summary>Watermark width as a fraction of the output width.</summary>
     public double BrandingScale { get; set; } = 0.16;
 
+    // ---- First-run welcome / onboarding ----
+
+    /// <summary>How many times the welcome screen has been shown.</summary>
+    public int WelcomeShowCount { get; set; }
+
+    /// <summary>When the welcome screen was last shown (Unix seconds).</summary>
+    public double WelcomeLastShownUnix { get; set; }
+
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 }
