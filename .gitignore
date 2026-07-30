@@ -25,6 +25,8 @@ xcuserdata/
 *.mov
 *.mp4
 *.events.json
+# ...except curated README/demo assets, which live in media/ on purpose
+!media/*.mp4
 
 # Local verification scratch dir (live API probes, secrets via env — never commit)
 .verify/

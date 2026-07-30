@@ -269,6 +269,10 @@ captioned, all from prompts:
 
 ▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v7.0.0/demotape-demo.mp4)
 
+Or play it inline (committed to the repo, so it plays without leaving the page):
+
+https://github.com/gabosarmiento/demotape/raw/main/media/demo-tight-480p.mp4
+
 <!--
   To play INLINE (like DeepFilterNet's README), GitHub needs an "attachment" URL, which is only
   minted by uploading through the web UI — a release-download or raw URL will NOT render a player.
