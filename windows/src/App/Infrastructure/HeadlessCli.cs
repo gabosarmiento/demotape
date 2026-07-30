@@ -92,19 +92,36 @@ public static class HeadlessCli
             return true;
         }
 
+        int ef = Array.IndexOf(args, "--encode-frames");
+        if (ef >= 0 && args.Length > ef + 1)
+        {
+            var manifest = args[ef + 1];
+            var output = args.Length > ef + 2 && !args[ef + 2].StartsWith("--")
+                ? args[ef + 2]
+                : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(manifest))!,
+                               Path.GetFileNameWithoutExtension(manifest) + ".mp4");
+            await new FrameEncoder().EncodeAsync(manifest, output,
+                p => Console.Error.Write($"encoding: {(int)(p * 100)}%\r"));
+            Console.WriteLine($"encoded: {output}");
+            return true;
+        }
+
         int r = Array.IndexOf(args, "--render");
         if (r >= 0 && args.Length > r + 2)
         {
             var raw = args[r + 1];
             var output = args[r + 2];
-            var sidecar = raw.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
-                ? raw[..^4] + ".events.json"
-                : raw + ".events.json";
+            // The driver's frames backend names the raw take "capture.mov" and its sidecar
+            // "capture.events.json", so strip .mov as well as .mp4 to find the sidecar/cam next to it.
+            var rawBase = raw.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+                       || raw.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
+                ? raw[..^4] : raw;
+            var sidecar = rawBase + ".events.json";
             var renderer = new StyledVideoRenderer(new ConsoleLogger<StyledVideoRenderer>());
             var settingsStore = new JsonSettingsStore(new PathService(), NullLogger<JsonSettingsStore>.Instance);
             var settings = settingsStore.Load();
-            var cam = raw.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ? raw[..^4] + ".cam.mp4" : null;
-            var camPath = cam is not null && File.Exists(cam) ? cam : null;
+            var cam = rawBase + ".cam.mp4";
+            var camPath = File.Exists(cam) ? cam : null;
             Console.WriteLine($"render: {raw} (+ {Path.GetFileName(sidecar)}) region={settings.UseRegion} cam={camPath is not null} -> {output}");
             var result = await renderer.RenderAsync(raw, sidecar, output, settings, cameraPath: camPath);
             Console.WriteLine(result is null ? "render: FAILED" : $"render: OK -> {output} ({new FileInfo(output).Length / 1024} KB)");

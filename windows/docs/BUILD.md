@@ -77,7 +77,7 @@ This compiles `DemoTape.Domain` + `DemoTape.ViewModels` and runs the xUnit suite
 auto-zoom focus timeline, spring camera, web-publish planning, audio normalization, and settings.
 
 ## Build & run the full WinUI 3 app
-
+hello
 ```powershell
 cd windows
 
@@ -126,6 +126,12 @@ dotnet run --project src/App/DemoTape.App.csproj -- --transcode "C:\path\styled.
 
 # Web-publish a styled mp4 to a folder of tiers + poster + embed.html
 dotnet run --project src/App/DemoTape.App.csproj -- --publish "C:\path\styled.mp4" 360,540,720
+
+# Encode a captured frame sequence (JPEGs + manifest.json) into a raw mp4, then style it.
+# This is the "no screen-capture permission" path: the demo-driver captures the page over the
+# DevTools protocol and writes the frames + events sidecar, DemoTape just encodes + renders.
+dotnet run --project src/App/DemoTape.App.csproj -- --encode-frames "C:\caps\manifest.json" "C:\caps\capture.mov"
+dotnet run --project src/App/DemoTape.App.csproj -- --render "C:\caps\capture.mov" "C:\caps\capture.styled.mp4"
 ```
 
 ## Agentic control surface (`demotape://`) — drive a hands-off demo
