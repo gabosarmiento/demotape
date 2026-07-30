@@ -55,6 +55,12 @@
 
             <Rectangle Width="1" Height="24" Fill="#3A3A3C" Margin="4,0" />
 
+            <!-- Ellipsis: the recording-setup "door", the same options as the tray icon, right on the bar -->
+            <Button x:Name="SetupBtn" Background="Transparent" BorderThickness="0"
+                    CornerRadius="8" Padding="8" ToolTipService.ToolTip="Recording setup">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE712;" FontSize="18" Foreground="White" />
+            </Button>
+
             <Button x:Name="CancelBtn" Click="OnCancel" Background="Transparent" BorderThickness="0"
                     CornerRadius="8" Padding="8" ToolTipService.ToolTip="Cancel">
                 <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="16" Foreground="#FF8A80" />

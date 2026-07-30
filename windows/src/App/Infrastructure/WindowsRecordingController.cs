@@ -113,7 +113,11 @@ public sealed class WindowsRecordingController : IRecordingController
             // recording actually begins.)
             if (_bar is null)
             {
-                _bar = new ControlBarWindow(this, _settingsStore);
+                // Resolve navigation lazily (not via ctor): ShellViewModel depends on this
+                // controller, so a ctor dependency on it would be a DI cycle. The bar's ellipsis
+                // setup menu uses it to open the picker/settings windows.
+                var nav = _services.GetService<INavigationService>();
+                _bar = new ControlBarWindow(this, _settingsStore, nav);
                 _bar.Closed += (_, _) => _bar = null;
                 _bar.Activate();
                 _logger.LogInformation("Control bar shown (armed, region={Region})", useRegion);
