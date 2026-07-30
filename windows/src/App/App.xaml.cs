@@ -1,12 +1,16 @@
 using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using DemoTape.App.Infrastructure;
+using DemoTape.Domain.Abstractions;
+using DemoTape.Domain.Control;
 using DemoTape.ViewModels;
 using H.NotifyIcon;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Windows.AppLifecycle;
+using Windows.ApplicationModel.Activation;
 
 namespace DemoTape.App;
 
@@ -45,7 +49,7 @@ public partial class App : Application
         catch { /* best effort */ }
     }
 
-    protected override async void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
         var cli = Environment.GetCommandLineArgs();
         if (await HeadlessCli.TryRunAsync(cli))
@@ -53,6 +57,19 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
+
+        // Single-instance: a second launch (e.g. Windows opening a demotape:// URL) hands its
+        // activation to the already-running instance and exits, so the tray app is never doubled and
+        // control URLs reach the live recorder. Must happen before we create the tray icon.
+        AppActivationArguments activationArgs = AppInstance.GetCurrent().GetActivatedEventArgs();
+        var keyInstance = AppInstance.FindOrRegisterForKey("dev.demotape.app");
+        if (!keyInstance.IsCurrent)
+        {
+            await keyInstance.RedirectActivationToAsync(activationArgs);
+            Environment.Exit(0);
+            return;
+        }
+        keyInstance.Activated += OnRedirectedActivated;
 
         _services = BuildServices();
         _shell = _services.GetRequiredService<ShellViewModel>();
@@ -78,6 +95,92 @@ public partial class App : Application
         {
             try { _trayIcon?.ShowNotification(title, message); } catch { /* balloon is cosmetic */ }
         };
+
+        SetupControlSurface(activationArgs);
+
+        // First-run welcome — but never when launched by a control URL (an automated take must not
+        // pop a window over the demo).
+        if (activationArgs.Kind != ExtendedActivationKind.Protocol) MaybeShowWelcome();
+    }
+
+    /// <summary>Shows the first-run welcome per <see cref="Domain.Settings.WelcomeSchedule"/>.</summary>
+    private void MaybeShowWelcome()
+    {
+        try
+        {
+            var store = _services.GetRequiredService<ISettingsStore>();
+            var s = store.Load();
+            double now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (!Domain.Settings.WelcomeSchedule.ShouldShow(s.WelcomeShowCount, s.WelcomeLastShownUnix, now)) return;
+
+            s.WelcomeShowCount += 1;
+            s.WelcomeLastShownUnix = now;
+            store.Save(s);
+
+            new UI.WelcomeWindow().Activate();
+        }
+        catch (Exception ex) { LogFatal("welcome", ex); }
+    }
+
+    private ControlStatusWriter? _status;
+
+    /// <summary>
+    /// Wires the external control surface: registers the <c>demotape://</c> protocol, publishes
+    /// recording state to <c>control.json</c>, and dispatches the URL this launch was activated with.
+    /// </summary>
+    private void SetupControlSurface(AppActivationArguments launchArgs)
+    {
+        // Register the protocol for this (unpackaged) exe — idempotent, points at the current binary.
+        try { ActivationRegistrationManager.RegisterForProtocolActivation("demotape", string.Empty, "DemoTape", string.Empty); }
+        catch (Exception ex) { LogFatal("proto-register", ex); }
+
+        var controller = _services.GetRequiredService<IRecordingController>();
+        _status = new ControlStatusWriter(_services.GetRequiredService<IPathService>());
+        _status.Write(controller.State, controller.LastOutputPath);
+        controller.StateChanged += s => _status?.Write(s, controller.LastOutputPath);
+
+        DispatchActivation(launchArgs);   // handle a URL passed at launch (if any)
+    }
+
+    /// <summary>Redirected activations from a second launch arrive here (on a background thread).</summary>
+    private void OnRedirectedActivated(object? sender, AppActivationArguments args)
+        => _hostWindow?.DispatcherQueue.TryEnqueue(() => DispatchActivation(args));
+
+    private void DispatchActivation(AppActivationArguments args)
+    {
+        var uri = ExtractDemotapeUri(args);
+        if (uri is null) return;
+        var command = DemoControl.Parse(uri);
+        if (command is null) return;
+        var controller = _services.GetRequiredService<IRecordingController>();
+        _ = controller.ApplyControlCommandAsync(command);
+    }
+
+    /// <summary>Pulls a <c>demotape://</c> URL out of an activation (protocol, or a launch arg).</summary>
+    private static Uri? ExtractDemotapeUri(AppActivationArguments args)
+    {
+        if (args.Kind == ExtendedActivationKind.Protocol && args.Data is IProtocolActivatedEventArgs p)
+            return p.Uri;
+
+        if (args.Kind == ExtendedActivationKind.Launch && args.Data is ILaunchActivatedEventArgs l)
+            if (TryFindUrl((l.Arguments ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries), out var fromArgs))
+                return fromArgs;
+
+        // Fallback: this process launched directly with the URL as a command-line argument.
+        return TryFindUrl(Environment.GetCommandLineArgs(), out var fromCli) ? fromCli : null;
+    }
+
+    private static bool TryFindUrl(IEnumerable<string> tokens, out Uri? uri)
+    {
+        foreach (var t in tokens)
+            if (t.StartsWith("demotape://", StringComparison.OrdinalIgnoreCase) &&
+                Uri.TryCreate(t, UriKind.Absolute, out var u))
+            {
+                uri = u;
+                return true;
+            }
+        uri = null;
+        return false;
     }
 
     private Window? _hostWindow;

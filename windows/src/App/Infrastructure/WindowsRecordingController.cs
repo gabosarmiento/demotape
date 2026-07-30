@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using DemoTape.App.UI;
 using DemoTape.Domain.Abstractions;
+using DemoTape.Domain.Control;
 using DemoTape.Domain.Models;
 using DemoTape.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +46,12 @@ public sealed class WindowsRecordingController : IRecordingController
     private TeleprompterWindow? _teleprompter;
 
     public RecordingState State { get; private set; } = RecordingState.Idle;
+    public string? LastOutputPath { get; private set; }
     public event Action<RecordingState>? StateChanged;
+
+    // True while a take is driven by the external control surface (demotape://). Keeps the screen
+    // clean: no interactive selector, no floating control bar — only the capture-excluded cues.
+    private bool _controlDriven;
 
     public WindowsRecordingController(
         IServiceProvider services, IPathService paths, ISettingsStore settingsStore,
@@ -113,7 +119,11 @@ public sealed class WindowsRecordingController : IRecordingController
             // recording actually begins.)
             if (_bar is null)
             {
-                _bar = new ControlBarWindow(this, _settingsStore);
+                // Resolve navigation lazily (not via ctor): ShellViewModel depends on this
+                // controller, so a ctor dependency on it would be a DI cycle. The bar's ellipsis
+                // setup menu uses it to open the picker/settings windows.
+                var nav = _services.GetService<INavigationService>();
+                _bar = new ControlBarWindow(this, _settingsStore, nav);
                 _bar.Closed += (_, _) => _bar = null;
                 _bar.Activate();
                 _logger.LogInformation("Control bar shown (armed, region={Region})", useRegion);
@@ -154,6 +164,138 @@ public sealed class WindowsRecordingController : IRecordingController
         {
             var countdown = new CountdownWindow();
             await countdown.RunAsync(3, BeginCaptureAsync);
+        });
+    }
+
+    // ---- External control surface (demotape://) ----
+
+    private readonly GestureInjector _gestures = new();
+    private Task _gestureChain = Task.CompletedTask;
+    private readonly object _chainLock = new();
+
+    public async Task ApplyControlCommandAsync(DemoControl.Command command)
+    {
+        switch (command.Kind)
+        {
+            case DemoControl.CommandKind.Stop:
+                if (State == RecordingState.Recording) await StopAsync();
+                return;
+            case DemoControl.CommandKind.Start:
+                await ApplyStartAsync(command.Start!);
+                return;
+
+            // Pointer/keyboard gestures run on a SERIAL background chain: an eased glide sleeps for its
+            // whole duration, so doing it on the UI thread would stall the next incoming URL and the
+            // gestures would land in one burst on the same video frame. The chain keeps them ordered.
+            case DemoControl.CommandKind.Cursor:
+                EnqueueGesture(() => _gestures.CursorTo(command.CursorX, command.CursorY, command.Click, command.GlideMs));
+                return;
+            case DemoControl.CommandKind.CursorPath:
+                EnqueueGesture(() => _gestures.CursorPath(command.PathPoints, command.PathMs));
+                return;
+            case DemoControl.CommandKind.Type:
+                EnqueueGesture(() => _gestures.Type(command.Text ?? string.Empty, command.Cps));
+                return;
+            case DemoControl.CommandKind.TypingActivity:
+                _events?.AddTypingActivity(command.Chars, command.Cps);
+                return;
+
+            case DemoControl.CommandKind.OpenUi:
+                OpenControlWindow(command.Window);
+                return;
+
+            default:
+                // element (ui/click|find) + dumpUI need UI Automation — a later follow-up.
+                _logger.LogInformation("Control command {Kind} not yet wired on Windows", command.Kind);
+                return;
+        }
+    }
+
+    private Task EnqueueGesture(Action work)
+    {
+        lock (_chainLock)
+        {
+            _gestureChain = _gestureChain.ContinueWith(_ =>
+            {
+                try { work(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "gesture failed"); }
+            }, TaskScheduler.Default);
+            return _gestureChain;
+        }
+    }
+
+    /// <summary>Opens one of DemoTape's own windows for a scripted walkthrough of DemoTape itself.</summary>
+    private void OpenControlWindow(DemoControl.UiWindow window)
+    {
+        var nav = _services.GetService<INavigationService>();
+        if (nav is null) return;
+        _dispatcher.TryEnqueue(() =>
+        {
+            switch (window)
+            {
+                case DemoControl.UiWindow.About: nav.OpenAbout(); break;
+                case DemoControl.UiWindow.Publish: nav.OpenWebPublish(); break;
+                case DemoControl.UiWindow.Settings: nav.OpenAiSettings(); break;
+                case DemoControl.UiWindow.Voiceover: nav.GenerateVoiceover(); break;
+                case DemoControl.UiWindow.Captions: nav.GenerateCaptions(); break;
+                default:
+                    _logger.LogInformation("ui/open window {Window} has no Windows equivalent yet", window);
+                    break;
+            }
+        });
+    }
+
+    private async Task ApplyStartAsync(DemoControl.StartOptions opts)
+    {
+        if (State != RecordingState.Idle) return;   // already armed/recording — ignore
+
+        var s = _settingsStore.Load();
+        if (opts.Microphone is bool mic) s.CaptureMicrophone = mic;
+        if (opts.Webcam is bool cam) s.CaptureWebcam = cam;
+
+        var display = BuildDisplay();
+        switch (opts.Region.Kind)
+        {
+            case DemoControl.RegionKind.FullScreen:
+                s.UseRegion = false;
+                break;
+            case DemoControl.RegionKind.Normalized:
+                s.UseRegion = true;
+                (s.RegionX, s.RegionY, s.RegionW, s.RegionH) =
+                    (opts.Region.X, opts.Region.Y, opts.Region.W, opts.Region.H);
+                break;
+            case DemoControl.RegionKind.Pixels:
+                s.UseRegion = true;
+                (s.RegionX, s.RegionY, s.RegionW, s.RegionH) = (
+                    opts.Region.X / display.PixelWidth, opts.Region.Y / display.PixelHeight,
+                    opts.Region.W / display.PixelWidth, opts.Region.H / display.PixelHeight);
+                break;
+        }
+        // webcamOnly isn't a first-class Windows capture mode yet; a start still records the screen.
+        _settingsStore.Save(s);
+
+        await StartControlledAsync(Math.Max(0, opts.Countdown));
+    }
+
+    /// <summary>Chrome-free countdown → capture, for the control surface. No selector, no bar.</summary>
+    private Task StartControlledAsync(int countdown)
+    {
+        _controlDriven = true;
+        SetState(RecordingState.Countdown);
+        return RunOnUiAsync(async () =>
+        {
+            // Warm mic/webcam on the UI thread (MediaCapture has thread affinity), then capture.
+            _webcamPrepare = PrepareWebcamAsync();
+            _micPrepare = PrepareMicAsync();
+            if (countdown > 0)
+            {
+                var cw = new CountdownWindow();
+                await cw.RunAsync(countdown, BeginCaptureAsync);
+            }
+            else
+            {
+                await BeginCaptureAsync();
+            }
         });
     }
 
@@ -302,9 +444,10 @@ public sealed class WindowsRecordingController : IRecordingController
             var styled = await renderer.RenderAsync(_rawPath, _sidecarPath, styledPath, settings,
                 cameraPath: camPath, micPath: micPath);
 
-            SetState(RecordingState.Idle);
             var final = styled ?? _rawPath;
-            _interaction.RevealInExplorer(final);
+            LastOutputPath = final;      // surfaced in control.json before we flip back to idle
+            SetState(RecordingState.Idle);
+            if (!_controlDriven) _interaction.RevealInExplorer(final);
             _interaction.Notify(
                 styled is not null ? "Recording ready" : "Recording saved (unstyled)",
                 Path.GetFileName(final));
@@ -318,6 +461,7 @@ public sealed class WindowsRecordingController : IRecordingController
         finally
         {
             _capture = null; _events = null; _webcam = null; _mic = null;
+            _controlDriven = false;
         }
     }
 
@@ -347,6 +491,7 @@ public sealed class WindowsRecordingController : IRecordingController
         {
             _capture = null; _events = null; _webcam = null; _mic = null;
             _webcamPrepare = null; _micPrepare = null;
+            _controlDriven = false;
             SetState(RecordingState.Idle);
         }
     }

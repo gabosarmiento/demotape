@@ -15,8 +15,19 @@ public interface IRecordingController
     RecordingState State { get; }
     event Action<RecordingState>? StateChanged;
 
+    /// <summary>Absolute path of the most recent finished (styled) video, or null. Surfaced in the
+    /// external <c>control.json</c> so an orchestrator can collect the result.</summary>
+    string? LastOutputPath { get; }
+
     /// <summary>Starts (with countdown) or stops recording depending on current state.</summary>
     Task ToggleAsync();
+
+    /// <summary>
+    /// Applies a parsed <c>demotape://</c> control command (from an external orchestrator): starts a
+    /// full-screen/region/webcam capture with the given countdown + input overrides, or stops.
+    /// Chrome-free (no interactive selector or control bar) so it never appears in an automated take.
+    /// </summary>
+    Task ApplyControlCommandAsync(DemoTape.Domain.Control.DemoControl.Command command);
 
     /// <summary>Arms full-screen capture: shows the control bar and warms the webcam/mic.</summary>
     Task ArmFullScreenAsync();

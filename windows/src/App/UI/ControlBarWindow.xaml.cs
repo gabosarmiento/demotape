@@ -1,11 +1,14 @@
 using System;
 using System.Runtime.InteropServices;
 using DemoTape.Domain.Abstractions;
+using DemoTape.Domain.Settings;
 using DemoTape.ViewModels;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Windows.Graphics;
 using WinRT.Interop;
@@ -21,14 +24,17 @@ public sealed partial class ControlBarWindow : Window
 {
     private readonly IRecordingController _controller;
     private readonly ISettingsStore _settings;
+    private readonly INavigationService? _navigation;
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
     private readonly DispatcherQueueTimer _timer;
     private DateTimeOffset _recordStart;
 
-    public ControlBarWindow(IRecordingController controller, ISettingsStore settings)
+    public ControlBarWindow(IRecordingController controller, ISettingsStore settings,
+        INavigationService? navigation = null)
     {
         _controller = controller;
         _settings = settings;
+        _navigation = navigation;
         InitializeComponent();
 
         var s = settings.Load();
@@ -36,6 +42,8 @@ public sealed partial class ControlBarWindow : Window
         CamBtn.IsChecked = s.CaptureWebcam;
         SyncToggleVisual(MicBtn, MicIcon, MicStrike);
         SyncToggleVisual(CamBtn, CamIcon, CamStrike);
+
+        BuildSetupMenu();
 
         LeftDrag.PointerPressed += OnDragPressed;
         RightDrag.PointerPressed += OnDragPressed;
@@ -71,7 +79,7 @@ public sealed partial class ControlBarWindow : Window
         }
         appWindow.IsShownInSwitchers = false;
 
-        const int w = 380, h = 56;
+        const int w = 424, h = 56;
         appWindow.Resize(new SizeInt32(w, h));
         var area = DisplayArea.GetFromWindowId(id, DisplayAreaFallback.Primary);
         var wa = area.WorkArea;
@@ -79,6 +87,94 @@ public sealed partial class ControlBarWindow : Window
 
         // Keep the bar out of the recording (visible on-screen, excluded from screen capture).
         SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+    }
+
+    /// <summary>
+    /// The ellipsis "•••" setup flyout — the recording options you'd change just before a take,
+    /// right on the bar instead of only under the tray icon. This is a second door onto the same
+    /// settings/navigation the tray menu uses, so the two never drift apart. Toggles keep the menu
+    /// open (you often flip two); anything that opens a window closes it first.
+    /// </summary>
+    private void BuildSetupMenu()
+    {
+        var menu = new MenuFlyout { Placement = FlyoutPlacementMode.Top };
+
+        // Capture mode (radio) — Full Screen / Select Area, driven straight through the controller.
+        var fullScreen = new RadioMenuFlyoutItem { Text = "Full Screen", GroupName = "barCaptureMode" };
+        fullScreen.Click += async (_, _) => await _controller.ArmFullScreenAsync();
+        var selectArea = new RadioMenuFlyoutItem { Text = "Select Recording Area…", GroupName = "barCaptureMode" };
+        selectArea.Click += async (_, _) => await _controller.ArmRegionAsync();
+        menu.Items.Add(fullScreen);
+        menu.Items.Add(selectArea);
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Background (opens the picker window).
+        var background = new MenuFlyoutItem { Text = "Background…" };
+        background.Click += (_, _) => _navigation?.OpenBackgroundPicker();
+        menu.Items.Add(background);
+
+        // Branding — a toggle plus its settings window.
+        var branding = MakeToggle("Branding", s => s.BrandingEnabled, (s, v) => s.BrandingEnabled = v);
+        var brandingSettings = new MenuFlyoutItem { Text = "Branding Settings…" };
+        brandingSettings.Click += (_, _) => _navigation?.OpenBrandingSettings();
+        menu.Items.Add(branding);
+        menu.Items.Add(brandingSettings);
+
+        // Teleprompter — a toggle plus its settings window.
+        var teleprompter = MakeToggle("Teleprompter", s => s.TeleprompterEnabled, (s, v) => s.TeleprompterEnabled = v);
+        var teleSettings = new MenuFlyoutItem { Text = "Teleprompter Settings…" };
+        teleSettings.Click += (_, _) => _navigation?.OpenTeleprompterSettings();
+        menu.Items.Add(teleprompter);
+        menu.Items.Add(teleSettings);
+
+        // Auto-Zoom.
+        var autoZoom = MakeToggle("Auto-Zoom", s => s.AutoZoom, (s, v) => s.AutoZoom = v);
+        menu.Items.Add(autoZoom);
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        // Mic clean-up — both apply in every capture mode.
+        var enhance = MakeToggle("Enhance Voice", s => s.EnhanceVoice, (s, v) => s.EnhanceVoice = v);
+        var noise = MakeToggle("Smart Noise Suppression", s => s.NoiseSuppression, (s, v) => s.NoiseSuppression = v);
+        menu.Items.Add(enhance);
+        menu.Items.Add(noise);
+
+        var webcam = new MenuFlyoutItem { Text = "Webcam Settings…" };
+        webcam.Click += (_, _) => _navigation?.OpenWebcamSettings();
+        menu.Items.Add(webcam);
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        var ai = new MenuFlyoutItem { Text = "AI Settings…" };
+        ai.Click += (_, _) => _navigation?.OpenAiSettings();
+        menu.Items.Add(ai);
+
+        // Re-read persisted state each time the menu opens, so it always shows the truth (the tray
+        // menu, region selector, etc. write the same settings.json).
+        menu.Opening += (_, _) =>
+        {
+            var s = _settings.Load();
+            fullScreen.IsChecked = !s.UseRegion;
+            selectArea.IsChecked = s.UseRegion;
+            branding.IsChecked = s.BrandingEnabled;
+            teleprompter.IsChecked = s.TeleprompterEnabled;
+            autoZoom.IsChecked = s.AutoZoom;
+            enhance.IsChecked = s.EnhanceVoice;
+            noise.IsChecked = s.NoiseSuppression;
+        };
+
+        SetupBtn.Flyout = menu;
+    }
+
+    private ToggleMenuFlyoutItem MakeToggle(string text,
+        Func<AppSettings, bool> get, Action<AppSettings, bool> set)
+    {
+        var item = new ToggleMenuFlyoutItem { Text = text, IsChecked = get(_settings.Load()) };
+        item.Click += (_, _) =>
+        {
+            var s = _settings.Load();
+            set(s, item.IsChecked);
+            _settings.Save(s);
+        };
+        return item;
     }
 
     private void OnDragPressed(object sender, PointerRoutedEventArgs e)

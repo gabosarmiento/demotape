@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DemoTape.App.UI.WelcomeWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="14">
+            <Image x:Name="LogoImage" Width="52" Height="52" VerticalAlignment="Top" />
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Welcome to DemoTape" FontSize="22" FontWeight="Bold" />
+                <TextBlock Text="Record once — get a polished, auto-edited demo."
+                           Opacity="0.7" FontSize="12" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Feature showcase -->
+        <Grid Grid.Row="1" Margin="0,22,0,0" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" HorizontalAlignment="Center" Spacing="6">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE71E;" FontSize="24" Foreground="#22B0E6" />
+                <TextBlock Text="Auto-zoom&#x0a;on clicks" TextAlignment="Center" Opacity="0.75" FontSize="11" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" HorizontalAlignment="Center" Spacing="6">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE7C9;" FontSize="24" Foreground="#22B0E6" />
+                <TextBlock Text="Smooth cursor&#x0a;+ key badges" TextAlignment="Center" Opacity="0.75" FontSize="11" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" HorizontalAlignment="Center" Spacing="6">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE8B8;" FontSize="24" Foreground="#22B0E6" />
+                <TextBlock Text="Webcam&#x0a;overlay" TextAlignment="Center" Opacity="0.75" FontSize="11" />
+            </StackPanel>
+            <StackPanel Grid.Column="3" HorizontalAlignment="Center" Spacing="6">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE72D;" FontSize="24" Foreground="#22B0E6" />
+                <TextBlock Text="Web MP4,&#x0a;captions, voice" TextAlignment="Center" Opacity="0.75" FontSize="11" />
+            </StackPanel>
+        </Grid>
+
+        <Rectangle Grid.Row="2" Height="1" Fill="#33FFFFFF" Margin="0,22,0,0" />
+
+        <!-- What you need to know (Windows permissions are light) -->
+        <StackPanel Grid.Row="3" Margin="0,16,0,0" Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE73E;" FontSize="14" Foreground="#4CAF50" />
+                <TextBlock Text="Screen recording works right away — no permission to grant."
+                           Opacity="0.85" FontSize="12" VerticalAlignment="Center" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE72E;" FontSize="14" Opacity="0.7" />
+                <TextBlock Text="Microphone &amp; camera are asked for only when you turn them on."
+                           Opacity="0.75" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE897;" FontSize="14" Opacity="0.7" />
+                <TextBlock Text="Find DemoTape in the system tray. Right-click it for the menu; the floating bar's ••• has recording setup."
+                           Opacity="0.75" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,20,0,0">
+            <TextBlock Text="DemoTape never records on its own." Opacity="0.5" FontSize="11"
+                       VerticalAlignment="Center" />
+            <Button x:Name="StartButton" Content="Start using DemoTape" Click="OnStart"
+                    Background="#22B0E6" Foreground="White" Padding="16,8" />
+        </StackPanel>
+    </Grid>
+</Window>

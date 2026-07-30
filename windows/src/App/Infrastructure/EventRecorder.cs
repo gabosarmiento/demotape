@@ -115,6 +115,24 @@ public sealed class EventRecorder
         }
     }
 
+    /// <summary>
+    /// Records typing ACTIVITY without any real keystroke, so the auto-zoom holds on the focused field
+    /// while another tool (a browser) types the visible text. Mirrors <c>demotape://typing</c>: DemoTape's
+    /// zoom is driven by keys as well as clicks, and a browser's synthetic keys are invisible to the
+    /// hook — so a browser-driven demo must report the activity here or the camera drifts off mid-sentence.
+    /// </summary>
+    public void AddTypingActivity(int chars, double cps)
+    {
+        if (!_clock.IsRunning || chars <= 0) return;
+        double rate = cps > 0 ? cps : 14.0;
+        double t0 = _clock.Elapsed.TotalSeconds;
+        lock (_lock)
+        {
+            for (int i = 0; i < chars; i++)
+                _keys.Add(new KeySample { T = t0 + i / rate, KeyCode = 0, Chars = "", Modifiers = new() });
+        }
+    }
+
     private void StartSampler()
     {
         _samplerCts = new CancellationTokenSource();

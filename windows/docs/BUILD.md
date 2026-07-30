@@ -1,5 +1,36 @@
 # Building & running DemoTape for Windows
 
+## Agent-assisted setup for a tester (one command)
+
+The fastest way to install DemoTape on a tester's own Windows 11 machine — the Windows counterpart
+of the macOS "Agent-assisted setup for a tester" runbook in [`../../AGENTS.md`](../../AGENTS.md).
+It builds a **native-arch, self-contained** app (no runtime install), drops Desktop + Start Menu
+shortcuts, and can register it to open at login. Because nothing is downloaded and run, there's no
+SmartScreen/quarantine prompt; and Windows screen capture needs **no persistent permission grant**,
+so recording works right after install.
+
+**If you are the human tester**, paste this to your coding agent from inside a clone of the repo:
+
+> Set up and install DemoTape on my Windows machine by running `windows\setup.ps1`. Check each
+> precondition, tell me exactly when a manual step is needed (e.g. installing the Windows SDK), and
+> stop with a clear message if any step fails.
+
+**If you are the agent**, run:
+
+```powershell
+# From the repo root, in PowerShell:
+windows\setup.ps1                 # build + test + publish + shortcuts + launch
+windows\setup.ps1 -Startup        # also open DemoTape at login
+windows\setup.ps1 -NoLaunch       # install without launching
+```
+
+The script verifies the .NET 8 SDK, runs the unit-test gate, publishes to `windows\dist\DemoTape\`,
+and creates the shortcuts. If the WinUI app can't build because the **Windows 11 SDK** / Windows App
+SDK tooling is missing (an elevated GUI install an agent can't click), it stops with the exact
+install commands — see the prerequisites below — then you re-run it.
+
+To update later: `git pull`, then re-run the script.
+
 ## What builds where
 
 The Windows port is split so that **all business logic builds and tests with only the .NET SDK**,
@@ -46,7 +77,7 @@ This compiles `DemoTape.Domain` + `DemoTape.ViewModels` and runs the xUnit suite
 auto-zoom focus timeline, spring camera, web-publish planning, audio normalization, and settings.
 
 ## Build & run the full WinUI 3 app
-
+hello
 ```powershell
 cd windows
 
@@ -95,7 +126,41 @@ dotnet run --project src/App/DemoTape.App.csproj -- --transcode "C:\path\styled.
 
 # Web-publish a styled mp4 to a folder of tiers + poster + embed.html
 dotnet run --project src/App/DemoTape.App.csproj -- --publish "C:\path\styled.mp4" 360,540,720
+
+# Encode a captured frame sequence (JPEGs + manifest.json) into a raw mp4, then style it.
+# This is the "no screen-capture permission" path: the demo-driver captures the page over the
+# DevTools protocol and writes the frames + events sidecar, DemoTape just encodes + renders.
+dotnet run --project src/App/DemoTape.App.csproj -- --encode-frames "C:\caps\manifest.json" "C:\caps\capture.mov"
+dotnet run --project src/App/DemoTape.App.csproj -- --render "C:\caps\capture.mov" "C:\caps\capture.styled.mp4"
 ```
+
+## Agentic control surface (`demotape://`) — drive a hands-off demo
+
+Parity with the macOS control surface: a **running** DemoTape registers the `demotape://` URL scheme
+and publishes its state to a pollable status file, so an external orchestrator (e.g. the Playwright
+[`tools/demo-driver`](../../tools/demo-driver/)) can record a demo end-to-end without touching the UI:
+**start a screen rectangle → drive the app → stop → collect the finished video.**
+
+- `demotape://record/start?countdown=0` — full screen, begin immediately.
+- `demotape://record/start?mode=area&x=&y=&w=&h=&countdown=0` — record a pixel rectangle.
+- `demotape://record/start?nx=&ny=&nw=&nh=` — a normalized (0…1) rectangle.
+- `demotape://record/start?mic=1&webcam=0` — override input toggles for this take.
+- `demotape://record/stop` — stop; DemoTape auto-renders the styled `.mp4`.
+
+Status is written atomically to `%USERPROFILE%\Videos\DemoTape\.demotape\control.json` (the Windows
+analogue of `~/Movies/DemoTape/.demotape/control.json`):
+
+```jsonc
+{ "state": "idle|countdown|recording|rendering", "recording": false, "lastOutput": "<path>" }
+```
+
+Loop: fire `start` → poll `state:"recording"` → drive → `stop` → poll `state:"idle"` → read
+`lastOutput`. From a shell you can open a URL with `Start-Process "demotape://record/stop"`.
+
+> The full command grammar (`cursor`, `type`, `typing`, `cursor/path`, `ui/open|click|find|dump`) is
+> **parsed** on Windows (`DemoControl`, unit-tested), and `record/start|stop` is **wired** to the
+> recorder. The pointer/keyboard/UI-automation gestures (`SendInput` / UI Automation) are the next
+> follow-up; `--encode-frames` (record with no capture permission) is planned alongside them.
 
 ## Capture & render pipeline (second vertical slice)
 
