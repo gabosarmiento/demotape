@@ -271,7 +271,7 @@ captioned, all from prompts:
 
 Or play it inline (committed to the repo, so it plays without leaving the page):
 
-https://github.com/gabosarmiento/demotape/raw/main/media/demo-tight-480p.mp4
+https://github.com/gabosarmiento/demotape/blob/main/media/demo-tight-480p.mp4
 
 <!--
   To play INLINE (like DeepFilterNet's README), GitHub needs an "attachment" URL, which is only
