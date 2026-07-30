@@ -169,6 +169,10 @@ public sealed class WindowsRecordingController : IRecordingController
 
     // ---- External control surface (demotape://) ----
 
+    private readonly GestureInjector _gestures = new();
+    private Task _gestureChain = Task.CompletedTask;
+    private readonly object _chainLock = new();
+
     public async Task ApplyControlCommandAsync(DemoControl.Command command)
     {
         switch (command.Kind)
@@ -179,12 +183,66 @@ public sealed class WindowsRecordingController : IRecordingController
             case DemoControl.CommandKind.Start:
                 await ApplyStartAsync(command.Start!);
                 return;
+
+            // Pointer/keyboard gestures run on a SERIAL background chain: an eased glide sleeps for its
+            // whole duration, so doing it on the UI thread would stall the next incoming URL and the
+            // gestures would land in one burst on the same video frame. The chain keeps them ordered.
+            case DemoControl.CommandKind.Cursor:
+                EnqueueGesture(() => _gestures.CursorTo(command.CursorX, command.CursorY, command.Click, command.GlideMs));
+                return;
+            case DemoControl.CommandKind.CursorPath:
+                EnqueueGesture(() => _gestures.CursorPath(command.PathPoints, command.PathMs));
+                return;
+            case DemoControl.CommandKind.Type:
+                EnqueueGesture(() => _gestures.Type(command.Text ?? string.Empty, command.Cps));
+                return;
+            case DemoControl.CommandKind.TypingActivity:
+                _events?.AddTypingActivity(command.Chars, command.Cps);
+                return;
+
+            case DemoControl.CommandKind.OpenUi:
+                OpenControlWindow(command.Window);
+                return;
+
             default:
-                // cursor / type / typingActivity / cursorPath / ui / element / dumpUI — the driver
-                // gestures. Parsed already; wiring them (SendInput / UI Automation) is a follow-up.
+                // element (ui/click|find) + dumpUI need UI Automation — a later follow-up.
                 _logger.LogInformation("Control command {Kind} not yet wired on Windows", command.Kind);
                 return;
         }
+    }
+
+    private Task EnqueueGesture(Action work)
+    {
+        lock (_chainLock)
+        {
+            _gestureChain = _gestureChain.ContinueWith(_ =>
+            {
+                try { work(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "gesture failed"); }
+            }, TaskScheduler.Default);
+            return _gestureChain;
+        }
+    }
+
+    /// <summary>Opens one of DemoTape's own windows for a scripted walkthrough of DemoTape itself.</summary>
+    private void OpenControlWindow(DemoControl.UiWindow window)
+    {
+        var nav = _services.GetService<INavigationService>();
+        if (nav is null) return;
+        _dispatcher.TryEnqueue(() =>
+        {
+            switch (window)
+            {
+                case DemoControl.UiWindow.About: nav.OpenAbout(); break;
+                case DemoControl.UiWindow.Publish: nav.OpenWebPublish(); break;
+                case DemoControl.UiWindow.Settings: nav.OpenAiSettings(); break;
+                case DemoControl.UiWindow.Voiceover: nav.GenerateVoiceover(); break;
+                case DemoControl.UiWindow.Captions: nav.GenerateCaptions(); break;
+                default:
+                    _logger.LogInformation("ui/open window {Window} has no Windows equivalent yet", window);
+                    break;
+            }
+        });
     }
 
     private async Task ApplyStartAsync(DemoControl.StartOptions opts)
