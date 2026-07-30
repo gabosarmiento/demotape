@@ -534,6 +534,35 @@ if let i = args.firstIndex(of: "--tighten"), args.count > i + 1 {
     }
 }
 
+// Encode a captured FRAME SEQUENCE into a raw .mov that the rest of the pipeline treats as an ordinary
+// recording. This is what makes the agentic path work with NO Screen Recording permission: an agent
+// captures the browser over the DevTools protocol (JPEG frames), writes the matching events.json from
+// the actions it performed, and then --render styles it exactly as if the screen recorder had produced
+// it. Frames are the interchange because AVFoundation cannot decode Playwright's own WebM/VP8 output.
+//   DemoTape --encode-frames <manifest.json> [out.mov]
+// Manifest: { width, height, fps, frames: [ { path, t } ] } — see FrameSequence.
+if let i = args.firstIndex(of: "--encode-frames"), args.count > i + 1 {
+    let manifestURL = URL(fileURLWithPath: args[i + 1])
+    let out = args.count > i + 2 && !args[i + 2].hasPrefix("--")
+        ? URL(fileURLWithPath: args[i + 2])
+        : manifestURL.deletingPathExtension().appendingPathExtension("mov")
+    do {
+        let data = try Data(contentsOf: manifestURL)
+        let sequence = try JSONDecoder().decode(FrameSequence.self, from: data)
+        let result = try FrameEncoder().encode(sequence: sequence,
+                                               directory: manifestURL.deletingLastPathComponent(),
+                                               to: out) { p in
+            FileHandle.standardError.write("encoding: \(Int(p * 100))%\r".data(using: .utf8)!)
+        }
+        print("encoded: \(out.path)  (\(Int(result.size.width))x\(Int(result.size.height)), " +
+              String(format: "%.2fs", result.duration) + ")")
+        exit(0)
+    } catch {
+        FileHandle.standardError.write("encode-frames error: \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
+
 // Headless vertical/social reframe. The styled render (smooth cursor, ripples, branding) framed for a
 // portrait/square target by a PLANNED camera: it crops the sides and fills the height, holds on a shot
 // instead of drifting, follows typed text like a text editor, routes long moves through an overview,
