@@ -269,9 +269,11 @@ captioned, all from prompts:
 
 ▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v7.0.0/demotape-demo.mp4)
 
-Or play it inline (committed to the repo, so it plays without leaving the page):
+<!-- INLINE PLAYER: paste a github.com/user-attachments/assets/<uuid> URL on its own line here.
+     Committed files (raw/blob URLs) do NOT embed — only attachment URLs do. Mint one by dragging
+     an mp4 into a NEW ISSUE comment box on github.com (issue uploads allow larger videos than the
+     README editor's ~25MB), copy the URL it inserts, then cancel the issue and paste it here. -->
 
-https://github.com/gabosarmiento/demotape/blob/main/media/demo-tight-480p.mp4
 
 <!--
   To play INLINE (like DeepFilterNet's README), GitHub needs an "attachment" URL, which is only
