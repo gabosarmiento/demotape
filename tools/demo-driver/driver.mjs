@@ -19,7 +19,8 @@
 import { chromium } from "playwright";
 import { execFile, execFileSync } from "node:child_process";
 import { caretOffsetInElement } from "./caret.mjs";
-import { readFileSync, writeFileSync, existsSync, appendFileSync, statSync, readdirSync, mkdirSync } from "node:fs";
+import { FramesCapture } from "./frames-capture.mjs";
+import { readFileSync, writeFileSync, existsSync, appendFileSync, statSync, readdirSync, mkdirSync, mkdtempSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -109,6 +110,14 @@ function osCursor(cfg, action, x, y, ms) {
   // Moves are ANIMATED (cursor/glide with a duration), not warped. A warp reads as a robot on
   // video and, worse, gives the eye nothing to follow between two points — the travel is what
   // carries attention. The easing/arc/overshoot is done inside the app, so one URL per move.
+  // Frames backend: there is no screen and no app, so the pointer is not moved — it is *recorded*,
+  // and the renderer draws it afterwards from these samples. Same coordinates either way, because in
+  // headless Chromium screen and viewport coordinates coincide.
+  if (framesCapture) {
+    if (action === "click") framesCapture.click(x, y);
+    else return framesCapture.glideTo(x, y, ms > 0 ? ms : 1);
+    return;
+  }
   const glide = action === "move" && ms > 0;
   const url = glide
     ? `demotape://cursor/glide?x=${Math.round(x)}&y=${Math.round(y)}&ms=${Math.round(ms)}`
@@ -116,6 +125,14 @@ function osCursor(cfg, action, x, y, ms) {
   try { execFileSync("/usr/bin/open", [url]); }
   catch (e) { log("cursor failed:", e.message); }
 }
+
+/**
+ * The active frame-based capture, when running without Screen Recording permission (`"capture":
+ * "frames"`). Module-level because the cursor and typing helpers are called from deep inside step
+ * handling, and threading a recorder through every signature would touch far more code than the two
+ * places that actually differ.
+ */
+let framesCapture = null;
 
 /**
  * Screen point for an element. `fx` is the fraction across its width (0.5 = centre).
@@ -598,6 +615,21 @@ async function humanType(page, cfg, step) {
     return { x: box0.left + 6 + off.dx, y: box0.top + off.dy };
   };
 
+  // Frames backend: log a key per character with the caret where it actually is. Better than the
+  // heartbeat the native path needs — there we can only report *activity* to a separate process, here
+  // we own the sidecar, so every keystroke is recorded exactly when it happens.
+  if (framesCapture) {
+    for (const ch of text) {
+      await page.keyboard.type(ch);
+      framesCapture.key(ch, await caretPoint());
+      let d = base * (0.6 + Math.random() * 0.9);
+      if (".?!".includes(ch)) d += base * 6;
+      else if (",;:—".includes(ch)) d += base * 3;
+      await sleep(d);
+    }
+    return;
+  }
+
   let heartbeat = null;
   if (cfg.osType && !step.browserType) {
     const cps = 1000 / base;
@@ -642,7 +674,16 @@ async function runStep(page, step, cfg) {
     case "click": {
       const before = page.url();
       let c = await moveCursorToSelector(page, cfg, step.selector);
-      if (cfg.osClick && c) {
+      if (framesCapture) {
+        // In the frames backend nothing is clicked at the OS level — `osCursor` only *records* where
+        // the click happened, so the zoom lands there. The browser therefore has to do the acting, or
+        // the event is logged for a click that never occurred and the demo shows nothing happening.
+        if (c) {
+          c = await settleAimOnSelector(page, cfg, step.selector, c);
+          osCursor(cfg, "click", c.x, c.y);
+        }
+        await page.click(step.selector, { timeout: step.timeout ?? 8000 });
+      } else if (cfg.osClick && c) {
         c = await settleAimOnSelector(page, cfg, step.selector, c);
         osCursor(cfg, "click", c.x, c.y);
         // `mustAct: true` means this click has to DO something (follow a link, submit a form). An OS
@@ -735,15 +776,22 @@ async function runOnce(cfg, scenes) {
   // `userDataDir` reuses a PERSISTENT browser profile, which is what makes demos of authenticated
   // apps possible: sign in once beforehand and the session is already live, so no credentials are
   // typed on camera and no hosted login page (Clerk, Auth0, …) has to be automated mid-take.
+  // The frames backend captures the page over the DevTools protocol, so the browser can be headless:
+  // nothing needs to be visible on a screen, and the pointer is drawn later from recorded samples.
+  const useFrames = cfg.capture === "frames";
   let browser = null, context, page;
   if (cfg.userDataDir) {
     context = await chromium.launchPersistentContext(resolve(cfg.userDataDir), {
-      headless: false, viewport: null, args,
+      headless: useFrames,
+      viewport: useFrames ? { width: Math.round(width), height: Math.round(height) } : null,
+      args,
     });
     page = context.pages()[0] || await context.newPage();
   } else {
-    browser = await chromium.launch({ headless: false, args });
-    context = await browser.newContext({ viewport: null });
+    browser = await chromium.launch({ headless: useFrames, args });
+    context = await browser.newContext({
+      viewport: useFrames ? { width: Math.round(width), height: Math.round(height) } : null,
+    });
     page = await context.newPage();
   }
   // Visit any prewarm URLs BEFORE recording starts. Hosted auth (Clerk, Auth0, …) bounces through a
@@ -767,10 +815,25 @@ async function runOnce(cfg, scenes) {
   // Full screen when asked. Cropping to the browser rectangle frames a slice of whatever desktop is
   // behind it, which reads as an accident; full screen also keeps the menu bar and tab strip in
   // shot, which matters when the demo switches between two tabs.
-  openURL(cfg.fullScreen
-    ? "demotape://record/start?countdown=0"
-    : `demotape://record/start?mode=area&x=${Math.round(x)}&y=${Math.round(y)}&w=${Math.round(width)}&h=${Math.round(height)}&countdown=0`);
-  await waitForState("recording");
+  let framesDir = null;
+  if (useFrames) {
+    // No app, no permission: capture the page itself and write the sidecar ourselves.
+    framesDir = mkdtempSync(join(tmpdir(), "demotape-frames-"));
+    framesCapture = new FramesCapture({
+      page,
+      viewport: { width: Math.round(width), height: Math.round(height) },
+      dir: framesDir,
+      fps: cfg.captureFps || 30,
+      quality: cfg.captureQuality || 80,
+      log: (...a) => log(...a),
+    });
+    await framesCapture.start();
+  } else {
+    openURL(cfg.fullScreen
+      ? "demotape://record/start?countdown=0"
+      : `demotape://record/start?mode=area&x=${Math.round(x)}&y=${Math.round(y)}&w=${Math.round(width)}&h=${Math.round(height)}&countdown=0`);
+    await waitForState("recording");
+  }
   const recordStart = Date.now();
 
   const clips = [];
@@ -834,12 +897,31 @@ async function runOnce(cfg, scenes) {
   }
 
   if (!aborted) await sleep(cfg.tailMs);   // tail so the final line is never clipped
-  openURL("demotape://record/stop");
-  // A persistent profile has no separate browser handle — close the context so the profile flushes.
-  await (browser ? browser.close() : context.close());
-  const done = await waitForState("idle", 15 * 60 * 1000);
-  const styled = done.lastOutput;
-  if (!styled) throw new Error("no output path reported by DemoTape");
+
+  let styled;
+  if (useFrames) {
+    const cap = await framesCapture.stop("capture");
+    framesCapture = null;
+    await (browser ? browser.close() : context.close());
+    if (!cap || !cap.frames) throw new Error("frames capture produced no frames");
+    // Encode the frames into a raw take, then style it through the very same renderer the screen
+    // recorder's output goes through — which is the whole point: nothing downstream knows the
+    // difference.
+    const raw = join(framesDir, "capture.mov");
+    log(execFileSync(cfg.demotapeBin, ["--encode-frames", cap.manifestPath, raw],
+                     { encoding: "utf8" }).trim());
+    styled = join(framesDir, "capture.styled.mp4");
+    log(execFileSync(cfg.demotapeBin, ["--render", raw, styled],
+                     { encoding: "utf8" }).trim());
+    log("rendered (frames backend):", styled);
+  } else {
+    openURL("demotape://record/stop");
+    // A persistent profile has no separate browser handle — close the context so the profile flushes.
+    await (browser ? browser.close() : context.close());
+    const done = await waitForState("idle", 15 * 60 * 1000);
+    styled = done.lastOutput;
+    if (!styled) throw new Error("no output path reported by DemoTape");
+  }
 
   if (aborted) {   // an assertion failed — skip voiceover/verify and let the caller retry fast
     return { styled, finalPath: styled, assertions, assertionsOk: false, verify: null, verifyOk: false, ok: false };

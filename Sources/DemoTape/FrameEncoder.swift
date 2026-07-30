@@ -43,7 +43,9 @@ final class FrameEncoder {
     @discardableResult
     func encode(sequence: FrameSequence, directory: URL, to outURL: URL,
                 progress: ((Double) -> Void)? = nil) throws -> (size: CGSize, duration: Double) {
-        let frames = sequence.resolve(relativeTo: directory)
+        // Lay the capture out at a constant rate, holding each image until the next arrives — a
+        // screencast only paints on change, and the renderer can't invent the frames in between.
+        let frames = sequence.heldTimeline(relativeTo: directory, rate: sequence.fps ?? 30)
         guard !frames.isEmpty else { throw EncodeError.noFrames }
 
         // Output size: the manifest's, else the first frame's. Even dimensions for H.264/yuv420p.
@@ -81,6 +83,8 @@ final class FrameEncoder {
         let timescale: CMTimeScale = 600
         let total = Double(frames.count)
         var encoded = 0
+        var lastURL: URL?
+        var lastImage: CGImage?
 
         for (i, frame) in frames.enumerated() {
             // Backpressure: the writer pulls, so wait rather than buffering the whole capture.
@@ -90,9 +94,19 @@ final class FrameEncoder {
             }
             if writer.status != .writing { break }
 
-            // A dropped/corrupt frame shouldn't abandon the whole take — hold the previous image by
-            // simply skipping this timestamp, and only fail if nothing at all could be encoded.
-            guard let image = try? loadImage(frame.url) else { continue }
+            // A held timeline repeats the same file many times over, so decoding once and reusing it
+            // is the difference between a few seconds and a minute of work.
+            let image: CGImage
+            if frame.url == lastURL, let cached = lastImage {
+                image = cached
+            } else {
+                // A dropped/corrupt frame shouldn't abandon the whole take — skip this timestamp, and
+                // only fail if nothing at all could be encoded.
+                guard let decoded = try? loadImage(frame.url) else { continue }
+                image = decoded
+                lastURL = frame.url
+                lastImage = decoded
+            }
             guard let pool = adaptor.pixelBufferPool else { continue }
             var buffer: CVPixelBuffer?
             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)

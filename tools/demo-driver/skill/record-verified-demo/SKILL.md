@@ -151,6 +151,35 @@ rendered text there instead: `expect: { visible: "text=…" }`.
   take, `keys[].x` in `.source/*.events.json` must **increase** across a typing run — a constant x
   means the measurement went blind again.
 
+### Recording without Screen Recording permission (`"capture": "frames"`)
+
+The default path asks the running DemoTape to capture a screen rectangle, which needs the app open and
+two macOS grants. Set `"capture": "frames"` and the driver instead captures the page over the DevTools
+protocol and **writes the `events.json` sidecar itself** from the actions it performed — it knows every
+click coordinate, keystroke and caret position, because it caused them. `--encode-frames` turns the
+frames into a raw take and `--render` styles it, so auto-zoom, the synthetic cursor, captions,
+voiceover and reframe all behave identically. The browser runs headless; the pointer is *recorded*, not
+moved, and drawn afterwards.
+
+```jsonc
+"capture": "frames",     // no Screen Recording, no Accessibility, no running app
+"captureFps": 30,        // rate cap (the protocol emits a frame per paint)
+"captureQuality": 82     // JPEG quality
+```
+
+Use it for agent-driven web demos and one-command first runs. **Don't** use it when the demo needs the
+browser chrome, the desktop, a second app or the webcam — only the page viewport is captured, and JPEG
+costs some fidelity. `demo-frames-probe.json` exercises the whole path with no app, no network and no
+account.
+
+Two things this backend has to get right, both of which were bugs worth knowing about:
+- **A recorded click is not a click.** `osCursor` only logs where the click happened, so the browser
+  must also actually click, or the sidecar describes an action that never occurred.
+- **The video must run to the end of the capture, not to the last frame.** The protocol emits a frame
+  only when something repaints, and a demo's closing beat is a still result — so the last seconds
+  contained no frames and the ending was cut off, taking the final narration line's video with it. The
+  manifest carries the real `duration` and the encoder holds the final image out to it.
+
 ## 5. Rehearse headlessly
 
 **One command:** `node driver.mjs <config> --rehearse`. It runs every step and assertion in a

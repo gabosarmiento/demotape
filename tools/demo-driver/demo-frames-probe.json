@@ -1,0 +1,50 @@
+{
+  "//": "Proves the permission-free path end to end: capture the page over the DevTools protocol, write the events sidecar from the actions performed, encode the frames into a raw take, and style it through the same renderer the screen recorder's output goes through. No DemoTape app running, no Screen Recording grant, no Accessibility grant, no network, no account.",
+
+  "//why": "This is the one-command story. The native path needs the app installed and running with two permissions granted before anyone sees a video; that setup is most of the reason a first run takes ten minutes instead of one line. Here the browser is headless, the pointer is recorded rather than moved, and the renderer draws it afterwards from the samples.",
+
+  "//check": "Afterwards, in the temp capture folder: manifest.json lists the frames, capture.events.json must have a non-empty `clicks` array and `keys` with INCREASING x (the caret being followed), and capture.styled.mp4 should show the auto-zoom firing on the click. `--frame` a still around the click to look at it.",
+
+  "//limits": "Only the page viewport is captured — no browser chrome, no desktop, no webcam — and JPEG costs some fidelity. Use the native path for a demo of the whole screen.",
+
+  "capture": "frames",
+  "captureFps": 30,
+  "captureQuality": 82,
+
+  "url": "data:text/html,<html><body style='font:16px -apple-system;background:%23f6f7f9;margin:0'><div style='background:%23211e17;color:%23efe7d4;padding:18px 28px;font-weight:600'>Reports</div><div style='padding:28px'><p style='color:%236b7280'>Select rows, then export them.</p><div id='rows'></div><div id='composer' contenteditable='true' style='margin-top:22px;width:620px;min-height:48px;padding:14px 16px;font-size:16px;border:1px solid %23d7dae0;border-radius:8px;background:white'></div><button id='export' style='margin-top:18px;padding:12px 22px;font-size:15px;background:%23832b72;color:white;border:0;border-radius:8px;cursor:pointer'>Export CSV</button><p id='result' style='margin-top:18px;color:%23237a3a;font-weight:600'></p></div><script>const r=document.getElementById('rows');for(let i=1;i<=6;i++){const d=document.createElement('div');d.style.cssText='background:white;border:1px solid %23e7e9ee;border-radius:6px;padding:12px 16px;margin-bottom:8px;width:620px';d.textContent='Report row '+i;r.appendChild(d);}document.getElementById('export').onclick=()=>{document.getElementById('result').textContent='Exported 200 rows to CSV';};<\/script></body></html>",
+
+  "viewport": { "x": 0, "y": 0, "width": 1280, "height": 800 },
+
+  "moveMs": 500,
+  "typeMs": 55,
+  "stepPauseMs": 500,
+  "tailMs": 1200,
+  "verify": false,
+  "maxAttempts": 1,
+
+  "scenes": [
+    {
+      "say": "Here's the reports page, with a few rows to export.",
+      "steps": [
+        { "action": "waitFor", "selector": "#rows" },
+        { "action": "wait", "ms": 700 }
+      ],
+      "expect": { "visible": "text=Report row 1" }
+    },
+    {
+      "say": "I'll type a note in the composer, so the camera has to follow the caret.",
+      "steps": [
+        { "action": "type", "selector": "#composer", "text": "export the filtered rows and check the totals line up" }
+      ],
+      "expect": { "visible": "text=check the totals line up" }
+    },
+    {
+      "say": "Now I'll press Export, and the result appears below.",
+      "steps": [
+        { "action": "click", "selector": "#export" },
+        { "action": "wait", "ms": 900 }
+      ],
+      "expect": { "visible": "text=Exported 200 rows to CSV" }
+    }
+  ]
+}
