@@ -43,9 +43,16 @@ case "$mode" in
     # Kiro reads steering from .kiro/steering. Install the SKILL as an auto-included steering doc
     # so the agent picks it up in this workspace.
     dest="${REPO_ROOT}/.kiro/steering"
+    refs="${dest}/${SKILL_NAME}-references"
     mkdir -p "$dest"
     cp "${SRC_DIR}/SKILL.md" "${dest}/${SKILL_NAME}.md"
-    cp -R "${SRC_DIR}/references" "${dest}/${SKILL_NAME}-references" 2>/dev/null || true
+    # Replace the references directory rather than copying into it. `cp -R src dst` creates dst on the
+    # first run but nests src *inside* dst on every run after, which silently produced
+    # `…-references/references/…` — a second copy of every guide, so the agent loaded each one twice.
+    # Clearing first also drops guides that have since been renamed or removed.
+    rm -rf "$refs"
+    mkdir -p "$refs"
+    cp -R "${SRC_DIR}/references/." "${refs}/" 2>/dev/null || true
     echo "Installed skill → ${dest}/${SKILL_NAME}.md (+ references)"
     echo "Open this repo in Kiro and ask it to \"record a verified demo\"."
     ;;

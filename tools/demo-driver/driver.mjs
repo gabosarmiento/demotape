@@ -18,6 +18,7 @@
 
 import { chromium } from "playwright";
 import { execFile, execFileSync } from "node:child_process";
+import { caretOffsetInElement } from "./caret.mjs";
 import { readFileSync, writeFileSync, existsSync, appendFileSync, statSync, readdirSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
@@ -581,17 +582,20 @@ async function humanType(page, cfg, step) {
   const box0 = await elementBox(page, step.selector);
   const caretPoint = async () => {
     if (!box0) return null;
-    // Measure the rendered width of the text so far, in the field's own font.
-    const w = await page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return 0;
-      const cs = getComputedStyle(el);
-      const c = document.createElement("canvas").getContext("2d");
-      c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-      const padLeft = parseFloat(cs.paddingLeft) || 0;
-      return Math.min(c.measureText(el.value || "").width + padLeft, el.clientWidth - 8);
-    }, step.selector).catch(() => 0);
-    return { x: box0.left + 6 + w, y: box0.top + box0.height / 2 };
+    // Where the caret actually is, as an offset from the element's own top-left.
+    //
+    // This has to handle two completely different kinds of field, and getting it wrong is silent.
+    // `el.value` is undefined on a contenteditable div — which is what most chat composers and rich
+    // editors use — so measuring `el.value` reported a width of zero for every keystroke and the
+    // caret pinned to the field's left edge for the whole run. The camera then held on the start of
+    // the field while the sentence grew away to the right, out of a zoomed frame.
+    //
+    // So: real inputs are measured from their selection offset, and everything else is measured from
+    // the selection's own client rect, which is exact and follows wrapped lines for free.
+    const off = await page.evaluate(caretOffsetInElement, step.selector).catch(() => null);
+
+    if (!off) return { x: box0.left + 6, y: box0.top + box0.height / 2 };
+    return { x: box0.left + 6 + off.dx, y: box0.top + off.dy };
   };
 
   let heartbeat = null;

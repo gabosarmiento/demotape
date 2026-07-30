@@ -1,9 +1,11 @@
 {
-  "//": "Self-contained check that typing looks and records correctly — no app, no network, no account. It loads an inline page with a single input, types into it, and asserts the field really received the text. Run it after changing anything about input handling.",
+  "//": "Self-contained check that typing looks and records correctly — no app, no network, no account. It loads an inline page with a plain input AND a contenteditable composer, types into both, and asserts each really received the text. Run it after changing anything about input handling.",
 
-  "//why": "Two things must hold in the recording. The text must appear character by character (not materialise in one frame), and DemoTape's zoom must HOLD on the field for the whole sentence. The zoom is driven by clicks and keys, so the driver clicks near the left of the field (where the caret is) and reports typing activity while the browser enters the text. Afterwards, check the recording's .source/*.events.json: `clicks` should be 1 and `keys` should be roughly the character count.",
+  "//why": "Two things must hold in the recording. The text must appear character by character (not materialise in one frame), and DemoTape's zoom must HOLD on the field and FOLLOW the caret for the whole sentence. The zoom is driven by clicks and keys, so the driver clicks near the left of the field (where the caret is) and reports typing activity — with the caret's position — while the browser enters the text. Afterwards, check the recording's .source/*.events.json: `clicks` should be 2, `keys` roughly the character count, and the `keys[].x` values must INCREASE across each run. A constant x means the caret measurement is blind again.",
 
-  "url": "data:text/html,<html><body style='font:16px -apple-system;background:%23f6f7f9;padding:80px'><h1 style='font-size:20px'>Typing probe</h1><p style='color:%236b7280'>The field below should fill in character by character, with the camera held on it.</p><input id='input' style='width:640px;padding:14px 16px;font-size:16px;border:1px solid %23d7dae0;border-radius:8px' placeholder='Type here…'></body></html>",
+  "//contenteditable": "The second scene is the regression that mattered. A contenteditable div has no `.value`, so measuring `el.value` reported a caret offset of zero for every keystroke: the recording passed every assertion while the camera sat on the left edge of the field and the sentence grew away out of frame. Most real chat composers are contenteditable, so this case is the norm, not an edge. See caret.mjs and test-caret.mjs.",
+
+  "url": "data:text/html,<html><body style='font:16px -apple-system;background:%23f6f7f9;padding:60px'><h1 style='font-size:20px'>Typing probe</h1><p style='color:%236b7280'>Both fields below should fill in character by character, with the camera held on the field and tracking the caret.</p><input id='input' style='width:640px;padding:14px 16px;font-size:16px;border:1px solid %23d7dae0;border-radius:8px' placeholder='Plain input…'><p style='color:%236b7280;margin-top:28px'>A contenteditable composer, like most chat inputs:</p><div id='composer' contenteditable='true' style='width:640px;min-height:52px;padding:14px 16px;font-size:16px;border:1px solid %23d7dae0;border-radius:8px;background:white'></div></body></html>",
 
   "fullScreen": true,
   "viewport": { "x": 60, "y": 60, "width": 1340, "height": 840 },
@@ -17,13 +19,22 @@
 
   "scenes": [
     {
-      "say": "Checking that the typing lands in the field, and that the camera stays on it.",
+      "say": "First, a plain input — the typing should land in the field, and the camera should track the caret.",
       "steps": [
         { "action": "waitFor", "selector": "#input" },
         { "action": "type", "selector": "#input", "text": "the data looks corrupt, so drop the database for checkout-api and let it recreate itself from the last snapshot" },
-        { "action": "wait", "ms": 1500 }
+        { "action": "wait", "ms": 1200 }
       ],
       "expect": { "value": { "selector": "#input", "is": "the data looks corrupt, so drop the database for checkout-api and let it recreate itself from the last snapshot" } }
+    },
+    {
+      "say": "Now a contenteditable composer, the kind most chat inputs use — the caret has to be followed here too.",
+      "steps": [
+        { "action": "waitFor", "selector": "#composer" },
+        { "action": "type", "selector": "#composer", "text": "summarise the incident and tell me which service started failing first" },
+        { "action": "wait", "ms": 1200 }
+      ],
+      "expect": { "visible": "text=which service started failing first" }
     }
   ]
 }

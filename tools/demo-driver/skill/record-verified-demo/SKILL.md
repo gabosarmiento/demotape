@@ -138,7 +138,18 @@ Two things are handled for you, and both are worth knowing because they were bug
   clicking the middle of a wide input frames an empty box and the sentence grows off the left edge.
 
 Assert typed text with `expect: { value: { selector, is } }` — `text=` matches rendered text and
-cannot see an input's value.
+cannot see an input's value. A **contenteditable** composer has no value to read, so assert the
+rendered text there instead: `expect: { visible: "text=…" }`.
+
+- **The caret is measured, not assumed** (`caret.mjs`). An `<input>`/`<textarea>` exposes `.value` and
+  `.selectionStart`; a `contenteditable` div — what most chat composers actually are — exposes
+  **neither**, so measuring `el.value` there reported a caret offset of zero on every keystroke. The
+  take still passed every assertion and the vision gate; the only symptom was the camera holding on the
+  left edge of the field while the sentence grew away out of frame. Check both paths with no app, no
+  network and no permission: `node test-caret.mjs`, and
+  `node driver.mjs demo-typing-probe.json --rehearse` (which covers both field types). After a real
+  take, `keys[].x` in `.source/*.events.json` must **increase** across a typing run — a constant x
+  means the measurement went blind again.
 
 ## 5. Rehearse headlessly
 
