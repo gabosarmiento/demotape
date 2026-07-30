@@ -128,6 +128,34 @@ dotnet run --project src/App/DemoTape.App.csproj -- --transcode "C:\path\styled.
 dotnet run --project src/App/DemoTape.App.csproj -- --publish "C:\path\styled.mp4" 360,540,720
 ```
 
+## Agentic control surface (`demotape://`) — drive a hands-off demo
+
+Parity with the macOS control surface: a **running** DemoTape registers the `demotape://` URL scheme
+and publishes its state to a pollable status file, so an external orchestrator (e.g. the Playwright
+[`tools/demo-driver`](../../tools/demo-driver/)) can record a demo end-to-end without touching the UI:
+**start a screen rectangle → drive the app → stop → collect the finished video.**
+
+- `demotape://record/start?countdown=0` — full screen, begin immediately.
+- `demotape://record/start?mode=area&x=&y=&w=&h=&countdown=0` — record a pixel rectangle.
+- `demotape://record/start?nx=&ny=&nw=&nh=` — a normalized (0…1) rectangle.
+- `demotape://record/start?mic=1&webcam=0` — override input toggles for this take.
+- `demotape://record/stop` — stop; DemoTape auto-renders the styled `.mp4`.
+
+Status is written atomically to `%USERPROFILE%\Videos\DemoTape\.demotape\control.json` (the Windows
+analogue of `~/Movies/DemoTape/.demotape/control.json`):
+
+```jsonc
+{ "state": "idle|countdown|recording|rendering", "recording": false, "lastOutput": "<path>" }
+```
+
+Loop: fire `start` → poll `state:"recording"` → drive → `stop` → poll `state:"idle"` → read
+`lastOutput`. From a shell you can open a URL with `Start-Process "demotape://record/stop"`.
+
+> The full command grammar (`cursor`, `type`, `typing`, `cursor/path`, `ui/open|click|find|dump`) is
+> **parsed** on Windows (`DemoControl`, unit-tested), and `record/start|stop` is **wired** to the
+> recorder. The pointer/keyboard/UI-automation gestures (`SendInput` / UI Automation) are the next
+> follow-up; `--encode-frames` (record with no capture permission) is planned alongside them.
+
 ## Capture & render pipeline (second vertical slice)
 
 The recording pipeline is implemented in `src/App/Infrastructure`:
