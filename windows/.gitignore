@@ -12,6 +12,7 @@ ARM64/
 
 ## Publish output
 publish/
+dist/
 *.appx
 *.msix
 *.appxbundle

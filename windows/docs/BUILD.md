@@ -1,5 +1,36 @@
 # Building & running DemoTape for Windows
 
+## Agent-assisted setup for a tester (one command)
+
+The fastest way to install DemoTape on a tester's own Windows 11 machine — the Windows counterpart
+of the macOS "Agent-assisted setup for a tester" runbook in [`../../AGENTS.md`](../../AGENTS.md).
+It builds a **native-arch, self-contained** app (no runtime install), drops Desktop + Start Menu
+shortcuts, and can register it to open at login. Because nothing is downloaded and run, there's no
+SmartScreen/quarantine prompt; and Windows screen capture needs **no persistent permission grant**,
+so recording works right after install.
+
+**If you are the human tester**, paste this to your coding agent from inside a clone of the repo:
+
+> Set up and install DemoTape on my Windows machine by running `windows\setup.ps1`. Check each
+> precondition, tell me exactly when a manual step is needed (e.g. installing the Windows SDK), and
+> stop with a clear message if any step fails.
+
+**If you are the agent**, run:
+
+```powershell
+# From the repo root, in PowerShell:
+windows\setup.ps1                 # build + test + publish + shortcuts + launch
+windows\setup.ps1 -Startup        # also open DemoTape at login
+windows\setup.ps1 -NoLaunch       # install without launching
+```
+
+The script verifies the .NET 8 SDK, runs the unit-test gate, publishes to `windows\dist\DemoTape\`,
+and creates the shortcuts. If the WinUI app can't build because the **Windows 11 SDK** / Windows App
+SDK tooling is missing (an elevated GUI install an agent can't click), it stops with the exact
+install commands — see the prerequisites below — then you re-run it.
+
+To update later: `git pull`, then re-run the script.
+
 ## What builds where
 
 The Windows port is split so that **all business logic builds and tests with only the .NET SDK**,
