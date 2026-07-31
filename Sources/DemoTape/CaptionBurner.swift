@@ -338,14 +338,27 @@ final class CaptionBurner {
 
     // MARK: - Drawing
 
+    /// How much to shrink a caption block so it fits the frame's width.
+    ///
+    /// The ideal font size is derived from the video's HEIGHT, which is correct for a 16:9 screen
+    /// recording but overflows a portrait/square reframe: going 1440x900 -> 1080x1350 the height
+    /// grows (bigger font) while the usable width drops by 360px, so a two-word cue like
+    /// "RUNTIME CONNECTED" is drawn wider than the frame and centering it (`x = (W - blockW)/2`)
+    /// silently clips it off BOTH edges. Never returns > 1: captions are only ever shrunk to fit,
+    /// never inflated to fill.
+    static func widthFitScale(blockWidth: CGFloat, frameWidth: CGFloat,
+                              safeFraction: CGFloat = 0.94) -> CGFloat {
+        guard blockWidth > 0, frameWidth > 0, safeFraction > 0 else { return 1 }
+        let maxWidth = frameWidth * safeFraction
+        return blockWidth <= maxWidth ? 1 : maxWidth / blockWidth
+    }
+
+    /// Smallest font a fitted caption may shrink to, so an absurdly long cue degrades into small
+    /// text rather than into nothing legible at all.
+    static let minCaptionFontSize: CGFloat = 20
+
     private func drawBlock(words visible: [CaptionWord], style: CaptionStyle,
                            t: Double, videoSize: CGSize, maxWords: Int) -> (CGImage, CGSize)? {
-        let fontSize = max(20, videoSize.height * (style.animated ? 0.062 : 0.05) * style.fontScale)
-        let font = CTFontCreateWithName(style.fontName as CFString, fontSize, nil)
-        let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font)
-        let lineHeight = (ascent + descent) * 1.18
-        let padX = fontSize * 0.55, padY = fontSize * 0.34
-
         // Chunk visible words into lines.
         var lines: [[CaptionWord]] = []
         var i = 0
@@ -355,11 +368,35 @@ final class CaptionBurner {
         }
         guard !lines.isEmpty else { return nil }
 
-        // Build a CTLine per row and measure.
-        let ctLines: [CTLine] = lines.map { makeLine($0, style: style, font: font, t: t) }
-        let lineWidths = ctLines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }
-        let contentW = ceil(CGFloat(lineWidths.max() ?? 0))
-        let contentH = ceil(CGFloat(lines.count) * lineHeight)
+        // Lay the block out at a given font size and measure what it actually needs.
+        func layout(at fontSize: CGFloat)
+        -> (font: CTFont, ctLines: [CTLine], ascent: CGFloat, lineHeight: CGFloat,
+            padX: CGFloat, padY: CGFloat, contentW: CGFloat, contentH: CGFloat) {
+            let font = CTFontCreateWithName(style.fontName as CFString, fontSize, nil)
+            let ascent = CTFontGetAscent(font), descent = CTFontGetDescent(font)
+            let lineHeight = (ascent + descent) * 1.18
+            let ctLines = lines.map { makeLine($0, style: style, font: font, t: t) }
+            let widths = ctLines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }
+            return (font, ctLines, ascent, lineHeight,
+                    fontSize * 0.55, fontSize * 0.34,
+                    ceil(CGFloat(widths.max() ?? 0)), ceil(CGFloat(lines.count) * lineHeight))
+        }
+
+        let idealFontSize = max(Self.minCaptionFontSize,
+                                videoSize.height * (style.animated ? 0.062 : 0.05) * style.fontScale)
+        var laid = layout(at: idealFontSize)
+
+        // Shrink to fit the frame width if the block overflows. Text width is essentially linear in
+        // font size, so one corrective pass lands it; W is then taken from the RE-MEASURED block, so
+        // the drawn image is exact rather than predicted.
+        let scale = Self.widthFitScale(blockWidth: laid.contentW + laid.padX * 2,
+                                       frameWidth: videoSize.width)
+        if scale < 1 {
+            laid = layout(at: max(Self.minCaptionFontSize, idealFontSize * scale))
+        }
+
+        let (font, ctLines, ascent, lineHeight, padX, padY, contentW, contentH) = laid
+        let fontSize = CTFontGetSize(font)
         let W = max(2, contentW + padX * 2), H = max(2, contentH + padY * 2)
 
         guard let ctx = CGContext(data: nil, width: Int(W), height: Int(H), bitsPerComponent: 8,
