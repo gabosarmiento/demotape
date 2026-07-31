@@ -515,13 +515,13 @@ if let i = args.firstIndex(of: "--burn"), args.count > i + 1 {
     }
 }
 
-// Headless tighten:  DemoTape --tighten <video> [speed] [removeSilence 0|1]
-// Writes <name>.tight.mp4 (local; no network).
+// Headless tighten:
+//   DemoTape --tighten <video> --speed <x> [--remove-silence]   (preferred, unambiguous)
+//   DemoTape --tighten <video> [speed] [removeSilence 0|1]       (legacy positional)
+// Named --speed changes ONLY the speed; silence removal is opt-in. Writes <name>.tight.mp4 (local).
 if let i = args.firstIndex(of: "--tighten"), args.count > i + 1 {
     let video = URL(fileURLWithPath: args[i + 1])
-    var opts = Tightener.Options()
-    if args.count > i + 2, let s = Double(args[i + 2]) { opts.speed = s }
-    if args.count > i + 3 { opts.removeSilence = (args[i + 3] != "0") }
+    let opts = Tightener.parseOptions(Array(args[(i + 2)...]))
     let out = video.deletingPathExtension().deletingPathExtension().appendingPathExtension("tight.mp4")
     do {
         let s = try Tightener().tighten(video: video, options: opts, to: out)
