@@ -396,6 +396,9 @@ swift build -c release   # compile
 swift test              # 422 tests: pure logic, no GUI, no network
 ```
 
+Release history is in [`CHANGELOG.md`](CHANGELOG.md) and on the
+[Releases page](https://github.com/gabosarmiento/demotape/releases) (with downloadable DMGs).
+
 ## License
 
 MIT — see [LICENSE](LICENSE). A dependency-free implementation of its own; built by studying, not

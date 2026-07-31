@@ -125,6 +125,15 @@ agent output:
   any deliberate deviation from the hard constraints.
 - Reference the related issue if there is one (`Fixes #123`).
 
+## Changelog
+
+If your change is user-visible (a feature, a behavior change, a fix someone would notice, a
+removed option), add a line under the `## [Unreleased]` heading in [`CHANGELOG.md`](CHANGELOG.md),
+in the right group (Added / Changed / Fixed / Removed). Purely internal changes (refactors, test-only
+edits, CI) don't need an entry. Maintainers move the Unreleased entries under a version heading at
+release time — the per-release history there is generated from GitHub Releases, which stays the
+source for downloadable DMGs and checksums.
+
 ## Review process
 
 - A maintainer will review for: correctness, alignment with the hard constraints above, test
