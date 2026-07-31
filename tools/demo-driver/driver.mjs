@@ -30,6 +30,47 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTROL_JSON = join(homedir(), "Movies", "DemoTape", ".demotape", "control.json");
 const LOG_FILE = join(__dirname, "driver.log");
 
+// One shared, content-addressed narration cache for EVERY path that synthesizes speech.
+//
+// This used to be inconsistent, and it cost real credits: only `narrate` cached (per recording
+// folder), while the record path and `revoice` synthesized into tmpdir and threw the clips away.
+// So re-laying a demo's ORIGINAL narration — audio that was already paid for once — cost a full set
+// of TTS calls again, because nothing had kept it. Keying every path on (voice, text) in one shared
+// location means the record path's clips are still on disk when `revoice`/`narrate` want them, and a
+// translation pass only pays for the lines whose text actually changed.
+const NARRATION_CACHE = join(homedir(), "Movies", "DemoTape", ".narration-cache");
+
+function narrationKey(voiceId, text) {
+  return createHash("sha1").update(`${voiceId || ""}\n${text}`).digest("hex").slice(0, 16);
+}
+
+/// Synthesize `text` in `voiceId`, reusing a cached clip when one exists. Looks in the shared cache
+/// first, then any `extraDirs` (e.g. a recording's own `.narration-cache`, so clips cached by older
+/// versions still hit); on a miss it synthesizes into the shared cache. Returns { mp3, cached }.
+/// Throws on synthesis failure with stderr attached, so callers can detect an ElevenLabs quota stop.
+function synthesizeCached(bin, voiceId, text, extraDirs = []) {
+  const key = narrationKey(voiceId, text);
+  for (const dir of [NARRATION_CACHE, ...extraDirs]) {
+    const hit = join(dir, `${key}.mp3`);
+    if (existsSync(hit)) return { mp3: hit, cached: true };
+  }
+  mkdirSync(NARRATION_CACHE, { recursive: true });
+  const mp3 = join(NARRATION_CACHE, `${key}.mp3`);
+  const txt = join(tmpdir(), `dt-tts-${key}-${Date.now()}.txt`);
+  writeFileSync(txt, text, "utf8");
+  const args = ["--tts", txt, mp3];
+  if (voiceId) args.push(voiceId);
+  execFileSync(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
+  return { mp3, cached: false };
+}
+
+/// Read a `--flag value` pair from argv (returns undefined if absent). Used so `revoice`/`narrate`
+/// can target an explicit `--video <path>` instead of only ever finding `*.styled.mp4` in a folder.
+function argValue(flag) {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function log(...a) {
   const line = `[${new Date().toISOString()}] ${a.join(" ")}`;
@@ -999,19 +1040,25 @@ async function revoice(pathArg, voiceId) {
   let styled, dir;
   if (statSync(p).isDirectory()) { dir = p; styled = readdirSync(p).map((f) => join(p, f)).find((f) => f.endsWith(".styled.mp4")); }
   else { styled = p; dir = dirname(p); }
-  if (!styled || !existsSync(styled)) { log("no styled .mp4 found at", pathArg); process.exit(1); }
+  // Let the caller lay the voice onto a specific video (a reframe, a captioned cut) rather than only
+  // ever the folder's *.styled.mp4.
+  const videoOverride = argValue("--video");
+  if (videoOverride) { styled = resolve(videoOverride); dir = dirname(styled); }
+  if (!styled || !existsSync(styled)) { log("no video found at", videoOverride || pathArg); process.exit(1); }
   const tlPath = join(dir, "timeline.json");
   if (!existsSync(tlPath)) { log("no timeline.json beside the video — this demo predates timeline saving; re-run the driver instead."); process.exit(1); }
   const tl = JSON.parse(readFileSync(tlPath, "utf8"));
   log(`revoicing ${tl.scenes.length} scene(s) with voice ${voiceId}`);
   const clips = [];
+  let spoken = 0, reused = 0;
   for (const [i, sc] of tl.scenes.entries()) {
     const say = (sc.say || "").trim(); if (!say) continue;
-    const nf = join(tmpdir(), `dt-rv-${i}-${Date.now()}.txt`); writeFileSync(nf, say, "utf8");
-    const mp3 = join(tmpdir(), `dt-rv-${i}-${Date.now()}.mp3`);
-    try { execFileSync(bin, ["--tts", nf, mp3, voiceId], { stdio: "ignore" }); clips.push({ audio: mp3, at: sc.at }); }
-    catch (e) { log(`scene ${i} tts failed:`, e.message); }
+    try {
+      const { mp3, cached } = synthesizeCached(bin, voiceId, say, [join(dir, ".narration-cache")]);
+      clips.push({ audio: mp3, at: sc.at }); cached ? reused++ : spoken++;
+    } catch (e) { log(`scene ${i} tts failed:`, e.message); }
   }
+  log(`  synthesized ${spoken}, reused ${reused} from cache`);
   const spec = join(tmpdir(), `dt-rv-spec-${Date.now()}.json`); writeFileSync(spec, JSON.stringify({ clips }), "utf8");
   const out = execFileSync(bin, ["--voiceover-timeline", styled, spec], { encoding: "utf8" });
   const m = out.match(/voiceover:\s*(.+)/); const final = m ? m[1].trim() : styled;
@@ -1042,7 +1089,10 @@ async function narrate(pathArg, linesArg, voiceArg) {
   let styled, dir;
   if (statSync(p).isDirectory()) { dir = p; styled = readdirSync(p).map((f) => join(p, f)).find((f) => f.endsWith(".styled.mp4")); }
   else { styled = p; dir = dirname(p); }
-  if (!styled || !existsSync(styled)) { log("no styled .mp4 found at", pathArg); process.exit(1); }
+  // Narrate onto a specific video (a reframe, a captioned cut) instead of the folder's *.styled.mp4.
+  const videoOverride = argValue("--video");
+  if (videoOverride) { styled = resolve(videoOverride); dir = dirname(styled); }
+  if (!styled || !existsSync(styled)) { log("no video found at", videoOverride || pathArg); process.exit(1); }
 
   const tlPath = join(dir, "timeline.json");
   if (!existsSync(tlPath)) { log("no timeline.json beside the video — re-run the driver once to save one."); process.exit(1); }
@@ -1066,21 +1116,14 @@ async function narrate(pathArg, linesArg, voiceArg) {
   // read which lines ran long, shorten those, generate again — and without a cache every pass
   // re-synthesizes all fourteen lines to change two. Keyed on the text, so an edited line is the only
   // one that costs anything.
-  const cacheDir = join(dir, ".narration-cache");
-  mkdirSync(cacheDir, { recursive: true });
   const clips = [];
   let spoken = 0, reused = 0;
   for (const [i, sc] of scenes.entries()) {
     const say = (sc.say || "").trim(); if (!say) continue;
-    const key = createHash("sha1").update(`${voiceId}\n${say}`).digest("hex").slice(0, 16);
-    const mp3 = join(cacheDir, `${key}.mp3`);
-    if (existsSync(mp3)) { clips.push({ audio: mp3, at: sc.at }); reused++; continue; }
-    const txt = join(tmpdir(), `dt-${tag}-${i}-${Date.now()}.txt`);
-    writeFileSync(txt, say, "utf8");
     try {
-      execFileSync(bin, ["--tts", txt, mp3, voiceId], { stdio: "ignore" });
-      clips.push({ audio: mp3, at: sc.at });
-      spoken++;
+      // Shared cache, with the recording's own older per-folder cache as a fallback lookup.
+      const { mp3, cached } = synthesizeCached(bin, voiceId, say, [join(dir, ".narration-cache")]);
+      clips.push({ audio: mp3, at: sc.at }); cached ? reused++ : spoken++;
     } catch (e) { log(`scene ${i} tts failed:`, e.message); }
   }
   log(`  synthesized ${spoken}, reused ${reused} from cache`);
@@ -1207,14 +1250,13 @@ async function main() {
     for (const [idx, sc] of cfg.scenes.entries()) {
       const say = (sc.say || "").trim();
       if (!say) continue;
-      const nf = join(tmpdir(), `dt-scene-${idx}-${Date.now()}.txt`);
-      writeFileSync(nf, say, "utf8");
-      const mp3 = join(tmpdir(), `dt-scene-${idx}-${Date.now()}.mp3`);
-      const ttsArgs = ["--tts", nf, mp3]; if (cfg.voiceId) ttsArgs.push(cfg.voiceId);
       try {
-        // Capture stderr so the real API reason (e.g. ElevenLabs quota) is visible, not hidden.
-        execFileSync(cfg.demotapeBin, ttsArgs, { stdio: ["ignore", "ignore", "pipe"] });
-        sc.clip = mp3; sc.dur = measureDuration(mp3); log(`scene ${idx}: ${sc.dur.toFixed(1)}s`);
+        // Cache by (voice, text): reused across retry attempts AND later re-lays (revoice/narrate),
+        // so a demo's original narration is never paid for twice. stderr is captured so a real API
+        // reason (e.g. ElevenLabs quota) is visible below, not hidden.
+        const { mp3, cached } = synthesizeCached(cfg.demotapeBin, cfg.voiceId, say);
+        sc.clip = mp3; sc.dur = measureDuration(mp3);
+        log(`scene ${idx}: ${sc.dur.toFixed(1)}s${cached ? " (cached)" : ""}`);
       } catch (e) {
         const detail = ((e.stderr || "") + (e.message || "")).trim();
         log(`scene ${idx} tts failed: ${detail.split("\n")[0]}`);

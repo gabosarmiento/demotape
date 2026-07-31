@@ -57,4 +57,52 @@ final class TightenerTests: XCTestCase {
         XCTAssertEqual(keep.count, 1)
         XCTAssertEqual(keep[0].end, 5.0, accuracy: 1e-9)
     }
+
+    // MARK: - CLI option parsing
+
+    // The regression: named --speed must change ONLY the speed, leaving pauses intact. This is the
+    // case that previously required a bare positional `0` and silently cut silence without it.
+    func testNamedSpeedKeepsSilence() {
+        let o = Tightener.parseOptions(["--speed", "1.25"])
+        XCTAssertEqual(o.speed, 1.25, accuracy: 1e-9)
+        XCTAssertFalse(o.removeSilence, "named --speed alone must not remove silence")
+    }
+
+    func testNamedRemoveSilenceIsOptIn() {
+        let o = Tightener.parseOptions(["--speed", "1.25", "--remove-silence"])
+        XCTAssertEqual(o.speed, 1.25, accuracy: 1e-9)
+        XCTAssertTrue(o.removeSilence)
+    }
+
+    func testNamedKeepSilenceIsExplicitOff() {
+        let o = Tightener.parseOptions(["--keep-silence", "--speed", "2"])
+        XCTAssertEqual(o.speed, 2, accuracy: 1e-9)
+        XCTAssertFalse(o.removeSilence)
+    }
+
+    // Legacy positional form is preserved byte-for-byte so existing scripts don't change behavior.
+    func testLegacyPositionalDefaultsRemoveSilence() {
+        // `--tighten v 1.25` (no third token) keeps the old default: silence IS removed.
+        let o = Tightener.parseOptions(["1.25"])
+        XCTAssertEqual(o.speed, 1.25, accuracy: 1e-9)
+        XCTAssertTrue(o.removeSilence)
+    }
+
+    func testLegacyPositionalExplicitZeroKeepsSilence() {
+        let o = Tightener.parseOptions(["1.25", "0"])
+        XCTAssertEqual(o.speed, 1.25, accuracy: 1e-9)
+        XCTAssertFalse(o.removeSilence)
+    }
+
+    func testLegacyPositionalExplicitOneRemovesSilence() {
+        let o = Tightener.parseOptions(["1.25", "1"])
+        XCTAssertTrue(o.removeSilence)
+    }
+
+    // No tokens at all → the defaults (speed 1.0, silence removal on).
+    func testNoTokensAreDefaults() {
+        let o = Tightener.parseOptions([])
+        XCTAssertEqual(o.speed, 1.0, accuracy: 1e-9)
+        XCTAssertTrue(o.removeSilence)
+    }
 }

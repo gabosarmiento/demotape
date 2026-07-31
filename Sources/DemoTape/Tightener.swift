@@ -19,6 +19,37 @@ final class Tightener {
         var speed: Double = 1.0
     }
 
+    /// Parse the tokens that follow `--tighten <video>` into Options.
+    ///
+    /// Two forms, because the positional one is a footgun: `--tighten v 1.25` still removes silence
+    /// (Options.removeSilence defaults to true), and the only way to change speed ALONE was to know
+    /// to pass a bare `0` as a second positional — which is exactly the mistake that cut a user's
+    /// pauses when they'd only asked to speed the video up. So:
+    ///
+    ///   • Named form (preferred, unambiguous): `--speed <x>` sets speed; silence removal is OPT-IN
+    ///     via `--remove-silence` (and `--keep-silence` is explicit-off). `--tighten v --speed 1.25`
+    ///     therefore changes only the speed.
+    ///   • Legacy positional form: `[speed] [removeSilence 0|1]`, preserved byte-for-byte so existing
+    ///     scripts behave identically.
+    ///
+    /// `tokens` are the arguments AFTER the video path.
+    static func parseOptions(_ tokens: [String]) -> Options {
+        var opts = Options()
+        let named = tokens.contains("--speed")
+            || tokens.contains("--remove-silence")
+            || tokens.contains("--keep-silence")
+        if named {
+            if let i = tokens.firstIndex(of: "--speed"), i + 1 < tokens.count,
+               let v = Double(tokens[i + 1]) { opts.speed = v }
+            // Silence removal is opt-in in the named form; --keep-silence is redundant but explicit.
+            opts.removeSilence = tokens.contains("--remove-silence")
+        } else {
+            if tokens.count > 0, let s = Double(tokens[0]) { opts.speed = s }
+            if tokens.count > 1 { opts.removeSilence = (tokens[1] != "0") }
+        }
+        return opts
+    }
+
     enum TightenError: LocalizedError {
         case noVideoTrack, exportFailed(String), nothingToDo
         var errorDescription: String? {
