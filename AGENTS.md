@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Guidance for AI coding agents working on **DemoTape**. (Human contributors: see `README.md`.)
+Guidance for AI coding agents working on **DemoTape** — build, run, verify, troubleshoot.
+(For contribution process, PR standards, and review expectations, see `CONTRIBUTING.md`.)
 
 ## What this is
 
