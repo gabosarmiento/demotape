@@ -15,6 +15,10 @@ final class WebPublishController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var estimateLabel: NSTextField!
     private var exportButton: NSButton!
+    private var openFolderButton: NSButton!
+    /// The `<name>-web/` bundle produced by this session's export. nil until an export finishes;
+    /// drives both the header "Open Folder" button and which folder the carousel shows.
+    private var exportedFolder: URL?
     private var source: URL?
     private var duration: Double = 0
     private var selected: Set<Int> = []
@@ -38,7 +42,9 @@ final class WebPublishController: NSObject, NSWindowDelegate {
     private let H: CGFloat = 560
 
     func show() {
-        let styled = Self.latestStyled()
+        // Default to the current working file (the latest processed cut — voiceover/tight/captioned),
+        // not the raw styled master, so Web Export offers what the user actually finished.
+        let styled = RecordingLayout.latestSource() ?? Self.latestStyled()
         source = styled
         if let s = styled { duration = CMTimeGetSeconds(AVAsset(url: s).duration) }
         selected = Set(Settings.publishTiers.filter { Transcoder.tiers.contains($0) })
@@ -120,6 +126,11 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         content.addSubview(exportButton)
     }
 
+    @objc private func openExportedFolder() {
+        guard let folder = exportedFolder else { return }
+        NSWorkspace.shared.open(folder)
+    }
+
     // MARK: - Live progress (middle, hidden until export)
 
     private func buildProgressArea(in content: NSView) {
@@ -157,6 +168,14 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         header.frame = NSRect(x: 20, y: 190, width: 300, height: 20)
         content.addSubview(header)
 
+        // Reveal the exported bundle, aligned with the "In this folder" header. Hidden until an
+        // export finishes — before that there's no bundle to open, so a button would be noise.
+        openFolderButton = NSButton(title: "Open Folder", target: self, action: #selector(openExportedFolder))
+        openFolderButton.bezelStyle = .rounded
+        openFolderButton.frame = NSRect(x: W - 20 - 130, y: 185, width: 130, height: 28)
+        openFolderButton.isHidden = true
+        content.addSubview(openFolderButton)
+
         let hint = NSTextField(labelWithString: "Click a video to reveal it in Finder.")
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         hint.frame = NSRect(x: 20, y: 172, width: W - 40, height: 16)
@@ -169,7 +188,10 @@ final class WebPublishController: NSObject, NSWindowDelegate {
     }
 
     private func refreshCarousel() {
-        let folder = (source ?? Self.latestStyled())?.deletingLastPathComponent()
+        // After an export, show the files that were just generated (the `-web` bundle), so they're
+        // one click away — otherwise the source recording's folder.
+        let folder = exportedFolder
+            ?? (source ?? RecordingLayout.latestSource() ?? Self.latestStyled())?.deletingLastPathComponent()
             ?? RecordingLayout.recordingFolders().first
             ?? Paths.outputDirectory
         carousel?.setVideos(Self.videosIn(folder))
@@ -208,6 +230,8 @@ final class WebPublishController: NSObject, NSWindowDelegate {
         sourceLabel.stringValue = "Publish: \(url.lastPathComponent)"
         sourceLabel.toolTip = url.path
         exportButton.isEnabled = !exporting
+        exportedFolder = nil                 // new source: no export yet, hide the button and
+        openFolderButton?.isHidden = true    // show that source's own folder again
         updateEstimate(); refreshCarousel()
     }
 
@@ -276,6 +300,10 @@ final class WebPublishController: NSObject, NSWindowDelegate {
                 self.refreshCarousel()
                 if let folder = folder {
                     self.estimateLabel.stringValue = "Done — \(folder.lastPathComponent) is in this folder."
+                    self.exportedFolder = folder
+                    self.openFolderButton.isHidden = false
+                    self.openFolderButton.toolTip = folder.path
+                    self.refreshCarousel()      // now shows the generated web files, clickable
                 } else {
                     let a = NSAlert(); a.messageText = "Export failed"; a.runModal()
                 }

@@ -330,4 +330,27 @@ final class ReconcileWordsTests: XCTestCase {
         let out = Captions.reconcileCue(cue, nextStart: 10)
         XCTAssertNil(out.words)                          // synthesis still happens later, in the burner
     }
+
+    // The regression: editing a cue's text updates `text` but not `words`. When the word COUNT is
+    // unchanged (a typo fix like "Kif" -> "Kiff"), reconcile must re-take each word's text from the
+    // edited text, or word-by-word styles burn in the stale per-word text.
+    func testEditedTextResyncsWordsWhenCountUnchanged() {
+        let timed = [CaptionWord(text: "Kif",   start: 0.0, end: 0.4),
+                     CaptionWord(text: "starts", start: 0.4, end: 0.9)]
+        let cue = CaptionCue(start: 0, end: 1.0, text: "Kiff starts", words: timed)  // text fixed, words stale
+        let out = Captions.reconcileCue(cue, nextStart: 5.0)
+        XCTAssertEqual(out.words?.map { $0.text }, ["Kiff", "starts"], "word text must follow the edit")
+        // Timings are preserved.
+        XCTAssertEqual(out.words?.first?.start ?? -1, 0.0, accuracy: 1e-9)
+        XCTAssertEqual(out.words?.first?.end ?? -1, 0.4, accuracy: 1e-9)
+    }
+
+    // Shortening a line (fewer tokens than timings) must drop the leftover word, not keep rendering it.
+    func testShortenedEditDropsLeftoverWords() {
+        let timed = [CaptionWord(text: "hello", start: 0.0, end: 0.4),
+                     CaptionWord(text: "world", start: 0.4, end: 0.9)]
+        let cue = CaptionCue(start: 0, end: 1.0, text: "hello", words: timed)  // "world" removed
+        let out = Captions.reconcileCue(cue, nextStart: 5.0)
+        XCTAssertEqual(out.words?.map { $0.text }, ["hello"])
+    }
 }

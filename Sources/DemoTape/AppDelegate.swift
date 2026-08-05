@@ -1521,7 +1521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var autoCutController: AutoCutActionController?
     @objc private func openTighten() {
-        guard let video = latestRecording() else {
+        guard let video = RecordingLayout.latestSource() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record something first — this trims/speeds up your latest recording.")
             return
@@ -1557,7 +1557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if alert.runModal() == .alertFirstButtonReturn { openAISettings() }
             return
         }
-        guard let video = latestRecording() else {
+        guard let video = RecordingLayout.latestSource() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record something first — voiceover runs on your latest recording.")
             return
@@ -1576,7 +1576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var captionsActionController: CaptionsActionController?
     @objc private func generateCaptions() {
-        guard let video = latestRecording() else {
+        guard let video = RecordingLayout.latestSource() else {
             presentPermissionHelp(title: "No recording found",
                                   message: "Record something first — captions run on your latest recording.")
             return

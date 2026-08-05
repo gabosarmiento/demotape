@@ -149,4 +149,21 @@ enum RecordingLayout {
 
     /// Newest playable recording (prefers a styled export, else the raw screen capture).
     static func latestRecording() -> URL? { latestFinal(suffix: ".styled.mp4") ?? latestRaw() }
+
+    /// Playable derivative suffixes, most-processed first, used to resolve the current working file.
+    /// Suffix matching (`hasSuffix`) also catches stacked names — `.tight.mp4` matches
+    /// `…​.reframe.tight.mp4`, `.captioned.mp4` matches `…​.reframe.captioned.mp4`.
+    static let derivativeSuffixes = [".captioned.mp4", ".tight.mp4", ".voiceover.mp4",
+                                     ".reframe.mp4", ".avatar.mp4", ".styled.mp4"]
+
+    /// The **current working file**: the most recently MODIFIED playable output across every
+    /// recording folder. Each edit — voiceover, tighten, captions, reframe — writes a new file, so
+    /// the newest-modified one is whatever the user just produced. The Voiceover, Captions and
+    /// Tighten windows, and Web Export, default to THIS rather than the raw styled recording — so the
+    /// pipeline chains (voiceover → tighten → captions, in any order) without re-picking the source
+    /// each time, and Web Export offers the fully-processed cut. Falls back to the raw take.
+    static func latestSource() -> URL? {
+        let candidates = derivativeSuffixes.compactMap { latestFinal(suffix: $0) }
+        return candidates.max { modified($0) < modified($1) } ?? latestRaw()
+    }
 }
