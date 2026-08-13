@@ -35,8 +35,9 @@
             <SolidColorBrush x:Key="BrandStripe2"   Color="{StaticResource BrandStripe2Color}" />
             <SolidColorBrush x:Key="BrandStripe3"   Color="{StaticResource BrandStripe3Color}" />
 
-            <!-- Override WinUI 3 accent so Fluent controls pick up the purple automatically. -->
-            <Color x:Key="SystemAccentColor">#7C3AED</Color>
+            <!-- Accent brush overrides for Fluent controls (purple) -->
+            <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="#7C3AED" />
+            <SolidColorBrush x:Key="SystemControlForegroundAccentBrush" Color="#7C3AED" />
         </ResourceDictionary>
 
         <!-- ===== DARK ===== -->
@@ -61,8 +62,9 @@
             <SolidColorBrush x:Key="BrandStripe2"   Color="{StaticResource BrandStripe2Color}" />
             <SolidColorBrush x:Key="BrandStripe3"   Color="{StaticResource BrandStripe3Color}" />
 
-            <!-- Override WinUI 3 accent so Fluent controls pick up the purple automatically. -->
-            <Color x:Key="SystemAccentColor">#9D5CF5</Color>
+            <!-- Accent brush overrides for Fluent controls (purple) -->
+            <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="#9D5CF5" />
+            <SolidColorBrush x:Key="SystemControlForegroundAccentBrush" Color="#9D5CF5" />
         </ResourceDictionary>
 
     </ResourceDictionary.ThemeDictionaries>
