@@ -173,10 +173,17 @@ final class Captions {
         // that HAVE timings but are missing their tail need repair here.
         guard !tokens.isEmpty, !timed.isEmpty else { return cue }
 
-        // Timing already covers every token: keep it, only make sure the cue lasts as long as its words.
+        // Timing already covers every token. Re-sync each word's TEXT from the (possibly edited) cue
+        // text, keeping its timing. Editing a cue in the Subtitles tab updates `cue.text` but not
+        // `cue.words`; without this re-sync, word-by-word styles keep rendering the stale per-word
+        // text — e.g. a line fixed from "Kif" to "Kiff" still burned in as "Kif". Extra timings past
+        // the (now shorter) token list are dropped so a shortened edit doesn't render leftover words.
         if timed.count >= tokens.count {
-            let end = min(max(cue.end, timed.last?.end ?? cue.end), nextStart)
-            return CaptionCue(start: cue.start, end: end, text: cue.text, words: cue.words)
+            let words = (0..<tokens.count).map {
+                CaptionWord(text: tokens[$0], start: timed[$0].start, end: timed[$0].end)
+            }
+            let end = min(max(cue.end, words.last?.end ?? cue.end), nextStart)
+            return CaptionCue(start: cue.start, end: end, text: cue.text, words: words)
         }
 
         // Incomplete. Leading tokens keep their timing (text taken from the segment so it's exact);
