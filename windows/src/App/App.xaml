@@ -7,9 +7,31 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <!-- VHS-inspired palette: dark matte + purple accent + Record red. -->
-                <ResourceDictionary Source="ms-appx:///DemoTape.App/UI/Themes/DemoTapeTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- VHS-inspired palette: dark matte + purple accent + Record red. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="AppBackgroundColor">#F5F5F5</Color>
+                    <Color x:Key="AppSurfaceColor">#EBEBEB</Color>
+                    <Color x:Key="AppAccentColor">#7C3AED</Color>
+                    <Color x:Key="RecordRedColor">#EF4444</Color>
+                    <SolidColorBrush x:Key="AppBackground" Color="{StaticResource AppBackgroundColor}" />
+                    <SolidColorBrush x:Key="AppSurface"    Color="{StaticResource AppSurfaceColor}" />
+                    <SolidColorBrush x:Key="AppAccent"     Color="{StaticResource AppAccentColor}" />
+                    <SolidColorBrush x:Key="RecordRed"     Color="{StaticResource RecordRedColor}" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <Color x:Key="AppBackgroundColor">#1C1C1C</Color>
+                    <Color x:Key="AppSurfaceColor">#262626</Color>
+                    <Color x:Key="AppAccentColor">#9D5CF5</Color>
+                    <Color x:Key="RecordRedColor">#EF4444</Color>
+                    <SolidColorBrush x:Key="AppBackground" Color="{StaticResource AppBackgroundColor}" />
+                    <SolidColorBrush x:Key="AppSurface"    Color="{StaticResource AppSurfaceColor}" />
+                    <SolidColorBrush x:Key="AppAccent"     Color="{StaticResource AppAccentColor}" />
+                    <SolidColorBrush x:Key="RecordRed"     Color="{StaticResource RecordRedColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
