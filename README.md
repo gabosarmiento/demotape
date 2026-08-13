@@ -269,6 +269,12 @@ captioned, all from prompts:
 
 ▶ [**Watch the 2-minute demo**](https://github.com/gabosarmiento/demotape/releases/download/v7.0.0/demotape-demo.mp4)
 
+**DemoTape in the wild:** Every video in the
+[KIFF demo gallery](https://kiff.dev/videos) — from real agent workflows to short product
+walkthroughs — was recorded and produced with DemoTape.
+
+→ [**Watch more real-world demos**](https://kiff.dev/videos)
+
 <!-- INLINE PLAYER: paste a github.com/user-attachments/assets/<uuid> URL on its own line here.
      Committed files (raw/blob URLs) do NOT embed — only attachment URLs do. Mint one by dragging
      an mp4 into a NEW ISSUE comment box on github.com (issue uploads allow larger videos than the
