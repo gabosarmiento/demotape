@@ -58,6 +58,11 @@
 
         <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <ProgressRing IsActive="{Binding IsExporting}" Width="20" Height="20" />
+            <!-- Open Folder — appears in the "In this folder" area after export completes -->
+            <Button Content="Open Folder"
+                    Command="{Binding OpenFolderCommand}"
+                    Visibility="{Binding IsFolderReady, Converter={StaticResource BoolToVis}}"
+                    ToolTipService.ToolTip="Open the output folder in Explorer" />
             <Button Content="Export" Style="{ThemeResource AccentButtonStyle}"
                     Command="{Binding ExportCommand}" />
         </StackPanel>

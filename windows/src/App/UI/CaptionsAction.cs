@@ -95,18 +95,12 @@ public sealed class CaptionsAction
 
     private static string Join(IReadOnlyList<CaptionCue> cues) => string.Join("\n", cues.Select(c => c.Text));
 
-    /// <summary>Maps edited lines back onto the cues' timings by index (keeps original timing).</summary>
+    /// <summary>
+    /// Maps edited lines back onto the cues' timings by index.
+    /// Delegates to <see cref="CaptionEditor.ApplyEdits"/> (Domain layer, unit-testable).
+    /// </summary>
     private static List<CaptionCue> ApplyEdits(IReadOnlyList<CaptionCue> original, string edited)
-    {
-        var lines = edited.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
-        var result = new List<CaptionCue>();
-        for (int i = 0; i < lines.Count; i++)
-        {
-            if (i < original.Count) result.Add(original[i] with { Text = lines[i] });
-            else result.Add(new CaptionCue(0, 0, lines[i]));
-        }
-        return result;
-    }
+        => DemoTape.Domain.Ai.CaptionEditor.ApplyEdits(original, edited);
 
     private void WriteSidecars(string video, IReadOnlyList<CaptionCue> cues)
     {

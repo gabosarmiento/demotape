@@ -40,6 +40,8 @@ public sealed partial class ControlBarWindow : Window
         var s = settings.Load();
         MicBtn.IsChecked = s.CaptureMicrophone;
         CamBtn.IsChecked = s.CaptureWebcam;
+        LockBtn.IsChecked = s.AreaLocked;
+        SyncLockVisual(s.AreaLocked);
         SyncToggleVisual(MicBtn, MicIcon, MicStrike);
         SyncToggleVisual(CamBtn, CamIcon, CamStrike);
 
@@ -106,6 +108,27 @@ public sealed partial class ControlBarWindow : Window
         selectArea.Click += async (_, _) => await _controller.ArmRegionAsync();
         menu.Items.Add(fullScreen);
         menu.Items.Add(selectArea);
+
+        // Area Presets — snap the saved region to a standard size (centered on the current position).
+        var presetsMenu = new MenuFlyoutSubItem { Text = "Area Presets" };
+        foreach (var preset in DemoTape.Domain.AreaPreset.All)
+        {
+            var p = preset; // capture for lambda
+            var item = new MenuFlyoutItem { Text = p.Name };
+            item.Click += (_, _) =>
+            {
+                var s = _settings.Load();
+                int sw = GetSystemMetrics(0), sh = GetSystemMetrics(1);
+                double cx = s.UseRegion ? (s.RegionX + s.RegionW / 2) : 0.5;
+                double cy = s.UseRegion ? (s.RegionY + s.RegionH / 2) : 0.5;
+                var (x, y, w, h) = p.CenteredRect(cx, cy, sw, sh);
+                s.RegionX = x; s.RegionY = y; s.RegionW = w; s.RegionH = h;
+                s.UseRegion = true;
+                _settings.Save(s);
+            };
+            presetsMenu.Items.Add(item);
+        }
+        menu.Items.Add(presetsMenu);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         // Background (opens the picker window).
@@ -243,6 +266,27 @@ public sealed partial class ControlBarWindow : Window
         SyncToggleVisual(CamBtn, CamIcon, CamStrike);
     }
 
+    private void OnToggleLock(object sender, RoutedEventArgs e)
+    {
+        bool locked = LockBtn.IsChecked == true;
+        var s = _settings.Load();
+        s.AreaLocked = locked;
+        _settings.Save(s);
+        SyncLockVisual(locked);
+        // If the recording controller is backed by WindowsRecordingController, propagate the lock
+        // to any active region selector overlay so the frame immediately reflects the new state.
+        (_controller as Infrastructure.WindowsRecordingController)?.SetAreaLocked(locked);
+    }
+
+    private void SyncLockVisual(bool locked)
+    {
+        // E785 = Lock (closed padlock), E786 = Unlock (open padlock).
+        LockIcon.Glyph = locked ? "" : "";
+        LockIcon.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            locked ? ColorHelper.FromArgb(0xFF, 0xFF, 0xB3, 0x00)  // amber when locked
+                   : ColorHelper.FromArgb(0xFF, 0x6A, 0x6A, 0x6E)); // muted when unlocked
+    }
+
     // Same icon in both states; a diagonal strike + gray indicates "disabled" (white = enabled).
     private static void SyncToggleVisual(Microsoft.UI.Xaml.Controls.Primitives.ToggleButton btn,
         Microsoft.UI.Xaml.Controls.FontIcon icon, Microsoft.UI.Xaml.Shapes.Line strike)
@@ -260,4 +304,5 @@ public sealed partial class ControlBarWindow : Window
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+    [DllImport("user32.dll")] private static extern int GetSystemMetrics(int nIndex);
 }

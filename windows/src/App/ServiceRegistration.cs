@@ -51,7 +51,15 @@ public static class ServiceRegistration
 
         // ViewModels
         services.AddSingleton<ShellViewModel>();
-        services.AddTransient<WebPublishViewModel>();
+        // WebPublishViewModel needs IPathService for source chaining (LatestSource()) — wire it
+        // explicitly so the optional parameter is always resolved from the DI container.
+        services.AddTransient<WebPublishViewModel>(sp => new WebPublishViewModel(
+            sp.GetRequiredService<IRecordingStore>(),
+            sp.GetRequiredService<WebPublishService>(),
+            sp.GetRequiredService<ISettingsStore>(),
+            sp.GetRequiredService<IUserInteraction>(),
+            sp.GetRequiredService<IPathService>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WebPublishViewModel>>()));
 
         return services;
     }

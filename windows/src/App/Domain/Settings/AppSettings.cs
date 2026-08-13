@@ -107,5 +107,27 @@ public sealed class AppSettings
     /// <summary>When the welcome screen was last shown (Unix seconds).</summary>
     public double WelcomeLastShownUnix { get; set; }
 
-    public AppSettings Clone() => (AppSettings)MemberwiseClone();
+    // ---- Area / region settings ----
+
+    /// <summary>
+    /// When true the capture region cannot be accidentally resized or moved — the frame stays
+    /// visible but the region selector overlay becomes click/scroll pass-through.
+    /// </summary>
+    public bool AreaLocked { get; set; }
+
+    // ---- First-run explainer cards ----
+
+    /// <summary>Total number of times the app has been launched (used to schedule explainer cards).</summary>
+    public int TotalLaunchCount { get; set; }
+
+    /// <summary>Card IDs that have been dismissed by the user (via "Got it" or "Don't show again").</summary>
+    public List<string> DismissedCards { get; set; } = new();
+
+    public AppSettings Clone()
+    {
+        var copy = (AppSettings)MemberwiseClone();
+        copy.PublishTiers = new List<int>(PublishTiers);
+        copy.DismissedCards = new List<string>(DismissedCards);
+        return copy;
+    }
 }

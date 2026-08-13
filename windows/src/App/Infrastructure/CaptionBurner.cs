@@ -114,7 +114,11 @@ public sealed class CaptionBurner
     private static void DrawCaption(CanvasDrawingSession ds, CaptionCue? cue, int w, int h)
     {
         if (cue is null || string.IsNullOrWhiteSpace(cue.Value.Text)) return;
-        float fontSize = MathF.Max(18, h * 0.045f);
+
+        // Scale font size relative to the SHORTER dimension (min of w/h) so portrait/square frames
+        // (9:16, 4:5, 1:1) don't produce oversized text that clips beyond both horizontal edges.
+        // Previously `h * 0.045f` would yield a huge font on 9:16 frames where h >> w.
+        float fontSize = MathF.Max(18, MathF.Min(w, h) * 0.045f);
         using var format = new CanvasTextFormat
         {
             FontSize = fontSize,
@@ -122,11 +126,15 @@ public sealed class CaptionBurner
             HorizontalAlignment = CanvasHorizontalAlignment.Center,
             WordWrapping = CanvasWordWrapping.Wrap,
         };
-        float maxW = w * 0.86f;
+        // Clamp the text block to 90 % of the frame width so centered text never runs off both
+        // edges in narrow (portrait / square) frames. Previously `w * 0.86f` was the layout width
+        // but boxW could still overflow when the rendered LayoutBounds exceeded the padded frame.
+        float maxW = w * 0.90f;
         using var layout = new CanvasTextLayout(ds, cue.Value.Text, format, maxW, h * 0.4f);
         var b = layout.LayoutBounds;
         float padX = 18, padY = 10;
-        float boxW = (float)b.Width + padX * 2;
+        // Hard-clamp boxW so it never exceeds 96 % of the frame width regardless of text length.
+        float boxW = Math.Min((float)b.Width + padX * 2, w * 0.96f);
         float boxH = (float)b.Height + padY * 2;
         float x = (w - boxW) / 2f;
         float y = h - boxH - h * 0.06f;

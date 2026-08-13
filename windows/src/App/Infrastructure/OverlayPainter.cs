@@ -11,6 +11,8 @@ internal static class OverlayPainter
     /// <summary>DemoTape brand cyan-blue (sampled from the logo) and a brighter variant for cues.</summary>
     public static readonly Rgba Brand = new(0x22, 0xB0, 0xE6, 0xFF);
     public static readonly Rgba BrandBright = new(0x3A, 0xCE, 0xF2, 0xFF);
+    /// <summary>Amber tint used for the locked-area border so the locked state is visible.</summary>
+    public static readonly Rgba LockAmber = new(0xFF, 0xB3, 0x00, 0xFF);
     public static readonly Rgba White = new(255, 255, 255, 255);
 
     /// <summary>

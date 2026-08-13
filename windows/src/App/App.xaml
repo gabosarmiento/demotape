@@ -7,6 +7,8 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!-- VHS-inspired palette: dark matte + purple accent + Record red. -->
+                <ResourceDictionary Source="ms-appx:///DemoTape.App/UI/Themes/DemoTapeTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

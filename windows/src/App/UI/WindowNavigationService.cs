@@ -1,8 +1,12 @@
 using DemoTape.App.Infrastructure;
+using DemoTape.Domain;
 using DemoTape.Domain.Abstractions;
 using DemoTape.Domain.Ai;
 using DemoTape.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace DemoTape.App.UI;
 
@@ -162,21 +166,82 @@ public sealed class WindowNavigationService : INavigationService
         if (latest is null || !ShowSingleAction()) return;
         var service = new Infrastructure.AutoCutService();
 
+        // ----- Finer speed controls (feature: SpeedSlider) -----
+        // Default 1.25× — the "recommended" band is 0.75×–2.0×.
+        double speedMultiplier = 1.25;
+
+        var speedLabel = new TextBlock
+        {
+            Text = "1.3×",
+            Width = 44,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            FontWeight = FontWeights.SemiBold,
+        };
+        var slider = new Slider
+        {
+            Minimum = 0.5,
+            Maximum = 3.0,
+            StepFrequency = 0.1,
+            SnapsTo = SliderSnapsTo.StepValues,
+            Value = speedMultiplier,
+            Width = 180,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+        };
+        var decBtn = new Button { Content = "−", Padding = new Microsoft.UI.Xaml.Thickness(10, 4, 10, 4) };
+        var incBtn = new Button { Content = "+", Padding = new Microsoft.UI.Xaml.Thickness(10, 4, 10, 4) };
+
+        void UpdateSpeed(double v)
+        {
+            speedMultiplier = Math.Round(Math.Clamp(v, 0.5, 3.0), 1);
+            slider.Value = speedMultiplier;
+            speedLabel.Text = $"{speedMultiplier:0.0}×";
+        }
+
+        slider.ValueChanged += (_, e) => UpdateSpeed(e.NewValue);
+        decBtn.Click += (_, _) => UpdateSpeed(speedMultiplier - 0.1);
+        incBtn.Click += (_, _) => UpdateSpeed(speedMultiplier + 0.1);
+        UpdateSpeed(speedMultiplier);
+
+        var speedRow = new StackPanel
+        {
+            Orientation = Microsoft.UI.Xaml.Controls.Orientation.Horizontal,
+            Spacing = 6,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+        };
+        speedRow.Children.Add(decBtn);
+        speedRow.Children.Add(slider);
+        speedRow.Children.Add(incBtn);
+        speedRow.Children.Add(speedLabel);
+
+        var controls = new StackPanel { Spacing = 4 };
+        controls.Children.Add(new TextBlock { Text = "Speed", FontWeight = FontWeights.SemiBold, FontSize = 12 });
+        controls.Children.Add(speedRow);
+        controls.Children.Add(new TextBlock
+        {
+            Text = "Recommended range: 0.75× – 2.0×",
+            FontSize = 11,
+            Opacity = 0.6,
+        });
+
         ActionPreviewWindow.RenderDelegate render = async (src, progress, ct) =>
         {
             var outPath = Domain.Ai.VoiceoverPlanner.CaptionedPath(src).Replace(".captioned.mp4", ".tight.mp4");
-            return await service.AutoCutAsync(src, outPath, new Infrastructure.AutoCutService.Options(), progress, ct);
+            var opts = new Infrastructure.AutoCutService.Options(SpeedMultiplier: speedMultiplier);
+            return await service.AutoCutAsync(src, outPath, opts, progress, ct);
         };
-        Present(new ActionPreviewWindow("Auto-Cut & Speed Up", latest, controls: null, render, _interaction,
+        Present(new ActionPreviewWindow("Auto-Cut & Speed Up", latest, controls, render, _interaction,
             "Nothing to trim — no long silent gaps were found."));
     }
 
     private string? LatestOrPrompt()
     {
-        var latest = _services.GetRequiredService<IRecordingStore>().LatestStyled();
-        if (latest is not null) return latest.StyledPath;
+        // Source chaining: prefer the highest-priority derivative (captioned > tight > voiceover >
+        // avatar > styled > raw) so actions always open on the best available version.
+        var paths = _services.GetRequiredService<IPathService>();
+        var best = RecordingLayout.LatestSource(paths.OutputDirectory);
+        if (best is not null) return best;
         _ = _interaction.ShowMessageAsync("No recording yet",
-            "Record something first — post-recording actions run on your latest styled recording.");
+            "Record something first — post-recording actions run on your latest recording.");
         return null;
     }
 

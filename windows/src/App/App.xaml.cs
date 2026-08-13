@@ -98,9 +98,13 @@ public partial class App : Application
 
         SetupControlSurface(activationArgs);
 
-        // First-run welcome — but never when launched by a control URL (an automated take must not
-        // pop a window over the demo).
-        if (activationArgs.Kind != ExtendedActivationKind.Protocol) MaybeShowWelcome();
+        // First-run welcome and explainer cards — but never when launched by a control URL (an
+        // automated take must not pop a window over the demo).
+        if (activationArgs.Kind != ExtendedActivationKind.Protocol)
+        {
+            MaybeShowWelcome();
+            MaybeShowFeatureCards();
+        }
     }
 
     /// <summary>Shows the first-run welcome per <see cref="Domain.Settings.WelcomeSchedule"/>.</summary>
@@ -120,6 +124,36 @@ public partial class App : Application
             new UI.WelcomeWindow().Activate();
         }
         catch (Exception ex) { LogFatal("welcome", ex); }
+    }
+
+    /// <summary>
+    /// Shows first-run explainer cards on the 2nd–4th launches (the first launch shows the Welcome
+    /// window). Tracks the total launch count in <see cref="Domain.Settings.AppSettings.TotalLaunchCount"/>
+    /// and filters out already-dismissed cards.
+    /// </summary>
+    private void MaybeShowFeatureCards()
+    {
+        try
+        {
+            var store = _services.GetRequiredService<ISettingsStore>();
+            var s = store.Load();
+
+            // Increment launch count on every startup (once per process lifetime).
+            s.TotalLaunchCount += 1;
+            store.Save(s);
+
+            // Show cards on launches 2, 3, and 4 only (launch 1 shows the Welcome window).
+            if (s.TotalLaunchCount < 2 || s.TotalLaunchCount > 4) return;
+
+            // Filter to cards the user hasn't dismissed yet.
+            var pending = UI.FeatureCard.All
+                .Where(c => !s.DismissedCards.Contains(c.Id))
+                .ToList();
+            if (pending.Count == 0) return;
+
+            new UI.FeatureCardsWindow(store, pending).Activate();
+        }
+        catch (Exception ex) { LogFatal("feature-cards", ex); }
     }
 
     private ControlStatusWriter? _status;

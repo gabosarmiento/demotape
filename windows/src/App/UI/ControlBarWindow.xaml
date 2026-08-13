@@ -61,6 +61,13 @@
                 <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE712;" FontSize="18" Foreground="White" />
             </Button>
 
+            <!-- Lock area toggle (🔒/🔓) — keeps the capture region from being accidentally moved -->
+            <ToggleButton x:Name="LockBtn" Click="OnToggleLock" Background="Transparent"
+                          BorderThickness="0" CornerRadius="8" Padding="8"
+                          ToolTipService.ToolTip="Lock area position">
+                <FontIcon x:Name="LockIcon" FontFamily="Segoe MDL2 Assets" Glyph="&#xE785;" FontSize="16" Foreground="#6A6A6E" />
+            </ToggleButton>
+
             <Button x:Name="CancelBtn" Click="OnCancel" Background="Transparent" BorderThickness="0"
                     CornerRadius="8" Padding="8" ToolTipService.ToolTip="Cancel">
                 <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="16" Foreground="#FF8A80" />

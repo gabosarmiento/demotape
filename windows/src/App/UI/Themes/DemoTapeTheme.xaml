@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DemoTape VHS-inspired palette — a "tape shell" look: dark matte backgrounds,
+  a purple (#7C3AED) accent for interactive controls, and red reserved for Record.
+  Tokens follow the Light / Dark theming contract:
+    • Bare :root values → light theme defaults
+    • Values under Application.RequestedTheme == Dark → dark theme
+  In WinUI 3 this is handled via ThemeDictionaries (Light / Dark).
+-->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.ThemeDictionaries>
+
+        <!-- ===== LIGHT ===== -->
+        <ResourceDictionary x:Key="Light">
+            <!-- Surface tokens -->
+            <Color x:Key="AppBackgroundColor">#F5F5F5</Color>
+            <Color x:Key="AppSurfaceColor">#EBEBEB</Color>
+            <!-- Accent / action tokens -->
+            <Color x:Key="AppAccentColor">#7C3AED</Color>
+            <Color x:Key="RecordRedColor">#EF4444</Color>
+            <!-- Brand stripe (logo colors, lightest-to-darkest across the bar) -->
+            <Color x:Key="BrandStripe1Color">#22B0E6</Color>
+            <Color x:Key="BrandStripe2Color">#7C3AED</Color>
+            <Color x:Key="BrandStripe3Color">#EF4444</Color>
+
+            <!-- Brushes -->
+            <SolidColorBrush x:Key="AppBackground"  Color="{StaticResource AppBackgroundColor}" />
+            <SolidColorBrush x:Key="AppSurface"     Color="{StaticResource AppSurfaceColor}" />
+            <SolidColorBrush x:Key="AppAccent"      Color="{StaticResource AppAccentColor}" />
+            <SolidColorBrush x:Key="RecordRed"      Color="{StaticResource RecordRedColor}" />
+            <SolidColorBrush x:Key="BrandStripe1"   Color="{StaticResource BrandStripe1Color}" />
+            <SolidColorBrush x:Key="BrandStripe2"   Color="{StaticResource BrandStripe2Color}" />
+            <SolidColorBrush x:Key="BrandStripe3"   Color="{StaticResource BrandStripe3Color}" />
+
+            <!-- Override WinUI 3 accent so Fluent controls pick up the purple automatically. -->
+            <Color x:Key="SystemAccentColor">#7C3AED</Color>
+        </ResourceDictionary>
+
+        <!-- ===== DARK ===== -->
+        <ResourceDictionary x:Key="Dark">
+            <!-- Surface tokens -->
+            <Color x:Key="AppBackgroundColor">#1C1C1C</Color>
+            <Color x:Key="AppSurfaceColor">#262626</Color>
+            <!-- Accent / action tokens -->
+            <Color x:Key="AppAccentColor">#9D5CF5</Color>
+            <Color x:Key="RecordRedColor">#EF4444</Color>
+            <!-- Brand stripe (slightly brighter for dark backgrounds) -->
+            <Color x:Key="BrandStripe1Color">#3ACEF2</Color>
+            <Color x:Key="BrandStripe2Color">#9D5CF5</Color>
+            <Color x:Key="BrandStripe3Color">#F56565</Color>
+
+            <!-- Brushes -->
+            <SolidColorBrush x:Key="AppBackground"  Color="{StaticResource AppBackgroundColor}" />
+            <SolidColorBrush x:Key="AppSurface"     Color="{StaticResource AppSurfaceColor}" />
+            <SolidColorBrush x:Key="AppAccent"      Color="{StaticResource AppAccentColor}" />
+            <SolidColorBrush x:Key="RecordRed"      Color="{StaticResource RecordRedColor}" />
+            <SolidColorBrush x:Key="BrandStripe1"   Color="{StaticResource BrandStripe1Color}" />
+            <SolidColorBrush x:Key="BrandStripe2"   Color="{StaticResource BrandStripe2Color}" />
+            <SolidColorBrush x:Key="BrandStripe3"   Color="{StaticResource BrandStripe3Color}" />
+
+            <!-- Override WinUI 3 accent so Fluent controls pick up the purple automatically. -->
+            <Color x:Key="SystemAccentColor">#9D5CF5</Color>
+        </ResourceDictionary>
+
+    </ResourceDictionary.ThemeDictionaries>
+
+</ResourceDictionary>

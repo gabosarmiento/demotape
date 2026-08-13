@@ -64,6 +64,16 @@ public sealed class WindowsRecordingController : IRecordingController
         _logger = logger;
     }
 
+    /// <summary>
+    /// Propagates the lock state to the active region selector overlay (if any).
+    /// Not on <c>IRecordingController</c> — call via cast from the Windows-specific bar.
+    /// </summary>
+    public void SetAreaLocked(bool locked)
+    {
+        _selector?.SetLocked(locked);
+        _settingsStore.Load(); // re-read to stay in sync (lock state already written by ControlBarWindow)
+    }
+
     public Task ToggleAsync() => State switch
     {
         RecordingState.Idle => StartAsync(),      // arm full screen + countdown + record
@@ -99,6 +109,11 @@ public sealed class WindowsRecordingController : IRecordingController
                 if (State == RecordingState.Idle) _ = ArmAsync(useRegion: true);
             },
             onCancel: () => { _selector = null; _ = CancelAsync(); });
+
+        // Apply persisted lock state immediately so a re-opened selector respects the toggle.
+        if (_settingsStore.Load().AreaLocked)
+            _selector.SetLocked(true);
+
         return Task.CompletedTask;
     }
 

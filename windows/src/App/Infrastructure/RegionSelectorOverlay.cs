@@ -28,6 +28,7 @@ public sealed class RegionSelectorOverlay
     private int _dragX, _dragY;
     private RectI _orig;
     private bool _cancelled;
+    private bool _locked;
 
     private IntPtr _curArrow, _curCross, _curNS, _curWE, _curNWSE, _curNESW, _curAll;
 
@@ -53,6 +54,18 @@ public sealed class RegionSelectorOverlay
     public void Dispose()
     {
         if (_hwnd != IntPtr.Zero) PostMessage(_hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Locks or unlocks the overlay. When locked the frame stays visible but all pointer input
+    /// passes through to the application behind it (<c>WS_EX_TRANSPARENT</c>). The border
+    /// tint changes to amber so the lock state is visible at a glance.
+    /// </summary>
+    public void SetLocked(bool locked)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        // WM_APP_SET_LOCKED is handled on the selector thread — safe to post from any thread.
+        PostMessage(_hwnd, WM_APP_SET_LOCKED, locked ? (IntPtr)1 : IntPtr.Zero, IntPtr.Zero);
     }
 
     private static int _instanceSeq;
@@ -194,6 +207,18 @@ public sealed class RegionSelectorOverlay
                 SetCursor(CursorFor());
                 return (IntPtr)1;
 
+            case WM_APP_SET_LOCKED:
+            {
+                _locked = wParam != IntPtr.Zero;
+                // Toggle WS_EX_TRANSPARENT: set → click-through (locked), clear → interactive.
+                int style = (int)GetWindowLong(hwnd, GWL_EXSTYLE);
+                if (_locked) style |= WS_EX_TRANSPARENT;
+                else         style &= ~WS_EX_TRANSPARENT;
+                SetWindowLong(hwnd, GWL_EXSTYLE, style);
+                Redraw(); // refresh border tint
+                return IntPtr.Zero;
+            }
+
             case WM_CLOSE:
                 PostQuitMessage(0);
                 return IntPtr.Zero;
@@ -250,8 +275,10 @@ public sealed class RegionSelectorOverlay
 
     private void Redraw()
     {
+        // Use an amber border tint when the area is locked so the state is visible at a glance.
+        OverlayPainter.Rgba border = _locked ? OverlayPainter.LockAmber : OverlayPainter.BrandBright;
         var buf = OverlayPainter.Build(_sw, _sh, _rect, dimAlpha: 110,
-            border: OverlayPainter.BrandBright, borderThickness: 2, grips: _rect is not null);
+            border: border, borderThickness: 2, grips: _rect is not null && !_locked);
         Marshal.Copy(buf, 0, _bits, buf.Length);
 
         // Top-center hint (always visible) so the confirm/cancel gestures are discoverable, drawn
@@ -270,9 +297,11 @@ public sealed class RegionSelectorOverlay
 
     private void DrawHint()
     {
-        string text = _rect is null
-            ? "Drag to select an area      ·      Esc to cancel"
-            : "Drag inside to move      ·      drag edges to resize      ·      Esc to cancel";
+        string text = _locked
+            ? "Area locked — unlock via the control bar to resize      ·      Esc to cancel"
+            : (_rect is null
+               ? "Drag to select an area      ·      Esc to cancel"
+               : "Drag inside to move      ·      drag edges to resize      ·      Esc to cancel");
         SetBkMode(_memDc, 1 /*TRANSPARENT*/);
         SetTextColor(_memDc, 0x00FFFFFF /*white, 0x00BBGGRR*/);
         var font = CreateFont(-24, 0, 0, 0, 600, 0, 0, 0, 1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0, "Segoe UI");
@@ -321,8 +350,12 @@ public sealed class RegionSelectorOverlay
     private const uint WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202,
         WM_LBUTTONDBLCLK = 0x0203, WM_RBUTTONDOWN = 0x0204, WM_KEYDOWN = 0x0100,
         WM_SETCURSOR = 0x0020, WM_CLOSE = 0x0010, WM_TIMER = 0x0113;
+    // WM_APP range for private messages (WM_APP = 0x8000).
+    private const uint WM_APP_SET_LOCKED = 0x8001;
     private const int WS_POPUP = unchecked((int)0x80000000);
-    private const int WS_EX_LAYERED = 0x80000, WS_EX_TOOLWINDOW = 0x80, WS_EX_TOPMOST = 0x8, WS_EX_NOACTIVATE = 0x08000000;
+    private const int WS_EX_LAYERED = 0x80000, WS_EX_TOOLWINDOW = 0x80, WS_EX_TOPMOST = 0x8,
+        WS_EX_NOACTIVATE = 0x08000000, WS_EX_TRANSPARENT = 0x20;
+    private const int GWL_EXSTYLE = -20;
     private const uint CS_VREDRAW = 0x0001, CS_HREDRAW = 0x0002, CS_DBLCLKS = 0x0008;
     private static readonly IntPtr EscTimerId = new(1);
 
@@ -388,6 +421,8 @@ public sealed class RegionSelectorOverlay
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int DrawText(IntPtr hdc, string text, int count, ref RECT rect, uint format);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindowLong(IntPtr hwnd, int nIndex);
+    [DllImport("user32.dll")] private static extern IntPtr SetWindowLong(IntPtr hwnd, int nIndex, int dwNewLong);
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int left; public int top; public int right; public int bottom; }
 }
