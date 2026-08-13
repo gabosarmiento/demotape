@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices.WindowsRuntime;
-using System.Threading.Channels;
 using DemoTape.Domain.Audio;
 using Microsoft.Graphics.Canvas;
 using Windows.Media.Core;
@@ -99,96 +98,117 @@ public sealed class AutoCutService
     // ---------------------------------------------------------------------------
     // Frame-server speed pass
     // ---------------------------------------------------------------------------
+    // Approach: decode all frames into a ConcurrentQueue via MediaPlayer frame-server,
+    // then drive a MediaStreamSource + MediaTranscoder to re-encode with compressed timestamps.
+    // Key correctness requirements:
+    //   1. mss.Duration must be set so the transcoder knows when to stop.
+    //   2. Each frame gets its OWN byte array (no surface sharing between events).
+    //   3. SampleRequested uses a blocking wait (ManualResetEventSlim) — WinRT deferrals
+    //      must not await managed Tasks directly (deadlock risk).
 
     private static async Task ApplySpeedAsync(string path, int w, int h, double speedMultiplier, CancellationToken ct)
     {
-        var tempVideo = Path.Combine(Path.GetTempPath(), $"demotape-speed-{Guid.NewGuid():N}.mp4");
-
         var sourceFile = await StorageFile.GetFileFromPathAsync(path).AsTask(ct).ConfigureAwait(false);
+        var vp = await sourceFile.Properties.GetVideoPropertiesAsync().AsTask(ct).ConfigureAwait(false);
+        double sourceDurationSec = vp.Duration.TotalSeconds;
+        if (sourceDurationSec <= 0) return;
+        double outputDurationSec = sourceDurationSec / speedMultiplier;
 
-        using (var device = new CanvasDevice())
-        using (var frameSurface = new CanvasRenderTarget(device, w, h, 96))
+        var tempOut = Path.Combine(Path.GetTempPath(), $"demotape-speed-{Guid.NewGuid():N}.mp4");
+
+        // --- Phase 1: decode frames ---
+        var frameQueue = new System.Collections.Concurrent.ConcurrentQueue<(byte[] Bgra, TimeSpan OutputTime)>();
+        var decodeSignal = new System.Threading.SemaphoreSlim(0);
+        var decodeDone   = new System.Threading.ManualResetEventSlim(false);
+
+        var player = new MediaPlayer { IsMuted = true, IsVideoFrameServerEnabled = true, IsLoopingEnabled = false };
+        var mediaReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mediaEnd   = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        player.MediaOpened += (_, _) => mediaReady.TrySetResult(true);
+        player.MediaFailed += (_, a)  => { mediaReady.TrySetException(new Exception(a.ErrorMessage ?? "MediaPlayer failed")); mediaEnd.TrySetResult(true); };
+        player.MediaEnded  += (_, _)  => mediaEnd.TrySetResult(true);
+
+        using var device = CanvasDevice.GetSharedDevice();
+        player.VideoFrameAvailable += (_, _) =>
         {
-            var channel = Channel.CreateBounded<(byte[] Bgra, TimeSpan Time)>(
-                new BoundedChannelOptions(90) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
-            var encodeTask = EncodeSpeedAsync(channel.Reader, w, h, tempVideo);
-
-            var player = new MediaPlayer { IsMuted = true, IsVideoFrameServerEnabled = true, IsLoopingEnabled = false };
-            var opened = new TaskCompletionSource<bool>();
-            var ended = new TaskCompletionSource<bool>();
-            player.MediaOpened += (_, _) => opened.TrySetResult(true);
-            player.MediaFailed += (_, a) => { opened.TrySetException(new Exception(a.ErrorMessage)); ended.TrySetResult(true); };
-            player.MediaEnded += (_, _) => ended.TrySetResult(true);
-
-            player.VideoFrameAvailable += (_, _) =>
+            try
             {
-                try
-                {
-                    player.CopyFrameToVideoSurface(frameSurface);
-                    // Compress the timeline: source position t maps to output position t/speedMultiplier.
-                    // The output is shorter by factor 1/speedMultiplier → plays back faster at normal rate.
-                    double t = player.PlaybackSession.Position.TotalSeconds / speedMultiplier;
-                    channel.Writer.TryWrite((frameSurface.GetPixelBytes(), TimeSpan.FromSeconds(t)));
-                }
-                catch { /* skip frame on any device/surface error */ }
-            };
+                // Allocate a private surface per frame so there is no sharing between events.
+                using var surface = new CanvasRenderTarget(device, w, h, 96);
+                player.CopyFrameToVideoSurface(surface);
+                double srcSec = player.PlaybackSession.Position.TotalSeconds;
+                double outSec = srcSec / speedMultiplier;
+                frameQueue.Enqueue((surface.GetPixelBytes(), TimeSpan.FromSeconds(outSec)));
+                decodeSignal.Release();
+            }
+            catch { /* skip bad frame */ }
+        };
 
-            player.Source = MediaSource.CreateFromStorageFile(sourceFile);
-            await opened.Task.ConfigureAwait(false);
-            player.Play();
-            await ended.Task.ConfigureAwait(false);
-            await Task.Delay(150, ct).ConfigureAwait(false);
-            channel.Writer.Complete();
-            await encodeTask.ConfigureAwait(false);
-            player.Dispose();
-        }
+        player.Source = MediaSource.CreateFromStorageFile(sourceFile);
+        await mediaReady.Task.ConfigureAwait(false);
+        player.Play();
+        await mediaEnd.Task.ConfigureAwait(false);
+        await Task.Delay(200, ct).ConfigureAwait(false); // let last frames drain
+        decodeDone.Set();
+        player.Dispose();
 
-        // Swap the speed-adjusted video-only temp over the original file.
-        if (File.Exists(path)) File.Delete(path);
-        File.Move(tempVideo, path);
-    }
+        if (frameQueue.IsEmpty) return; // nothing captured — skip speed pass
 
-    private static async Task EncodeSpeedAsync(ChannelReader<(byte[] Bgra, TimeSpan Time)> reader, int w, int h, string outPath)
-    {
+        // --- Phase 2: encode with compressed timestamps ---
         var inProps = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)w, (uint)h);
         inProps.FrameRate.Numerator = 30; inProps.FrameRate.Denominator = 1;
         inProps.PixelAspectRatio.Numerator = 1; inProps.PixelAspectRatio.Denominator = 1;
+
         var mss = new MediaStreamSource(new VideoStreamDescriptor(inProps));
-        mss.SampleRequested += async (_, e) =>
+        mss.Duration  = TimeSpan.FromSeconds(outputDurationSec);
+        mss.BufferTime = TimeSpan.Zero;
+
+        // SampleRequested: use blocking wait — no async/await inside WinRT deferrals.
+        mss.SampleRequested += (_, e) =>
         {
             var deferral = e.Request.GetDeferral();
             try
             {
-                if (await reader.WaitToReadAsync().ConfigureAwait(false) && reader.TryRead(out var f))
+                // Spin-wait up to 3 s for the next frame from the decode queue.
+                var deadline = DateTime.UtcNow.AddSeconds(3);
+                (byte[] Bgra, TimeSpan OutputTime) frame = default;
+                while (!frameQueue.TryDequeue(out frame))
                 {
-                    var sample = MediaStreamSample.CreateFromBuffer(f.Bgra.AsBuffer(), f.Time);
-                    sample.Duration = TimeSpan.FromSeconds(1.0 / 30.0);
-                    e.Request.Sample = sample;
+                    if (decodeDone.IsSet || DateTime.UtcNow > deadline)
+                    { e.Request.Sample = null; return; }
+                    System.Threading.Thread.Sleep(2);
                 }
-                else e.Request.Sample = null;
+                var sample = MediaStreamSample.CreateFromBuffer(frame.Bgra.AsBuffer(), frame.OutputTime);
+                sample.Duration = TimeSpan.FromSeconds(1.0 / 30.0);
+                e.Request.Sample = sample;
             }
             finally { deferral.Complete(); }
         };
 
         var h264 = VideoEncodingProperties.CreateH264();
         h264.Width = (uint)w; h264.Height = (uint)h;
-        h264.Bitrate = (uint)(w * h * 8);
+        h264.Bitrate = (uint)Math.Min((ulong)(w * h * 6), uint.MaxValue);
         h264.FrameRate.Numerator = 30; h264.FrameRate.Denominator = 1;
-        h264.PixelAspectRatio.Numerator = 1; h264.PixelAspectRatio.Denominator = 1;
         var profile = new MediaEncodingProfile
         {
             Container = new ContainerEncodingProperties { Subtype = MediaEncodingSubtypes.Mpeg4 },
             Video = h264,
-            Audio = null,   // audio is handled by the caller (re-mux or truncation)
+            Audio = null,
         };
 
-        var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(outPath)!);
-        var file = await folder.CreateFileAsync(Path.GetFileName(outPath), CreationCollisionOption.ReplaceExisting);
-        using var outStream = await file.OpenAsync(FileAccessMode.ReadWrite);
-        var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = true };
-        var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(mss, outStream, profile);
-        if (!prepared.CanTranscode) throw new InvalidOperationException($"Speed encode failed: {prepared.FailureReason}");
-        await prepared.TranscodeAsync();
+        var outFolder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(tempOut)!).AsTask(ct).ConfigureAwait(false);
+        var outFile   = await outFolder.CreateFileAsync(Path.GetFileName(tempOut), CreationCollisionOption.ReplaceExisting).AsTask(ct).ConfigureAwait(false);
+        using var outStream = await outFile.OpenAsync(FileAccessMode.ReadWrite).AsTask(ct).ConfigureAwait(false);
+
+        var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = false };
+        var prepared   = await transcoder.PrepareMediaStreamSourceTranscodeAsync(mss, outStream, profile).AsTask(ct).ConfigureAwait(false);
+        if (!prepared.CanTranscode) throw new InvalidOperationException($"Speed encode setup failed: {prepared.FailureReason}");
+        await prepared.TranscodeAsync().AsTask(ct).ConfigureAwait(false);
+
+        outStream.Dispose();
+        File.Delete(path);
+        File.Move(tempOut, path);
     }
 
     private static int Even(int v) => v % 2 == 0 ? v : v - 1;
