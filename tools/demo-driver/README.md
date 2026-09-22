@@ -62,6 +62,10 @@ node driver.mjs my-demo.json          # your own config
 Supported actions: `goto`, `wait`, `click`, `fill`/`type`, `press`, `hover`, `scroll`, `waitFor`,
 `narrate` (a no-op marker).
 
+`scroll` animates `y` pixels over `durationMs` (default 520) on whatever element actually scrolls
+under the middle of the viewport; app shells that scroll an inner `<main>` work without setup. Name
+the container with `"scroller": "<selector>"` when the middle of the page isn't inside it.
+
 ## Pointing it at your own app
 
 Copy `demo.example.json`, set `url` to your app (local or deployed), and script the steps you want
