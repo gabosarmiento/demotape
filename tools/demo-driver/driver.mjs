@@ -290,6 +290,10 @@ async function playGestures(page, cfg, gestures, windowMs) {
         const pts = gesturePath(shape, p, box, g);
         osPath(cfg, pts, g.sweepMs ?? shapeDurationMs(shape, box));
         await sleep((g.sweepMs ?? shapeDurationMs(shape, box)) + 200 + (g.dwellMs ?? 0));
+        // Still hold the gesture's share of the line. Skipping this ended a scene of shape gestures
+        // seconds before its narration; clips never overlap, so every later line then ran late.
+        const rest = slice - (Date.now() - started);
+        if (rest > 0) await sleep(rest);
         continue;
       }
       switch (g.kind) {
@@ -764,7 +768,39 @@ async function runStep(page, step, cfg) {
     case "fill": await moveCursorToSelector(page, cfg, step.selector); await page.fill(step.selector, step.text ?? "", { timeout: step.timeout ?? 8000 }); break;
     case "press": await page.keyboard.press(step.key ?? "Enter"); break;
     case "hover": await moveCursorToSelector(page, cfg, step.selector); await page.hover(step.selector, { timeout: step.timeout ?? 8000 }); break;
-    case "scroll": await page.mouse.wheel(0, step.y ?? 600); break;
+    case "scroll": {
+      // Animated in the page, one scrollTop per animation frame. A run of synthetic wheel events
+      // looked smooth headless but not in a headed Chrome: it queued them and applied the whole
+      // delta in one frame after a stall, which the recording caught as a freeze and a jump. The
+      // target is the element that actually scrolls — app shells often scroll an inner <main>, not
+      // the window — found from the middle of the viewport unless `scroller` names it.
+      const delta = step.y ?? 600;
+      const duration = Math.max(120, step.durationMs ?? 520);
+      await page.evaluate(({ delta, duration, scroller }) => new Promise((done) => {
+        const scrollableFrom = (el) => {
+          for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+            const s = getComputedStyle(el);
+            if (/(auto|scroll)/.test(s.overflowY) && el.scrollHeight > el.clientHeight) return el;
+          }
+          return document.scrollingElement;
+        };
+        const el = (scroller && document.querySelector(scroller))
+          || scrollableFrom(document.elementFromPoint(innerWidth / 2, innerHeight / 2));
+        const behavior = el.style.scrollBehavior;
+        el.style.scrollBehavior = "auto";   // CSS smooth scrolling would re-animate every assignment
+        const from = el.scrollTop, t0 = performance.now();
+        const ease = (v) => v < .5 ? 2 * v * v : 1 - Math.pow(-2 * v + 2, 2) / 2;
+        const tick = (now) => {
+          const u = Math.min(1, (now - t0) / duration);
+          el.scrollTop = from + delta * ease(u);
+          if (u < 1) return requestAnimationFrame(tick);
+          el.style.scrollBehavior = behavior;
+          done();
+        };
+        requestAnimationFrame(tick);
+      }), { delta, duration, scroller: step.scroller || null });
+      break;
+    }
     case "waitFor": await page.waitForSelector(step.selector, { timeout: step.timeout ?? 8000 }); break;
     case "expand": await page.evaluate((sel) => {   // force a <details> open (idempotent)
         const el = document.querySelector(sel);
@@ -820,16 +856,18 @@ async function runOnce(cfg, scenes) {
   // The frames backend captures the page over the DevTools protocol, so the browser can be headless:
   // nothing needs to be visible on a screen, and the pointer is drawn later from recorded samples.
   const useFrames = cfg.capture === "frames";
+  if (cfg.fullScreen && !useFrames) args.push("--start-fullscreen");
   let browser = null, context, page;
   if (cfg.userDataDir) {
     context = await chromium.launchPersistentContext(resolve(cfg.userDataDir), {
       headless: useFrames,
+      executablePath: cfg.executablePath || undefined,
       viewport: useFrames ? { width: Math.round(width), height: Math.round(height) } : null,
       args,
     });
     page = context.pages()[0] || await context.newPage();
   } else {
-    browser = await chromium.launch({ headless: useFrames, args });
+    browser = await chromium.launch({ headless: useFrames, executablePath: cfg.executablePath || undefined, args });
     context = await browser.newContext({
       viewport: useFrames ? { width: Math.round(width), height: Math.round(height) } : null,
     });
@@ -1199,10 +1237,10 @@ async function rehearse(cfg) {
   const args = ["--no-first-run", "--no-default-browser-check"];
   let browser = null, context, page;
   if (cfg.userDataDir) {
-    context = await chromium.launchPersistentContext(cfg.userDataDir, { headless: true, args });
+    context = await chromium.launchPersistentContext(cfg.userDataDir, { headless: true, executablePath: cfg.executablePath || undefined, args });
     page = context.pages()[0] || await context.newPage();
   } else {
-    browser = await chromium.launch({ headless: true, args });
+    browser = await chromium.launch({ headless: true, executablePath: cfg.executablePath || undefined, args });
     context = await browser.newContext();
     page = await context.newPage();
   }
